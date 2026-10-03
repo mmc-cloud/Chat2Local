@@ -1,0 +1,29 @@
+[project]
+name = "chat2local"
+version = "0.1.0"
+description = "A lightweight local agent that lets ChatGPT securely operate local files and processes through MCP."
+readme = "README.md"
+authors = [
+    { name = "mmc-cloud", email = "mmc-cloud@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.142.2",
+    "mcp>=2.2.0",
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.54.0",
+    "websockets>=15.0,<18",
+]
+
+[project.scripts]
+chat2local = "chat2local.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

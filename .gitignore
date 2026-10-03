@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test caches and temporary directories
+.pytest_cache/
+.test-tmp-*/
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# Local documentation and cross-Chat handoffs
+/docs/
+/HANDOFFS/

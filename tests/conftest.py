@@ -1,0 +1,46 @@
+"""Shared fixtures and helpers for the Tool tests.
+
+One module per Tool lives alongside this file (``test_read.py``,
+``test_search.py``, ...), so anything more than one of them needs belongs here.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import Any, Coroutine
+
+import pytest
+
+from chat2local.runtime.workspace import WorkspaceManager
+
+
+def run(coroutine: Coroutine[Any, Any, Any]) -> Any:
+    return asyncio.run(coroutine)
+
+
+@pytest.fixture(autouse=True)
+def reset_device_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CLI startup binds a router; other in-process tests bind their own runtime.
+    monkeypatch.setattr("chat2local.mcp.tools._router", None)
+
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> WorkspaceManager:
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    return WorkspaceManager(root)
+
+
+def make_file(
+    workspace: WorkspaceManager, relative: str, text: str, encoding: str = "utf-8"
+) -> Path:
+    path = workspace.root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # newline="" keeps the written bytes identical on every platform.
+    with path.open("w", encoding=encoding, newline="") as handle:
+        handle.write(text)
+
+    return path

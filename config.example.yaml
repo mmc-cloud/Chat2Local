@@ -1,0 +1,42 @@
+# Chat2Local 配置示例。
+#
+# 复制到 ~/.chat2local/config.yaml 后修改，本文件本身不会被读取。
+#
+# 优先级：
+#   代码内置默认值
+#   ↓
+#   ~/.chat2local/config.yaml
+#   ↓
+#   CLI 显式参数
+#
+# 未写出的字段使用内置默认值；未知字段会报错，避免拼写错误被静默忽略。
+
+read:
+  max_lines: 1000 # 单次最多返回行数
+  max_bytes: 65536 # 单次最多返回文本大小（64 KiB）
+
+search:
+  max_results: 100 # 最大结果数，上限 500
+  timeout: 10.0 # 搜索超时（秒）
+
+process:
+  shell: auto
+  foreground_timeout: 10 # 秒
+  stdout_buffer_limit: 1048576 # 保留最近 1 MiB（UTF-8 bytes）
+  stderr_buffer_limit: 1048576
+  response_output_limit: 32768 # stdout + stderr，总计 32 KiB；至少 4 bytes
+  terminate_grace_period: 3 # 秒
+  finished_retention: 600 # 秒；进程状态只保存在内存中
+
+security:
+  allowed_roots: [] # [] 表示只授权本次启动解析出的 default workspace。
+
+# default workspace：
+# - 显式 --workspace 时使用该目录
+# - 未传 --workspace 时使用当前工作目录
+# 配置多个 roots 时，default workspace 和 Tool workspace 都必须位于至少一个 allowed_root 内。
+# Windows 路径使用 YAML 单引号，避免反斜杠转义。
+# security:
+#   allowed_roots:
+#     - 'D:\Projects'
+#     - 'E:\Work'
