@@ -8,6 +8,7 @@ from mcp.server.mcpserver import MCPServer
 
 from chat2local.hub.router import DeviceRouter
 from chat2local.hub.websocket import serve_device
+from chat2local.mcp.instructions import MCP_INSTRUCTIONS
 from chat2local.mcp.server import mcp
 from chat2local.mcp.tools import get_router, register
 
@@ -15,7 +16,7 @@ from chat2local.mcp.tools import get_router, register
 def create_app(router: DeviceRouter | None = None, *, hub_token: str | None = None) -> FastAPI:
     if hub_token is not None and (not hub_token or router is None or router.registry is None):
         raise ValueError("Hub requires a token and a device registry")
-    server = mcp if router is None else MCPServer("Chat2Local")
+    server = mcp if router is None else MCPServer("Chat2Local", instructions=MCP_INSTRUCTIONS)
     if router is not None:
         register(server, router)
     mcp_app = server.streamable_http_app(streamable_http_path="/", json_response=True)

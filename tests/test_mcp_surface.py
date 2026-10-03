@@ -14,9 +14,16 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from chat2local.app import create_app
+from chat2local.device.registry import DeviceRegistry
+from chat2local.dispatch.local import LocalToolDispatcher
+from chat2local.hub.router import DeviceRouter
 from chat2local.mcp import tools as mcp_tools
+from chat2local.mcp.instructions import MCP_INSTRUCTIONS
+from chat2local.mcp.server import mcp
 from chat2local.runtime.config import AppConfig, ReadConfig, SearchConfig
 from chat2local.dispatch import local as local_dispatch
+from chat2local.runtime.workspace import WorkspaceManager
 
 from conftest import run
 
@@ -71,6 +78,19 @@ def test_tools_are_registered_on_the_mcp_server(server: MCPServer) -> None:
     names = {tool.name for tool in run(server.list_tools())}
 
     assert names == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices"}
+
+
+def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> None:
+    assert mcp.instructions == MCP_INSTRUCTIONS
+    assert "AGENTS.md" in MCP_INSTRUCTIONS
+    assert "handoff_list" in MCP_INSTRUCTIONS
+
+    local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
+    router = DeviceRouter("hub", local, DeviceRegistry("hub"))
+    hub_app = create_app(router, hub_token="test-token")
+
+    assert hub_app.state.mcp is not mcp
+    assert hub_app.state.mcp.instructions == MCP_INSTRUCTIONS
 
 
 @pytest.mark.parametrize(

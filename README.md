@@ -90,6 +90,11 @@ title / summary / content 作为一个状态在同一 revision 下原子保存�
 事务锁或 semantic merge。超时/断线后先 get 实际状态再决定下一步。
 Stage 4 正式只使用 `HANDOFFS/*.md`；不会创建、迁移或依赖 legacy 根目录 `HANDOFF.md`。
 
+MCP Server 在 initialize 阶段广播一份精简的 server-wide instructions：进行项目工作前，
+模型应先读取目标 workspace 的 `AGENTS.md`（存在时）并将其作为项目指导；需要跨 Chat 延续的工作
+由模型主动通过 Handoff 管理，用户不需要记忆或维护 workstream slug。具体项目规则仍保存在各项目自己的
+`AGENTS.md`，不会把某个项目全文硬编码进全局 MCP instructions。
+
 公网 Agent 必须使用 WSS；内网可信网络可用 WS。Hub/Agent 通信和 MCP 的 Tunnel / HTTPS 暴露方式相互独立。
 共享 token 只保护设备 WebSocket；公开 MCP 的访问控制需由部署层提供。
 

@@ -19,6 +19,7 @@ from chat2local.app import create_app
 from chat2local.device.registry import DeviceError, DeviceRegistry, DeviceSession
 from chat2local.dispatch.local import LocalToolDispatcher
 from chat2local.hub.router import DeviceRouter
+from chat2local.mcp.instructions import MCP_INSTRUCTIONS
 from chat2local.protocol.messages import PROTOCOL_VERSION, Hello, HelloAck, Request, Response
 from chat2local.runtime.config import AppConfig, ReadConfig
 from chat2local.runtime.workspace import WorkspaceManager
@@ -94,7 +95,8 @@ def test_real_standalone_mcp_health_and_tools(tmp_path: Path) -> None:
         async with running_server(create_app(router)) as (url, _):
             async with streamable_http_client(url + "/mcp/") as streams:
                 async with ClientSession(streams[0], streams[1]) as client:
-                    await client.initialize()
+                    initialized = await client.initialize()
+                    assert initialized.instructions == MCP_INSTRUCTIONS
                     assert decode(await client.call_tool("read", {"path": "file.txt"}))["text"] == "needle"
                     assert decode(await client.call_tool("search", {"query": "needle", "mode": "content"}))["result_count"] == 1
                     assert len(decode(await client.call_tool("list_devices", {}))["devices"]) == 1
