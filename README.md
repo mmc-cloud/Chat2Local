@@ -93,8 +93,6 @@ Stage 4 正式只使用 `HANDOFFS/*.md`；不会创建、迁移或依赖 legacy 
 公网 Agent 必须使用 WSS；内网可信网络可用 WS。Hub/Agent 通信和 MCP 的 Tunnel / HTTPS 暴露方式相互独立。
 共享 token 只保护设备 WebSocket；公开 MCP 的访问控制需由部署层提供。
 
-完整架构、CLI、协议、边界与后续规划见 [设计文档](docs/design-v0.1.md)。
-
 ```powershell
 uv run pytest
 ```
