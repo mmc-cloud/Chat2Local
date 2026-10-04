@@ -20,7 +20,7 @@ from chat2local.dispatch.local import LocalToolDispatcher
 from chat2local.hub.router import DeviceRouter
 from chat2local.mcp import tools as mcp_tools
 from chat2local.mcp.instructions import MCP_INSTRUCTIONS
-from chat2local.mcp.server import mcp
+from chat2local.mcp.server import create_mcp_server, mcp
 from chat2local.runtime.config import AppConfig, ReadConfig, SearchConfig
 from chat2local.dispatch import local as local_dispatch
 from chat2local.runtime.workspace import WorkspaceManager
@@ -30,10 +30,7 @@ from conftest import run
 
 @pytest.fixture
 def server() -> MCPServer:
-    registered = MCPServer("Test")
-    mcp_tools.register(registered)
-
-    return registered
+    return create_mcp_server()
 
 
 @pytest.fixture

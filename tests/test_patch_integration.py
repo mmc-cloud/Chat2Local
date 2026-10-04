@@ -8,7 +8,6 @@ import threading
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from chat2local.agent.client import AgentClient
@@ -16,7 +15,7 @@ from chat2local.app import create_app
 from chat2local.device.registry import DeviceError
 from chat2local.dispatch.local import LocalToolDispatcher, ToolExecutionError
 from chat2local.hub.router import DeviceRouter
-from chat2local.mcp.tools import register
+from chat2local.mcp.server import create_mcp_server
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.workspace import WorkspaceManager
 from conftest import run
@@ -53,8 +52,7 @@ def test_dispatcher_patch_validation_and_workspace_override(tmp_path):
 
 def test_mcp_validation_is_tool_error_and_commit_failure_is_truthful_result(tmp_path, monkeypatch):
     dispatcher = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
-    server = MCPServer("Patch")
-    register(server, DeviceRouter("local", dispatcher))
+    server = create_mcp_server(DeviceRouter("local", dispatcher))
     with pytest.raises(ToolError, match="does not exist"):
         run(server.call_tool("apply_patch", {"patch": patch("*** Delete File: missing")}))
     with pytest.raises(ToolError, match="unavailable"):

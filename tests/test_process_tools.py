@@ -6,7 +6,7 @@ from time import monotonic
 from uuid import UUID
 
 import pytest
-from mcp.server.mcpserver import MCPServer
+from chat2local.mcp.server import create_mcp_server
 from mcp.server.mcpserver.exceptions import ToolError
 
 from chat2local.dispatch.local import LocalToolDispatcher, ToolExecutionError
@@ -251,8 +251,7 @@ def test_strict_process_arguments(tmp_path, tool, arguments):
 def test_unknown_process_and_os_pid_are_tool_errors(tmp_path, tool, pid):
     async def scenario():
         async with dispatched(tmp_path) as local:
-            server = MCPServer("Processes")
-            mcp_tools.register(server, DeviceRouter("local", local))
+            server = create_mcp_server(DeviceRouter("local", local))
             with pytest.raises(ToolError, match="unknown_process"):
                 await server.call_tool(tool, {"process_id": pid})
     run(scenario())
@@ -316,8 +315,7 @@ def test_shell_unavailable_is_mcp_tool_error(tmp_path, monkeypatch):
     def fail(self):
         raise ShellError("Configured shell is unavailable")
     monkeypatch.setattr(ShellResolver, "resolve", fail)
-    server = MCPServer("Unbound")
-    mcp_tools.register(server)
+    server = create_mcp_server()
     with pytest.raises(ToolError, match="shell is unavailable"):
         run(server.call_tool("exec_command", {"command": "echo x"}))
 
@@ -330,8 +328,7 @@ def test_default_mcp_router_keeps_one_manager_across_process_calls(tmp_path, mon
             from chat2local.dispatch import local as module
             with monkeypatch.context() as scoped:
                 scoped.setattr(module, "ProcessManager", lambda config: local.process_manager)
-                server = MCPServer("Default")
-                mcp_tools.register(server)
+                server = create_mcp_server()
                 from test_mcp_surface import payload
                 first = payload(await server.call_tool("exec_command", {"command": "import time; time.sleep(60)"}))
                 owner = mcp_tools.get_router()

@@ -221,11 +221,8 @@ def main() -> None:
         parser.error(str(error))
 
     configure_router(router)
-    if args.mode == "hub":
-        from chat2local.app import create_app
-        application = create_app(router, hub_token=token)
-    else:
-        application = "chat2local.app:app"
+    from chat2local.app import create_app
+    application = create_app(router, hub_token=token if args.mode == "hub" else None, auth=config.auth)
 
     role = "Hub" if args.mode == "hub" else "Standalone"
     configure_logging(debug=args.debug, secrets=(token,) if token else ())

@@ -5,7 +5,7 @@ from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 DEFAULT_CONFIG_PATH = Path.home() / ".chat2local" / "config.yaml"
 
@@ -62,6 +62,46 @@ class HubConfig(_ConfigModel):
     token_file: str | None = None
 
 
+class AuthConfig(_ConfigModel):
+    mode: Literal["none", "oauth"] = "none"
+    provider: Literal["workos"] | None = None
+    issuer_url: str | None = Field(default=None, strict=True)
+    resource_server_url: str | None = Field(default=None, strict=True)
+
+    @field_validator("issuer_url", "resource_server_url")
+    @classmethod
+    def valid_https_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            if any(char.isspace() or not char.isprintable() for char in value) or "\\" in value:
+                raise ValueError
+            parsed = urlsplit(value)
+            AnyHttpUrl(value)
+            if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+                    or parsed.query or parsed.fragment or parsed.port == 0):
+                raise ValueError
+        except ValueError:
+            raise ValueError("must be a valid HTTPS URL without credentials, query or fragment") from None
+        # JWT issuer and audience matching must preserve the configured spelling.
+        return value
+
+    @field_validator("resource_server_url")
+    @classmethod
+    def fixed_mcp_path(cls, value: str | None) -> str | None:
+        if value is not None and urlsplit(value).path != "/mcp":
+            raise ValueError("path must be exactly /mcp")
+        return value
+
+    @model_validator(mode="after")
+    def oauth_parameters(self) -> AuthConfig:
+        if self.mode == "oauth":
+            for name in ("provider", "issuer_url", "resource_server_url"):
+                if getattr(self, name) is None:
+                    raise ValueError(f"auth.{name} is required when auth.mode is oauth")
+        return self
+
+
 class AgentConfig(_ConfigModel):
     device_id: str | None = None
     hub_url: str | None = None
@@ -109,6 +149,7 @@ class AppConfig(_ConfigModel):
     process: ProcessConfig = Field(default_factory=ProcessConfig)
     hub: HubConfig = Field(default_factory=HubConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 def load_config(

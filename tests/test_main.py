@@ -90,7 +90,7 @@ def test_startup_binds_the_workspace(
 
     assert workspace.root == root.resolve()
     assert workspace.allowed_roots == (root.resolve(),)
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
     assert (launched["host"], launched["port"], launched["reload"]) == (
         "127.0.0.1",
         8765,
@@ -232,7 +232,7 @@ def test_startup_uses_cwd_when_workspace_is_omitted(
     workspace = mcp_tools.get_workspace()
     assert workspace.root == tmp_path.resolve()
     assert workspace.allowed_roots == (tmp_path.resolve(),)
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
 
 
 # --- parser --------------------------------------------------------------------
@@ -289,7 +289,7 @@ def test_startup_falls_back_to_workspace_when_allowed_roots_are_unconfigured(
     assert captured["allowed_roots"] == [root]
     assert mcp_tools.get_workspace().allowed_roots == (root.resolve(),)
     assert mcp_tools.get_config().security.allowed_roots == []
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
 
 
 def test_startup_accepts_cwd_inside_configured_allowed_root(
@@ -306,7 +306,7 @@ def test_startup_accepts_cwd_inside_configured_allowed_root(
 
     assert mcp_tools.get_workspace().root == root.resolve()
     assert mcp_tools.get_workspace().allowed_roots == (tmp_path.resolve(),)
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
 
 
 def test_startup_rejects_workspace_outside_configured_allowed_roots(
@@ -350,7 +350,7 @@ def test_startup_with_cwd_outside_configured_allowed_roots(
         workspace = mcp_tools.get_workspace()
         assert workspace.root == project.resolve()
         assert workspace.allowed_roots == (allowed.resolve(),)
-        assert launched["app"] == "chat2local.app:app"
+        assert launched["app"].state.router is mcp_tools.get_router()
     else:
         with pytest.raises(SystemExit) as failure:
             run_main(monkeypatch, "--config", str(config_path))
@@ -404,9 +404,9 @@ def test_network_mode_token_priority_and_startup(tmp_path, monkeypatch, launched
         from chat2local import app as app_module
         real = app_module.create_app
 
-        def create(router, *, hub_token):
+        def create(router, *, hub_token, auth):
             captured["token"] = hub_token
-            return real(router, hub_token=hub_token)
+            return real(router, hub_token=hub_token, auth=auth)
 
         monkeypatch.setattr(app_module, "create_app", create)
         argv += ["--host", "0.0.0.0", "--port", "9123"]
@@ -433,7 +433,7 @@ def test_standalone_device_id_and_no_token(tmp_path, monkeypatch, launched):
     run_main(monkeypatch, "--device-id", "desktop")
     assert mcp_tools.get_router().device_id == "desktop"
     assert mcp_tools.get_router().registry is None
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
 
 
 @pytest.mark.parametrize("mode", ["hub", "agent"])
@@ -659,7 +659,7 @@ def test_non_agent_modes_ignore_agent_settings(tmp_path, monkeypatch, launched, 
     if mode == "hub":
         assert launched["app"].state.router.registry is not None
     else:
-        assert launched["app"] == "chat2local.app:app"
+        assert launched["app"].state.router is mcp_tools.get_router()
 
 
 def test_hub_does_not_use_agent_token_file(tmp_path, monkeypatch, launched, capsys):
@@ -684,10 +684,10 @@ def hub_started(tmp_path, monkeypatch, launched):
     captured = {}
     real_create = app_module.create_app
 
-    def create(router, *, hub_token):
+    def create(router, *, hub_token, auth):
         captured.update(token=hub_token, device_id=router.device_id,
                         workspace=router.local.workspace.root)
-        return real_create(router, hub_token=hub_token)
+        return real_create(router, hub_token=hub_token, auth=auth)
 
     monkeypatch.setattr(app_module, "create_app", create)
     return captured
@@ -779,7 +779,7 @@ agent:
 
     assert mcp_tools.get_router().device_id == "standalone-hostname"
     assert mcp_tools.get_workspace().root == tmp_path.resolve()
-    assert launched["app"] == "chat2local.app:app"
+    assert launched["app"].state.router is mcp_tools.get_router()
     assert launched["host"] == "127.0.0.1" and launched["port"] == 8765
 
 
@@ -853,3 +853,43 @@ def test_fatal_registration_has_clean_cli_exit(tmp_path, monkeypatch, launched, 
     assert failure.value.code == 1
     assert "Internal Agent error" not in capsys.readouterr().err
     assert not any(record.exc_info for record in caplog.records)
+
+
+@pytest.mark.parametrize("mode", ["standalone", "hub"])
+def test_server_startup_passes_loaded_oauth_config(tmp_path, monkeypatch, launched, mode):
+    monkeypatch.chdir(tmp_path)
+    path = write_config(tmp_path, """auth:
+  mode: oauth
+  provider: workos
+  issuer_url: https://test.authkit.app
+  resource_server_url: https://example.com/mcp
+""")
+    argv = ["--config", str(path)]
+    if mode == "hub":
+        argv += ["hub", "--token", "shared-token"]
+    run_main(monkeypatch, *argv)
+    settings = launched["app"].state.mcp.settings.auth
+    assert str(settings.issuer_url) == "https://test.authkit.app"
+    assert str(settings.resource_server_url) == "https://example.com/mcp"
+    assert settings.validate_token_resource is True
+
+
+def test_agent_does_not_construct_oauth_server_or_verifier(tmp_path, monkeypatch, launched):
+    from chat2local.agent.client import AgentClient
+    from chat2local.auth.workos import WorkOSTokenVerifier
+    monkeypatch.chdir(tmp_path)
+    path = write_config(tmp_path, """auth:
+  mode: oauth
+  provider: workos
+  issuer_url: https://test.authkit.app
+  resource_server_url: https://example.com/mcp
+""")
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Agent must not create an OAuth verifier or HTTP server")
+    monkeypatch.setattr(WorkOSTokenVerifier, "__init__", unexpected)
+    monkeypatch.setattr("chat2local.app.create_app", unexpected)
+    async def agent_run(client):
+        assert client.token == "shared-token"
+    monkeypatch.setattr(AgentClient, "run", agent_run)
+    run_main(monkeypatch, "--config", str(path), "agent", "--hub-url", "ws://localhost/device/ws", "--token", "shared-token")
+    assert launched == {}

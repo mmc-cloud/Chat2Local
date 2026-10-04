@@ -31,6 +31,20 @@ process:
 security:
   allowed_roots: [] # [] 表示只授权本次启动解析出的 default workspace。
 
+# OAuth 仅保护 standalone/Hub 的 Streamable HTTP MCP；默认不启用，旧配置无需新增字段。
+auth:
+  mode: none
+# WorkOS AuthKit 作为外部 Authorization Server；以下为占位示例，不能同时保留上面的 auth 段。
+# auth:
+#   mode: oauth
+#   provider: workos
+#   issuer_url: https://your-env.authkit.app
+#   resource_server_url: https://example.com/mcp
+# 两个 URL 必须是 HTTPS；resource_server_url 的 path 必须严格为 /mcp，且与 WorkOS Dashboard Resource Indicator 完全一致。
+# Dashboard 开启 MCP CIMD，Signup 由部署者按需关闭。
+# 不需要 WorkOS API key / client secret；Chat2Local 不持久化 OAuth access token。
+# /health 无需 OAuth；/device/ws 继续使用 Hub shared token，Agent 不启动 OAuth。
+
 # Hub 和 Agent 是角色，都可以运行在 Windows/Linux/macOS。
 # 两个可选配置段分别用于 chat2local hub / chat2local agent；standalone 忽略它们。
 # 填写对应配置并准备 token 文件后可无参数启动；不在 YAML 中保存 token 本身。

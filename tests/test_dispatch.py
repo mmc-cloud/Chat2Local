@@ -4,12 +4,11 @@ import socket
 from pathlib import Path
 
 import pytest
-from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from chat2local.dispatch.local import LocalToolDispatcher, ToolExecutionError
 from chat2local.hub.router import DeviceRouter
-from chat2local.mcp.tools import register
+from chat2local.mcp.server import create_mcp_server
 from chat2local.runtime.config import AppConfig, ReadConfig
 from chat2local.runtime.workspace import WorkspaceManager
 from conftest import run
@@ -62,8 +61,7 @@ def test_dispatcher_instances_keep_device_config_separate(tmp_path: Path) -> Non
 def test_standalone_local_tools(tmp_path: Path, device, tool, arguments) -> None:
     (tmp_path / "file.txt").write_text("needle\n", encoding="utf-8", newline="")
     router = DeviceRouter(socket.gethostname(), make_dispatcher(tmp_path))
-    server = MCPServer("Standalone")
-    register(server, router)
+    server = create_mcp_server(router)
     result = payload(run(server.call_tool(tool, {**arguments, "device": device})))
     assert "needle" in str(result)
 
@@ -73,15 +71,13 @@ def test_standalone_local_tools(tmp_path: Path, device, tool, arguments) -> None
     ("search", {"query": "needle", "mode": "content"}),
 ])
 def test_standalone_other_device_is_unavailable(tmp_path: Path, tool, arguments) -> None:
-    server = MCPServer("Standalone")
-    register(server, DeviceRouter("local", make_dispatcher(tmp_path)))
+    server = create_mcp_server(DeviceRouter("local", make_dispatcher(tmp_path)))
     with pytest.raises(ToolError, match="Device unavailable in standalone mode"):
         run(server.call_tool(tool, {**arguments, "device": "remote"}))
 
 
 def test_list_devices_standalone(tmp_path: Path) -> None:
-    server = MCPServer("Standalone")
-    register(server, DeviceRouter("desktop", make_dispatcher(tmp_path)))
+    server = create_mcp_server(DeviceRouter("desktop", make_dispatcher(tmp_path)))
     assert payload(run(server.call_tool("list_devices", {}))) == {"devices": [{
         "device_id": "desktop", "kind": "local", "online": True, "tools": ["read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save"],
     }]}

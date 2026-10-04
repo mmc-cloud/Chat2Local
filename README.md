@@ -91,6 +91,45 @@ Agent runner 精确识别 websockets `connection_lost()` 中缺少 `recv_message
 这只是降噪，不修复网络断线或第三方连接生命周期问题。
 
 Agent 主动连接，不暴露 MCP。ChatGPT 只连接 Hub MCP：`/mcp`；健康检查为 `/health`。
+
+MCP HTTP 认证可选，standalone 和 Hub 使用相同配置。默认关闭，旧 config 无需修改，
+本地运行及 OpenAI Secure MCP Tunnel 保持现有行为：
+
+```yaml
+auth:
+  mode: none
+```
+
+第一版 OAuth 支持 WorkOS AuthKit 作为外部 Authorization Server：
+
+```yaml
+auth:
+  mode: oauth
+  provider: workos
+  issuer_url: https://your-env.authkit.app
+  resource_server_url: https://example.com/mcp
+```
+
+两个 URL 必须是合法 HTTPS，不能含认证信息、query 或 fragment；resource_server_url 的 path 必须严格为 `/mcp`。
+issuer / resource 按配置精确
+验证 JWT 的 `iss` / `aud`。Chat2Local 只作为 Resource Server，通过 `{issuer_url}/oauth2/jwks`
+验证 WorkOS 签发的 RS256 JWT 签名、有效期和必需 claims。JWKS 缓存 5 分钟，未知 kid 按 PyJWT
+的 30 秒冷却策略刷新；网络 I/O 在工作线程中完成。无效 JWT 或 JWKS 获取/解析失败返回标准 401，
+不记录 token。`scope` 只映射到 SDK，不添加 Tool scope、RBAC 或用户名单。
+
+OAuth 模式的 `GET /mcp` 缺少 Bearer token 时直接返回 401；`WWW-Authenticate` 指向 SDK 提供的
+`https://example.com/.well-known/oauth-protected-resource/mcp`，metadata 的 resource 为
+`https://example.com/mcp`，authorization_servers 为配置中的 issuer。SDK 应用在 OAuth 模式挂到
+根路径，使 well-known 路径正确；默认 none 保留原有 `/mcp/` 挂载行为。
+OAuth 模式仍启用 DNS rebinding 校验，允许配置中的公网 Host/Origin 和原有 loopback 开发地址。
+
+在 WorkOS Dashboard 中开启 MCP CIMD，将 Resource Indicator 设置为与 `resource_server_url`
+完全一致的 URL；Signup 可由部署者按需关闭。参见 [WorkOS MCP 配置指南](https://workos.com/docs/authkit/mcp)。
+Chat2Local 不实现 `/authorize`、`/token`、refresh token 或用户注册，不使用 client secret，
+不保存 WorkOS password、API key、billing information 或 OAuth access token。
+OAuth 仅作用于 Streamable HTTP MCP；`/health` 继续开放，`/device/ws` 继续使用 Hub shared token，
+Agent 不启用 OAuth。认证不改变 workspace 限制、设备路由或任何 Tool 行为。
+
 先调用 `list_devices()`，再为文件或进程 Tool 传 `device="desktop"`。
 省略 device 使用服务器本机；workspace 始终是目标设备上的目录，并受该设备本地权限检查。
 
