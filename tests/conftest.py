@@ -12,11 +12,26 @@ from typing import Any, Coroutine
 
 import pytest
 
+from chat2local.handoff.paths import storage_directory
+from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
 
 
 def run(coroutine: Coroutine[Any, Any, Any]) -> Any:
     return asyncio.run(coroutine)
+
+
+@pytest.fixture(autouse=True)
+def isolated_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Every dispatcher/store uses temporary data, never the developer's home."""
+    directory = tmp_path / "user-data"
+    monkeypatch.setattr(config, "user_data_directory", lambda: directory)
+    return directory
+
+
+def handoff_directory(workspace: WorkspaceManager | Path) -> Path:
+    root = workspace.root if isinstance(workspace, WorkspaceManager) else workspace.resolve()
+    return storage_directory(root, config.user_data_directory(), create=True)
 
 
 @pytest.fixture(autouse=True)

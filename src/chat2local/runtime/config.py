@@ -7,7 +7,13 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-DEFAULT_CONFIG_PATH = Path.home() / ".chat2local" / "config.yaml"
+
+def user_data_directory() -> Path:
+    """The shared root for Chat2Local's local user configuration and data."""
+    return Path.home() / ".chat2local"
+
+
+DEFAULT_CONFIG_PATH = user_data_directory() / "config.yaml"
 
 DEFAULT_MAX_LINES = 1000
 DEFAULT_MAX_BYTES = 64 * 1024

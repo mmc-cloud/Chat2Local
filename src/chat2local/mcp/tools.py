@@ -325,15 +325,18 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         workspace: str | None = None,
         device: str | None = None,
     ) -> dict[str, Any]:
-        """List latest workstream metadata in the selected project's HANDOFFS/.
+        """List latest workstream metadata scoped to the selected project.
 
         workspace is an optional absolute directory inside the selected device's
         allowed_roots; omitted uses its startup default. device defaults to local.
         Returns sorted workstream/title/summary/revision/updated_at, without bodies.
         Use title and summary to discover and understand existing workstreams,
-        then choose which full handoff to read. Legacy title/summary are null. Missing
-        HANDOFFS returns an empty list without creating it. Malformed files fail
-        with invalid_handoff; this tool never silently hides corrupted handoffs.
+        then choose which full handoff to read. Legacy title/summary are null.
+        Storage is in the device's ~/.chat2local/handoffs/<workspace-key>/; first
+        access migrates old project HANDOFFS/ without rewriting file content.
+        If both locations are missing, returns an empty list without creating them.
+        Malformed files fail with invalid_handoff; this tool never silently hides
+        corrupted handoffs.
         """
         try:
             return await (router or get_router()).execute("handoff_list", {

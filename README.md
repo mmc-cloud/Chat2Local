@@ -173,11 +173,20 @@ handoff_save(workstream, title, summary, content, expected_revision, workspace=N
 title 为 strict string、1–120 字符；summary 为 strict string、1–500 字符。两者允许中文、emoji、冒号，
 禁止 CR/LF、空字符串和纯空白；成功保存时保留原字符串，包括首尾空格。
 
-workstream 必须匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`，固定保存到目标设备所选项目的
-`HANDOFFS/<workstream>.md`。workspace 省略使用目标设备默认目录，绝对路径 override 仍受其 allowed_roots 限制。
+Handoff scope = workspace；Handoff storage = Chat2Local user-data directory。
+workstream 必须匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`，固定保存到目标设备的
+`~/.chat2local/handoffs/<workspace-key>/<workstream>.md`，复用 config.yaml 的用户数据根目录。
+workspace 省略使用目标设备默认目录，绝对路径 override 仍受其 allowed_roots 限制。
+普通文件工具保持 workspace-bounded，Handoff 内部数据目录不要求位于 workspace 内。
+workspace-key 来自 WorkspaceManager 规范化的绝对路径，将路径结构及非法文件名字符替换为 `-`，
+保留中文和普通目录名，例如 `D--Projects-chat2local`。每个目录的 workspace.json 记录 canonical_path
+和 display_name；不同 workspace 碰撞时追加规范化路径的 8 位 hash。key 使用 200 UTF-8 bytes 的长度上限，
+未超限时原样保留；超限时按完整 Unicode 字符截断可读前缀（最多 191 bytes），再追加 `-<8 hex hash>`。
+collision fallback 使用相同字节预算，最终目录名最多 200 bytes，低于常见文件系统的 255-byte component 上限。
+已有目录缺失或损坏 workspace.json 时拒绝猜测归属。
 不允许任意文件路径或 symlink/junction 别名；远程 Handoff 实际保存在 Agent，Hub 无中央存储。
 list 返回排序后的 workstream/title/summary/revision/updated_at（不含正文），让新 Chat 先发现并理解已有工作线，
-再选择读取完整 Handoff；目录不存在时返回空列表且不创建目录。get 返回同样 metadata 加正文；save 返回完整 metadata。
+再选择读取完整 Handoff；新旧目录均不存在时返回空列表且不创建目录。get 返回同样 metadata 加正文；save 返回完整 metadata。
 缺少文件报 `handoff_not_found`，损坏 metadata 报 `invalid_handoff`，非法 slug 报 `invalid_workstream`。
 
 创建时 `expected_revision=0`，成功得到 revision 1。更新先 get，save 提供读取到的 revision；
@@ -187,13 +196,18 @@ list 返回排序后的 workstream/title/summary/revision/updated_at（不含正
 
 文件为 UTF-8、LF；固定 header 包含 revision、UTC updated_at、title 和 summary，无需 YAML parser。
 title / summary / content 作为一个状态在同一 revision 下原子保存，content 参数/返回值只含正文。
-旧格式（只有 revision/updated_at）可正常 list/get，返回 title=null、summary=null 且不改文件；
+旧格式（只有 revision/updated_at）可正常 list/get，返回 title=null、summary=null 且不改文件内容；
 下一次正常 save 必须提供有效 title/summary，匹配旧 revision 后自然升级格式。
-只有 title 或只有 summary 的半升级 header 以及不合法 metadata 都报 invalid_handoff，不自动修复或批量迁移。
+只有 title 或只有 summary 的半升级 header 以及不合法 metadata 都报 invalid_handoff，不自动修复或批量升级格式。
 正文自由格式，不自动总结、截断或追加日志；正文换行统一为 LF。写入失败保留原文件并尽力清理 temp。
 只保存最新状态，不自动保存每轮聊天、不建立 Task/Session 系统或 revision 历史；V0.1 不提供跨进程/外部编辑器
 事务锁或 semantic merge。超时/断线后先 get 实际状态再决定下一步。
-Stage 4 正式只使用 `HANDOFFS/*.md`；不会创建、迁移或依赖 legacy 根目录 `HANDOFF.md`。
+首次 list/get/save 自动迁移旧 `<workspace>/HANDOFFS/`：先检查所有文件，同名且字节一致则复用，
+同名不同内容报 invalid_handoff 并保留旧数据；其余文件通过同目录 temp + 排他发布完整复制。
+全部源文件和目标文件校验成功后才删除旧文件及目录，复制失败保留所有旧文件，下一次访问可安全重试。
+迁移按原字节保留 revision/updated_at/title/summary/content，也保留普通附属文件；损坏 Handoff、
+子目录或 symlink/junction 会阻止迁移，保留旧数据供处理。发布使用标准库硬链接，文件系统不支持时明确失败并保留旧数据。
+不会创建、迁移或依赖 legacy 根目录 `HANDOFF.md`。
 
 MCP Server 在 initialize 阶段广播一份精简的 server-wide instructions：进行项目工作前，
 模型应先读取目标 workspace 的 `AGENTS.md`（存在时）并将其作为项目指导；需要跨 Chat 延续的工作

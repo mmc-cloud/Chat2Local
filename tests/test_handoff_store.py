@@ -14,7 +14,7 @@ from chat2local.handoff.models import (
 )
 from chat2local.handoff.store import HandoffStore, validate_workstream
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
-from conftest import run
+from conftest import handoff_directory, run
 from test_apply_patch import create_link
 
 INVALID_DISCOVERY = [
@@ -64,7 +64,7 @@ def test_create_get_update_and_managed_metadata(workspace):
         assert (await store.get(workspace, "design"))["content"] == "latest"
         assert await store.list(workspace) == {"handoffs": [updated]}
     run(scenario())
-    data = (workspace.root / "HANDOFFS/design.md").read_bytes()
+    data = (handoff_directory(workspace) / "design.md").read_bytes()
     assert data.startswith(b"---\nrevision: 2\nupdated_at: ") and b"\r" not in data
     assert not data.startswith(b"\xef\xbb\xbf") and data.endswith(b"\n\nlatest")
     assert legacy.read_bytes() == b"keep experimental handoff"
@@ -75,12 +75,12 @@ def test_conflict_preserves_exact_file(workspace, expected):
     store = HandoffStore()
     run(store.save(workspace, "design", "Title", "Summary", "one", 0))
     run(store.save(workspace, "design", "Title", "Summary", "two", 1))
-    path = workspace.root / "HANDOFFS/design.md"
+    path = handoff_directory(workspace) / "design.md"
     before = path.read_bytes()
     with pytest.raises(RevisionConflictError, match=f"expected revision {expected}, current revision 2"):
         run(store.save(workspace, "design", "Title", "Summary", "must not write", expected))
     assert path.read_bytes() == before
-    assert list(path.parent.iterdir()) == [path]
+    assert set(path.parent.iterdir()) == {path, path.parent / "workspace.json"}
 
 
 def test_missing_and_missing_revision_conflict(workspace):
@@ -103,7 +103,7 @@ def test_list_sorted_metadata_only_and_no_recursion(workspace):
     store = HandoffStore()
     for slug in ("z", "a", "B"):
         run(store.save(workspace, slug, "Title", "Summary", "secret body", 0))
-    directory = workspace.root / "HANDOFFS"
+    directory = handoff_directory(workspace)
     (directory / "nested.md").mkdir()
     (directory / "nested.md/invalid.md").write_bytes(b"broken")
     (directory / "ignored.txt").write_bytes(b"broken")
@@ -124,8 +124,7 @@ def test_list_sorted_metadata_only_and_no_recursion(workspace):
     b"\xff",
 ])
 def test_malformed_list_get_save_fail_without_overwrite(workspace, data):
-    path = workspace.root / "HANDOFFS/design.md"
-    path.parent.mkdir()
+    path = handoff_directory(workspace) / "design.md"
     path.write_bytes(data)
     store = HandoffStore()
     for call in (lambda: store.list(workspace), lambda: store.get(workspace, "design"),
@@ -139,7 +138,7 @@ def test_malformed_list_get_save_fail_without_overwrite(workspace, data):
 def test_atomic_write_failure_preserves_original_and_cleans_temp(workspace, monkeypatch, failure):
     store = HandoffStore()
     run(store.save(workspace, "design", "Title", "Summary", "original", 0))
-    path = workspace.root / "HANDOFFS/design.md"
+    path = handoff_directory(workspace) / "design.md"
     original = path.read_bytes()
     def fail(*args, **kwargs):
         raise PermissionError("injected failure")
@@ -161,7 +160,7 @@ def test_atomic_write_failure_preserves_original_and_cleans_temp(workspace, monk
     assert run(store.get(workspace, "design"))["title"] == "Title"
     assert run(store.get(workspace, "design"))["summary"] == "Summary"
     assert run(store.get(workspace, "design"))["content"] == "original"
-    assert list(path.parent.iterdir()) == [path]
+    assert set(path.parent.iterdir()) == {path, path.parent / "workspace.json"}
 
 
 def test_concurrent_save_has_exactly_one_winner(workspace):
@@ -275,7 +274,7 @@ def test_discovery_preserves_exact_strings_and_length_boundaries(workspace, titl
     assert saved["title"] == title and saved["summary"] == summary
     assert run(store.get(workspace, "design")) == {**saved, "content": "body"}
     assert run(store.list(workspace)) == {"handoffs": [saved]}
-    assert f"title: {title}\nsummary: {summary}\n" in (workspace.root / "HANDOFFS/design.md").read_text(encoding="utf-8")
+    assert f"title: {title}\nsummary: {summary}\n" in (handoff_directory(workspace) / "design.md").read_text(encoding="utf-8")
 
 
 def test_legacy_read_and_lazy_upgrade(workspace):
@@ -287,6 +286,8 @@ def test_legacy_read_and_lazy_upgrade(workspace):
     metadata = dict(workstream="legacy", revision=1, updated_at="2026-10-03T02:30:00Z", title=None, summary=None)
     assert run(store.list(workspace)) == {"handoffs": [metadata]}
     assert run(store.get(workspace, "legacy")) == {**metadata, "content": "legacy body"}
+    assert not path.parent.exists()
+    path = handoff_directory(workspace) / "legacy.md"
     assert path.read_bytes() == old
     upgraded = run(store.save(workspace, "legacy", "Legacy title", "Now upgraded", "new body", 1))
     assert upgraded["revision"] == 2
@@ -301,8 +302,7 @@ def test_legacy_read_and_lazy_upgrade(workspace):
     *[f"title: Title\nsummary: {value}\n" for value in ("", "   ", "a" * 501, "a\nb", "a\rb")],
 ])
 def test_invalid_or_half_upgraded_metadata_is_not_repaired(workspace, fields):
-    path = workspace.root / "HANDOFFS/design.md"
-    path.parent.mkdir()
+    path = handoff_directory(workspace) / "design.md"
     data = f"---\nrevision: 1\nupdated_at: 2026-10-03T02:30:00Z\n{fields}---\n\nbody".encode()
     path.write_bytes(data)
     store = HandoffStore()

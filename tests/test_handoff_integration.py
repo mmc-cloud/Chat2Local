@@ -12,7 +12,7 @@ from chat2local.handoff import store as store_module
 from chat2local.hub.router import DeviceRouter
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import run
+from conftest import handoff_directory, run
 from test_devices import TOKEN, decode, eventually, hub_runtime, running_agent, running_server
 from test_process_integration import mcp_client
 from test_process_tools import LOCAL_TOOLS
@@ -148,7 +148,7 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                 assert created["revision"] == 1
                 assert created["title"] == "阶段四：跨会话续接 🚀"
                 assert created["summary"] == "State: implemented; next: 验证跨 Chat resume。"
-                assert (target / "HANDOFFS/design.md").read_bytes().endswith("正文😀".encode())
+                assert (handoff_directory(target) / "design.md").read_bytes().endswith("正文😀".encode())
                 assert decode(await call("handoff_get", workstream="design")) == {**created, "content": "正文😀"}
                 assert decode(await call("handoff_list")) == {"handoffs": [created]}
                 results = await asyncio.gather(*[
@@ -195,19 +195,22 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                     assert unavailable.is_error and "unavailable" in unavailable.content[0].text
                 # Legacy reads leave bytes intact; only a normal save upgrades.
                 legacy_path = target / "HANDOFFS/legacy.md"
+                legacy_path.parent.mkdir()
                 legacy_bytes = b"---\nrevision: 1\nupdated_at: 2026-10-03T02:30:00Z\n---\n\nlegacy body"
                 legacy_path.write_bytes(legacy_bytes)
                 legacy = decode(await call("handoff_get", workstream="legacy"))
                 assert legacy["title"] is None and legacy["summary"] is None and legacy["content"] == "legacy body"
                 listed_legacy = next(item for item in decode(await call("handoff_list"))["handoffs"] if item["workstream"] == "legacy")
                 assert listed_legacy == {key: value for key, value in legacy.items() if key != "content"}
+                assert not legacy_path.parent.exists()
+                legacy_path = handoff_directory(target) / "legacy.md"
                 assert legacy_path.read_bytes() == legacy_bytes
                 upgraded = decode(await call("handoff_save", workstream="legacy", title="Legacy: upgraded", summary="Now current", content="new body", expected_revision=1))
                 assert upgraded["revision"] == 2
                 assert decode(await call("handoff_get", workstream="legacy")) == {**upgraded, "content": "new body"}
                 assert b"title: Legacy: upgraded\nsummary: Now current\n" in legacy_path.read_bytes()
                 # Corrupt metadata is transported as a tool error, including over WS.
-                (target / "HANDOFFS/broken.md").write_bytes(b"broken")
+                (handoff_directory(target) / "broken.md").write_bytes(b"broken")
                 for name, args in (("handoff_list", {}), ("handoff_get", {"workstream": "broken"}),
                                    ("handoff_save", {"title": "Title", "summary": "Summary", "workstream": "broken", "content": "new", "expected_revision": 0})):
                     error = await call(name, **args)

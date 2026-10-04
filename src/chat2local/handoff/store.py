@@ -1,4 +1,4 @@
-"""Workspace-bounded latest-state persistence with per-file revision locks."""
+"""Workspace-scoped latest-state persistence in Chat2Local user data."""
 
 import asyncio
 from dataclasses import asdict
@@ -7,11 +7,14 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import threading
 
 from chat2local.handoff.models import (
     HandoffMetadata, HandoffNotFoundError, HandoffRecord, InvalidHandoffError,
     InvalidWorkstreamError, RevisionConflictError,
 )
+from chat2local.handoff.paths import checked_path, publish_bytes, storage_directory
+from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
 
 WORKSTREAM_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
@@ -42,15 +45,11 @@ def validate_summary(value: str) -> str:
     return _validate_single_line(value, "summary", SUMMARY_MAX_LENGTH)
 
 
-def _path(workspace: WorkspaceManager, workstream: str | None = None) -> Path:
-    relative = Path("HANDOFFS")
-    if workstream is not None:
-        relative /= f"{validate_workstream(workstream)}.md"
-    resolved = workspace.resolve_path(relative)
-    # Preserve the fixed HANDOFFS/<slug>.md mapping, even for in-workspace links.
-    for candidate in (workspace.root / "HANDOFFS", workspace.root / relative):
-        if candidate.is_symlink() or candidate.is_junction():
-            raise InvalidHandoffError("HANDOFFS paths must not be symlinks or junctions")
+def _legacy_path(workspace: WorkspaceManager) -> Path:
+    resolved = workspace.resolve_path("HANDOFFS")
+    candidate = workspace.root / "HANDOFFS"
+    if candidate.is_symlink() or candidate.is_junction():
+        raise InvalidHandoffError("HANDOFFS paths must not be symlinks or junctions")
     return resolved
 
 
@@ -83,18 +82,70 @@ def _read(path: Path, workstream: str) -> HandoffRecord:
 class HandoffStore:
     """One store per dispatcher; no cached business state or shutdown lifecycle."""
 
-    def __init__(self) -> None:
+    def __init__(self, user_data: Path | None = None) -> None:
         self._locks: dict[Path, asyncio.Lock] = {}
+        self._user_data = user_data if user_data is not None else config.user_data_directory()
+        # Resolution/migration runs in worker threads. Serialize it across all
+        # workstreams so readers cannot observe a partially migrated directory.
+        self._directory_lock = threading.Lock()
+
+    def _directory(self, workspace: WorkspaceManager, *, create: bool = False) -> Path:
+        with self._directory_lock:
+            legacy = _legacy_path(workspace)
+            directory = storage_directory(workspace.root, self._user_data, create=create)
+            if legacy.exists():
+                if not legacy.is_dir():
+                    raise InvalidHandoffError("HANDOFFS must be a directory")
+                directory = self._migrate(workspace, legacy, directory)
+            return directory
+
+    def _migrate(self, workspace: WorkspaceManager, legacy: Path, directory: Path) -> Path:
+        files = []
+        # Preflight everything before writing or deleting any legacy file.
+        for entry in sorted(legacy.iterdir(), key=lambda path: path.name):
+            source = workspace.resolve_path(entry)
+            if entry.is_symlink() or entry.is_junction() or not source.is_file():
+                raise InvalidHandoffError(f"legacy migration requires regular files: {entry.name}")
+            if entry.name == "workspace.json":
+                raise InvalidHandoffError("legacy workspace.json conflicts with internal metadata")
+            if entry.suffix == ".md":
+                try:
+                    validate_workstream(entry.stem)
+                except InvalidWorkstreamError as error:
+                    raise InvalidHandoffError(f"invalid workstream filename: {entry.name}") from error
+                _read(source, entry.stem)
+            data = source.read_bytes()
+            destination = checked_path(directory, entry.name)
+            if destination.exists() and (not destination.is_file() or destination.read_bytes() != data):
+                raise InvalidHandoffError(f"legacy migration conflict: {entry.name}; old data retained")
+            files.append((source, entry.name, data))
+        directory = storage_directory(workspace.root, self._user_data, create=True)
+        for source, name, data in files:
+            destination = checked_path(directory, name)
+            try:
+                publish_bytes(destination, data)
+            except FileExistsError:
+                if not destination.is_file() or destination.read_bytes() != data:
+                    raise InvalidHandoffError(f"legacy migration conflict: {name}; old data retained")
+        # Verify all copies and sources before cleanup. Interrupted copying leaves
+        # every old file intact; retry safely reuses byte-identical destinations.
+        for source, name, data in files:
+            if source.read_bytes() != data or checked_path(directory, name).read_bytes() != data:
+                raise InvalidHandoffError(f"legacy migration changed during copy: {name}; old data retained")
+        for source, _, _ in files:
+            source.unlink()
+        legacy.rmdir()
+        return directory
 
     async def list(self, workspace: WorkspaceManager) -> dict:
         return await asyncio.to_thread(self._list, workspace)
 
     def _list(self, workspace: WorkspaceManager) -> dict:
-        directory = _path(workspace)
+        directory = self._directory(workspace)
         if not directory.exists():
             return {"handoffs": []}
         if not directory.is_dir():
-            raise InvalidHandoffError("HANDOFFS must be a directory")
+            raise InvalidHandoffError("handoff storage must be a directory")
         records = []
         for entry in sorted(directory.iterdir(), key=lambda path: path.name):
             if entry.suffix != ".md":
@@ -103,7 +154,7 @@ class HandoffStore:
                 validate_workstream(entry.stem)
             except InvalidWorkstreamError as error:
                 raise InvalidHandoffError(f"invalid workstream filename: {entry.name}") from error
-            path = _path(workspace, entry.stem)
+            path = checked_path(directory, entry.name)
             if path.is_dir():
                 continue
             record = _read(path, entry.stem)
@@ -113,21 +164,25 @@ class HandoffStore:
         return {"handoffs": records}
 
     async def get(self, workspace: WorkspaceManager, workstream: str) -> dict:
-        path = _path(workspace, workstream)
-        return asdict(await asyncio.to_thread(_read, path, workstream))
+        validate_workstream(workstream)
+        return await asyncio.to_thread(self._get, workspace, workstream)
+
+    def _get(self, workspace: WorkspaceManager, workstream: str) -> dict:
+        path = checked_path(self._directory(workspace), f"{workstream}.md")
+        return asdict(_read(path, workstream))
 
     async def save(
         self, workspace: WorkspaceManager, workstream: str, title: str, summary: str,
         content: str, expected_revision: int,
     ) -> dict:
-        path = _path(workspace, workstream)
+        validate_workstream(workstream)
         validate_title(title)
         validate_summary(summary)
         if type(expected_revision) is not int or expected_revision < 0:
             raise ValueError("expected_revision must be a strict integer >= 0")
         if not isinstance(content, str):
             raise ValueError("content must be a string")
-        lock = self._locks.setdefault(path, asyncio.Lock())
+        lock = self._locks.setdefault(workspace.root / f"{workstream}.md", asyncio.Lock())
         async with lock:
             worker = asyncio.create_task(asyncio.to_thread(
                 self._save, workspace, workstream, title, summary, content, expected_revision,
@@ -152,10 +207,18 @@ class HandoffStore:
         self, workspace: WorkspaceManager, workstream: str, title: str, summary: str,
         content: str, expected_revision: int,
     ) -> dict:
-        path = _path(workspace, workstream)
+        directory = self._directory(workspace)
+        path = checked_path(directory, f"{workstream}.md")
         current = _read(path, workstream).revision if path.exists() else 0
         if current != expected_revision:
             raise RevisionConflictError(expected_revision, current)
+        if not directory.exists():
+            directory = self._directory(workspace, create=True)
+            path = checked_path(directory, f"{workstream}.md")
+            # Ownership may have been claimed between lookup and creation.
+            current = _read(path, workstream).revision if path.exists() else 0
+            if current != expected_revision:
+                raise RevisionConflictError(expected_revision, current)
         metadata = HandoffMetadata(
             workstream, current + 1,
             datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
@@ -166,24 +229,22 @@ class HandoffStore:
             f"---\nrevision: {metadata.revision}\nupdated_at: {metadata.updated_at}\n"
             f"title: {title}\nsummary: {summary}\n---\n\n{body}"
         )
-        directory = _path(workspace)
-        directory.mkdir(exist_ok=True)
         temporary: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", newline="\n", dir=directory,
                 prefix=".handoff-", delete=False,
             ) as handle:
-                temporary = workspace.resolve_path(handle.name)
+                temporary = Path(handle.name)
                 handle.write(text)
                 handle.flush()
-            os.replace(temporary, _path(workspace, workstream))
+            os.replace(temporary, checked_path(directory, f"{workstream}.md"))
         except (OSError, UnicodeError) as error:
             raise OSError(f"handoff_write_failed: {workstream}: {error}") from error
         finally:
             if temporary is not None:
                 try:
-                    workspace.resolve_path(temporary).unlink(missing_ok=True)
+                    temporary.unlink(missing_ok=True)
                 except OSError:
                     pass  # Best effort cleanup; never disguise a write failure.
         return asdict(metadata)
