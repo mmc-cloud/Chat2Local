@@ -31,6 +31,23 @@ process:
 security:
   allowed_roots: [] # [] 表示只授权本次启动解析出的 default workspace。
 
+# Hub 和 Agent 是角色，都可以运行在 Windows/Linux/macOS。
+# 两个可选配置段分别用于 chat2local hub / chat2local agent；standalone 忽略它们。
+# 填写对应配置并准备 token 文件后可无参数启动；不在 YAML 中保存 token 本身。
+# 以下设备名和 Hub 地址均为通用示例，使用时按需替换。
+# hub:
+#   device_id: hub # --device-id > hub.device_id > hostname
+#   host: 127.0.0.1 # --host > hub.host > 127.0.0.1
+#   port: 8765 # --port > hub.port > 8765
+#   token_file: ~/.chat2local/hub.token # --token > CHAT2LOCAL_HUB_TOKEN > 文件内容
+#
+# agent:
+#   device_id: desktop # --device-id > agent.device_id > hostname
+#   hub_url: wss://hub.example.com/device/ws # --hub-url > agent.hub_url；必须提供其一
+#   token_file: ~/.chat2local/hub.token # --token > CHAT2LOCAL_HUB_TOKEN > 文件内容
+# 两种角色的 token_file 都使用 UTF-8，支持 ~，读取后去除首尾空白/换行；
+# 缺失、不可读、无效 UTF-8 或为空会报错，错误不会输出 token 内容。
+
 # default workspace：
 # - 显式 --workspace 时使用该目录
 # - 未传 --workspace 时使用当前工作目录

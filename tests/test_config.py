@@ -8,6 +8,8 @@ from chat2local.runtime.config import (
     DEFAULT_MAX_RESULTS,
     DEFAULT_TIMEOUT,
     AppConfig,
+    AgentConfig,
+    HubConfig,
     ConfigError,
     SecurityConfig,
     load_config,
@@ -244,3 +246,81 @@ def test_windows_allowed_roots_use_yaml_single_quotes(tmp_path: Path) -> None:
     )
 
     assert load_config(path).security.allowed_roots == [r"D:\Projects", r"E:\Work"]
+
+
+def test_agent_defaults_are_optional() -> None:
+    assert AppConfig().agent == AgentConfig()
+    assert AgentConfig().model_dump() == {
+        "device_id": None, "hub_url": None, "token_file": None,
+    }
+
+
+def test_agent_config_loads_from_yaml(tmp_path: Path) -> None:
+    path = write_config(tmp_path, """agent:
+  device_id: desktop
+  hub_url: wss://hub.example.com/device/ws
+  token_file: ~/.chat2local/hub.token
+""")
+    assert load_config(path).agent == AgentConfig(
+        device_id="desktop", hub_url="wss://hub.example.com/device/ws",
+        token_file="~/.chat2local/hub.token",
+    )
+
+
+@pytest.mark.parametrize("field", ["device_id", "hub_url", "token_file"])
+@pytest.mark.parametrize("value", ["null", "123", "true"])
+def test_agent_config_optional_strings(tmp_path: Path, field, value) -> None:
+    path = write_config(tmp_path, f"agent:\n  {field}: {value}\n")
+    if value == "null":
+        assert getattr(load_config(path).agent, field) is None
+    else:
+        with pytest.raises(ConfigError):
+            load_config(path)
+
+
+@pytest.mark.parametrize("key", ["device", "hub_urL", "token_path", "token"])
+def test_agent_config_rejects_unknown_fields(tmp_path: Path, key) -> None:
+    path = write_config(tmp_path, f"agent:\n  {key}: typo\n")
+    with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+        load_config(path)
+
+
+def test_hub_defaults_are_optional() -> None:
+    assert AppConfig().hub == HubConfig()
+    assert HubConfig().model_dump() == {
+        "device_id": None, "host": None, "port": None, "token_file": None,
+    }
+
+
+def test_hub_config_loads_from_yaml(tmp_path: Path) -> None:
+    path = write_config(tmp_path, """hub:
+  device_id: hub
+  host: 127.0.0.1
+  port: 8765
+  token_file: ~/.chat2local/hub.token
+""")
+    assert load_config(path).hub == HubConfig(
+        device_id="hub", host="127.0.0.1", port=8765,
+        token_file="~/.chat2local/hub.token",
+    )
+
+
+@pytest.mark.parametrize("field", ["device_id", "host", "port", "token_file"])
+def test_hub_config_fields_accept_null(tmp_path: Path, field) -> None:
+    path = write_config(tmp_path, f"hub:\n  {field}: null\n")
+    assert getattr(load_config(path).hub, field) is None
+
+
+@pytest.mark.parametrize("key", ["device", "hostname", "prt", "token_path", "token", "workspace"])
+def test_hub_config_rejects_unknown_fields(tmp_path: Path, key) -> None:
+    path = write_config(tmp_path, f"hub:\n  {key}: typo\n")
+    with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+        load_config(path)
+
+
+@pytest.mark.parametrize("field,value", [("device_id", "123"), ("host", "true"),
+                                         ("port", "nope"), ("token_file", "123")])
+def test_hub_config_rejects_invalid_types(tmp_path: Path, field, value) -> None:
+    path = write_config(tmp_path, f"hub:\n  {field}: {value}\n")
+    with pytest.raises(ConfigError):
+        load_config(path)

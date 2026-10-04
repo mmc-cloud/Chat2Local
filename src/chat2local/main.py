@@ -64,12 +64,12 @@ def _runtime_arguments(parser: argparse.ArgumentParser, *, inherited: bool = Fal
         help="Override search.timeout (seconds) for this run.",
     )
 
-    parser.add_argument("--device-id", default=argparse.SUPPRESS if inherited else socket.gethostname(), help="Device identity (default: hostname).")
+    parser.add_argument("--device-id", default=argparse.SUPPRESS if inherited else None, help="Device identity (Hub/Agent: role config, then hostname).")
 
 
 def _server_arguments(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
-    parser.add_argument("--host", default=argparse.SUPPRESS if inherited else "127.0.0.1", help="HTTP listen address.")
-    parser.add_argument("--port", type=int, default=argparse.SUPPRESS if inherited else 8765, help="HTTP listen port.")
+    parser.add_argument("--host", default=argparse.SUPPRESS if inherited else None, help="HTTP listen address (Hub: hub.host, then 127.0.0.1).")
+    parser.add_argument("--port", type=int, default=argparse.SUPPRESS if inherited else None, help="HTTP listen port (Hub: hub.port, then 8765).")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,22 +80,45 @@ def build_parser() -> argparse.ArgumentParser:
     hub = modes.add_parser("hub", help="Run MCP plus an authenticated Device WebSocket endpoint.")
     _runtime_arguments(hub, inherited=True)
     _server_arguments(hub, inherited=True)
-    hub.add_argument("--token", default=None, help="Shared Hub token (or CHAT2LOCAL_HUB_TOKEN).")
+    hub.add_argument("--token", default=None, help="Shared Hub token (or CHAT2LOCAL_HUB_TOKEN, then hub.token_file).")
     agent = modes.add_parser("agent", help="Connect outbound to a Hub; do not serve MCP.")
     _runtime_arguments(agent, inherited=True)
-    agent.add_argument("--hub-url", required=True, help="Hub Device WebSocket URL; use WSS on the public internet.")
-    agent.add_argument("--token", default=None, help="Shared Hub token (or CHAT2LOCAL_HUB_TOKEN).")
+    agent.add_argument("--hub-url", default=None, help="Hub Device WebSocket URL (or agent.hub_url); use WSS on the public internet.")
+    agent.add_argument("--token", default=None, help="Shared Hub token (or CHAT2LOCAL_HUB_TOKEN, then agent.token_file).")
     return parser
+
+
+def _read_token_file(token_file: str, *, role: str) -> str:
+    try:
+        path = Path(token_file).expanduser()
+    except RuntimeError:
+        raise ConfigError(f"Could not expand {role.capitalize()} token_file home directory") from None
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        raise ConfigError(f"{role.capitalize()} token file does not exist: {path}") from None
+    except (OSError, UnicodeDecodeError):
+        raise ConfigError(f"Could not read {role.capitalize()} token file as UTF-8 text: {path}") from None
+    if not token:
+        raise ConfigError(f"{role.capitalize()} token file is empty: {path}")
+    return token
+
+
+def _resolve_token(cli_token: str | None, token_file: str | None, *, role: str) -> str:
+    token = cli_token if cli_token is not None else os.environ.get("CHAT2LOCAL_HUB_TOKEN")
+    if token is None and token_file is not None:
+        token = _read_token_file(token_file, role=role)
+    if not token:
+        raise ConfigError(
+            f"Hub token is required: use --token, CHAT2LOCAL_HUB_TOKEN or {role}.token_file in config.yaml"
+        )
+    return token
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     token = None
-    if args.mode in ("hub", "agent"):
-        token = args.token if args.token is not None else os.environ.get("CHAT2LOCAL_HUB_TOKEN")
-        if not token:
-            parser.error("Hub token is required: use --token or CHAT2LOCAL_HUB_TOKEN")
 
     overrides = {
         "read": {
@@ -113,6 +136,33 @@ def main() -> None:
         config = load_config(path=args.config, overrides=overrides)
     except ConfigError as error:
         parser.error(str(error))
+
+    device_id = args.device_id
+    host = args.host
+    port = args.port
+    if args.mode == "hub":
+        if host is None:
+            host = config.hub.host
+        if port is None:
+            port = config.hub.port
+    if args.mode == "agent":
+        hub_url = args.hub_url if args.hub_url is not None else config.agent.hub_url
+        if not hub_url:
+            parser.error("Agent Hub URL is required: use --hub-url or agent.hub_url in config.yaml")
+    if args.mode in ("hub", "agent"):
+        role_config = config.hub if args.mode == "hub" else config.agent
+        if device_id is None:
+            device_id = role_config.device_id
+        try:
+            token = _resolve_token(args.token, role_config.token_file, role=args.mode)
+        except ConfigError as error:
+            parser.error(str(error))
+    if device_id is None:
+        device_id = socket.gethostname()
+    if host is None:
+        host = "127.0.0.1"
+    if port is None:
+        port = 8765
 
     workspace = Path(args.workspace).expanduser() if args.workspace else Path.cwd()
     allowed_roots = config.security.allowed_roots or [workspace]
@@ -133,7 +183,7 @@ def main() -> None:
     if args.mode == "agent":
         from chat2local.agent.client import AgentClient
         try:
-            client = AgentClient(args.hub_url, args.device_id, token, local)
+            client = AgentClient(hub_url, device_id, token, local)
         except ValueError as error:
             parser.error(str(error))
         logging.basicConfig(level=logging.INFO)
@@ -144,8 +194,8 @@ def main() -> None:
         return
 
     try:
-        registry = DeviceRegistry(args.device_id) if args.mode == "hub" else None
-        router = DeviceRouter(args.device_id, local, registry)
+        registry = DeviceRegistry(device_id) if args.mode == "hub" else None
+        router = DeviceRouter(device_id, local, registry)
     except ValueError as error:
         parser.error(str(error))
 
@@ -158,8 +208,8 @@ def main() -> None:
 
     uvicorn.run(
         application,
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         reload=False,
     )
 

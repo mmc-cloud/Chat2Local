@@ -24,6 +24,40 @@ uv run chat2local hub --device-id hub --host 0.0.0.0 --port 8765
 uv run chat2local agent --device-id desktop --hub-url wss://hub.example.com/device/ws
 ```
 
+Hub 和 Agent 都是角色，均可运行于 Windows/Linux/macOS。
+在各自机器的 `~/.chat2local/config.yaml` 中保存对应启动配置；以下为通用示例，按需替换设备名和 Hub 地址：
+
+```yaml
+hub:
+  device_id: hub
+  host: 127.0.0.1
+  port: 8765
+  token_file: ~/.chat2local/hub.token
+
+agent:
+  device_id: desktop
+  hub_url: wss://hub.example.com/device/ws
+  token_file: ~/.chat2local/hub.token
+```
+
+把共享 token 写入 `token_file` 指定的 UTF-8 文本文件后，可直接运行 `chat2local hub`
+或 `chat2local agent`。
+
+| 启动项 | 优先级（从高到低） |
+| --- | --- |
+| Hub device_id | `--device-id` → `hub.device_id` → hostname |
+| Hub host | `--host` → `hub.host` → `127.0.0.1` |
+| Hub port | `--port` → `hub.port` → `8765` |
+| Agent device_id | `--device-id` → `agent.device_id` → hostname |
+| Agent hub_url | `--hub-url` → `agent.hub_url`，缺少时启动报错 |
+| 两种角色的 token | `--token` → `CHAT2LOCAL_HUB_TOKEN` → 对应角色的 `token_file`，缺少时启动报错 |
+
+Hub 和 Agent 共用 token 解析及文件读取逻辑。token 文件路径支持 `~`，读取后去除首尾空白/换行；
+只有 CLI 和环境变量均未提供 token 时才读取文件。文件不存在、不可读、不是有效 UTF-8 或内容为空
+都会报清晰错误，错误不会输出 token 内容。配置继续拒绝未知字段。
+原有带 CLI 参数或环境变量启动方式继续有效。standalone 不读取这两个角色的 token 文件。
+workspace 不存入配置；Hub/Agent 与 standalone 一样，未传 `--workspace` 时使用启动目录 `Path.cwd()`。
+
 Agent 主动连接，不暴露 MCP。ChatGPT 只连接 Hub MCP：`/mcp`；健康检查为 `/health`。
 先调用 `list_devices()`，再为文件或进程 Tool 传 `device="desktop"`。
 省略 device 使用服务器本机；workspace 始终是目标设备上的目录，并受该设备本地权限检查。

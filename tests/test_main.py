@@ -489,3 +489,305 @@ def test_startup_reports_unavailable_shell(tmp_path, monkeypatch, launched, caps
         run_main(monkeypatch)
     assert failure.value.code == 2 and "Shell is unavailable" in capsys.readouterr().err
     assert launched == {}
+
+
+@pytest.fixture
+def agent_started(tmp_path, monkeypatch, launched):
+    from chat2local.agent.client import AgentClient
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CHAT2LOCAL_HUB_TOKEN", raising=False)
+    captured = {}
+
+    async def run(client):
+        captured.update(device_id=client.device_id, hub_url=client.hub_url,
+                        token=client.token, workspace=client.local.workspace.root)
+
+    monkeypatch.setattr(AgentClient, "run", run)
+    return captured
+
+
+def test_agent_starts_from_default_config_only(tmp_path, monkeypatch, launched, agent_started):
+    token_file = tmp_path / "hub.token"
+    token_file.write_text(" \t配置令牌\r\n", encoding="utf-8")
+    path = write_config(tmp_path, f"""agent:
+  device_id: desktop
+  hub_url: wss://hub.example.com/device/ws
+  token_file: '{token_file}'
+""")
+    monkeypatch.setattr("chat2local.runtime.config.DEFAULT_CONFIG_PATH", path)
+
+    run_main(monkeypatch, "agent")
+
+    assert agent_started == {
+        "device_id": "desktop", "hub_url": "wss://hub.example.com/device/ws",
+        "token": "配置令牌", "workspace": tmp_path.resolve(),
+    }
+    assert launched == {}
+
+
+@pytest.mark.parametrize("before_subcommand", [False, True])
+def test_agent_cli_overrides_config(tmp_path, monkeypatch, agent_started, before_subcommand):
+    path = write_config(tmp_path, """agent:
+  device_id: configured
+  hub_url: wss://configured/device/ws
+  token_file: missing.token
+""")
+    monkeypatch.setenv("CHAT2LOCAL_HUB_TOKEN", "env-token")
+    common = ["--device-id", "cli-device", "--config", str(path)]
+    argv = [*common, "agent"] if before_subcommand else ["agent", *common]
+    run_main(monkeypatch, *argv, "--hub-url", "ws://cli/device/ws", "--token", "cli-token")
+
+    assert agent_started["device_id"] == "cli-device"
+    assert agent_started["hub_url"] == "ws://cli/device/ws"
+    assert agent_started["token"] == "cli-token"
+
+
+@pytest.mark.parametrize("file_exists", [False, True])
+def test_agent_environment_token_overrides_file(tmp_path, monkeypatch, agent_started, file_exists):
+    token_file = tmp_path / "hub.token"
+    if file_exists:
+        token_file.write_text("file-token\n", encoding="utf-8")
+    path = write_config(tmp_path, f"agent:\n  hub_url: ws://localhost/device/ws\n  token_file: '{token_file}'\n")
+    monkeypatch.setenv("CHAT2LOCAL_HUB_TOKEN", "environment-token")
+    monkeypatch.setattr(main_module.socket, "gethostname", lambda: "hostname-device")
+
+    run_main(monkeypatch, "agent", "--config", str(path))
+
+    assert agent_started["token"] == "environment-token"
+    assert agent_started["device_id"] == "hostname-device"
+
+
+@pytest.mark.parametrize("mode", ["hub", "agent"])
+def test_network_mode_expands_token_file_home(tmp_path, monkeypatch, launched, agent_started, mode):
+    fields = "  hub_url: ws://localhost/device/ws\n" if mode == "agent" else ""
+    path = write_config(tmp_path, f"{mode}:\n{fields}  token_file: ~/.chat2local/hub.token\n")
+    expected = Path.home() / ".chat2local" / "hub.token"
+    real_read = Path.read_text
+    reads = []
+
+    def read(path, *args, **kwargs):
+        if path == expected:
+            reads.append((path, kwargs))
+            return " token-from-home\n"
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    run_main(monkeypatch, mode, "--config", str(path))
+
+    if mode == "agent":
+        assert agent_started["token"] == "token-from-home"
+    else:
+        assert launched["app"].state.router.registry is not None
+    assert reads == [(expected, {"encoding": "utf-8"})]
+
+
+@pytest.mark.parametrize("contents", [None, "", " \t\r\n"])
+@pytest.mark.parametrize("mode", ["hub", "agent"])
+def test_network_mode_missing_or_empty_token_file(tmp_path, monkeypatch, launched, agent_started, capsys, contents, mode):
+    token_file = tmp_path / "hub.token"
+    if contents is not None:
+        token_file.write_text(contents, encoding="utf-8")
+    fields = "  hub_url: ws://localhost/device/ws\n" if mode == "agent" else ""
+    path = write_config(tmp_path, f"{mode}:\n{fields}  token_file: '{token_file}'\n")
+
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, mode, "--config", str(path))
+
+    assert failure.value.code == 2
+    expected = "does not exist" if contents is None else "is empty"
+    assert f"{mode.capitalize()} token file {expected}" in capsys.readouterr().err
+    assert agent_started == {} and launched == {}
+    assert mcp_tools._workspace is None
+
+
+@pytest.mark.parametrize("failure_kind", ["permission", "invalid_utf8"])
+@pytest.mark.parametrize("mode", ["hub", "agent"])
+def test_network_mode_unreadable_token_file_does_not_echo_contents(
+    tmp_path, monkeypatch, launched, agent_started, capsys, failure_kind, mode,
+):
+    token_file = tmp_path / "hub.token"
+    sensitive = b"secret-token\xff"
+    token_file.write_bytes(sensitive)
+    fields = "  hub_url: ws://localhost/device/ws\n" if mode == "agent" else ""
+    path = write_config(tmp_path, f"{mode}:\n{fields}  token_file: '{token_file}'\n")
+    if failure_kind == "permission":
+        real_read = Path.read_text
+
+        def read(path, *args, **kwargs):
+            if path == token_file:
+                raise PermissionError("secret-token")
+            return real_read(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", read)
+
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, mode, "--config", str(path))
+
+    assert failure.value.code == 2
+    error = capsys.readouterr().err
+    assert f"Could not read {mode.capitalize()} token file as UTF-8 text" in error
+    assert "secret-token" not in error
+    assert agent_started == {} and launched == {} and mcp_tools._workspace is None
+
+
+def test_agent_requires_hub_url(tmp_path, monkeypatch, launched, agent_started, capsys):
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, "agent", "--token", "test-token")
+    assert failure.value.code == 2
+    assert "use --hub-url or agent.hub_url in config.yaml" in capsys.readouterr().err
+    assert agent_started == {} and launched == {}
+    assert mcp_tools._workspace is None
+
+
+@pytest.mark.parametrize("mode", ["hub", "standalone"])
+def test_non_agent_modes_ignore_agent_settings(tmp_path, monkeypatch, launched, mode):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CHAT2LOCAL_HUB_TOKEN", raising=False)
+    monkeypatch.setattr(main_module.socket, "gethostname", lambda: "local-hostname")
+    path = write_config(tmp_path, """agent:
+  device_id: configured-agent
+  hub_url: wss://configured/device/ws
+  token_file: missing.token
+""")
+    argv = ["hub", "--token", "hub-token"] if mode == "hub" else []
+    run_main(monkeypatch, *argv, "--config", str(path))
+    assert mcp_tools.get_router().device_id == "local-hostname"
+    if mode == "hub":
+        assert launched["app"].state.router.registry is not None
+    else:
+        assert launched["app"] == "chat2local.app:app"
+
+
+def test_hub_does_not_use_agent_token_file(tmp_path, monkeypatch, launched, capsys):
+    monkeypatch.delenv("CHAT2LOCAL_HUB_TOKEN", raising=False)
+    token_file = tmp_path / "hub.token"
+    token_file.write_text("agent-only-token", encoding="utf-8")
+    path = write_config(tmp_path, f"agent:\n  token_file: '{token_file}'\n")
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, "hub", "--config", str(path))
+    assert failure.value.code == 2
+    error = capsys.readouterr().err
+    assert "Hub token is required" in error and "hub.token_file" in error
+    assert launched == {} and mcp_tools._workspace is None
+
+
+@pytest.fixture
+def hub_started(tmp_path, monkeypatch, launched):
+    from chat2local import app as app_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CHAT2LOCAL_HUB_TOKEN", raising=False)
+    captured = {}
+    real_create = app_module.create_app
+
+    def create(router, *, hub_token):
+        captured.update(token=hub_token, device_id=router.device_id,
+                        workspace=router.local.workspace.root)
+        return real_create(router, hub_token=hub_token)
+
+    monkeypatch.setattr(app_module, "create_app", create)
+    return captured
+
+
+def test_hub_starts_from_default_config_only(tmp_path, monkeypatch, launched, hub_started):
+    token_file = tmp_path / "hub.token"
+    token_file.write_text(" \t共享令牌\r\n", encoding="utf-8")
+    path = write_config(tmp_path, f"""hub:
+  device_id: hub
+  host: 0.0.0.0
+  port: 9123
+  token_file: '{token_file}'
+agent:
+  device_id: configured-agent
+  token_file: missing-agent.token
+""")
+    monkeypatch.setattr("chat2local.runtime.config.DEFAULT_CONFIG_PATH", path)
+
+    run_main(monkeypatch, "hub")
+
+    assert hub_started == {
+        "device_id": "hub", "token": "共享令牌", "workspace": tmp_path.resolve(),
+    }
+    assert launched["host"] == "0.0.0.0" and launched["port"] == 9123
+    assert launched["app"].state.router.registry is not None
+    assert any(getattr(route, "path", None) == "/device/ws" for route in launched["app"].routes)
+
+
+@pytest.mark.parametrize("before_subcommand", [False, True])
+def test_hub_cli_overrides_config(tmp_path, monkeypatch, launched, hub_started, before_subcommand):
+    path = write_config(tmp_path, """hub:
+  device_id: configured-hub
+  host: 0.0.0.0
+  port: 9123
+  token_file: missing.token
+""")
+    monkeypatch.setenv("CHAT2LOCAL_HUB_TOKEN", "env-token")
+    common = ["--device-id", "cli-hub", "--host", "127.0.0.2", "--port", "9876", "--config", str(path)]
+    argv = [*common, "hub"] if before_subcommand else ["hub", *common]
+    run_main(monkeypatch, *argv, "--token", "cli-token")
+
+    assert hub_started["token"] == "cli-token" and hub_started["device_id"] == "cli-hub"
+    assert launched["host"] == "127.0.0.2" and launched["port"] == 9876
+
+
+@pytest.mark.parametrize("file_exists", [False, True])
+def test_hub_environment_token_overrides_file(tmp_path, monkeypatch, launched, hub_started, file_exists):
+    token_file = tmp_path / "hub.token"
+    if file_exists:
+        token_file.write_text("file-token\n", encoding="utf-8")
+    path = write_config(tmp_path, f"hub:\n  token_file: '{token_file}'\n")
+    monkeypatch.setenv("CHAT2LOCAL_HUB_TOKEN", "environment-token")
+    monkeypatch.setattr(main_module.socket, "gethostname", lambda: "hostname-hub")
+
+    run_main(monkeypatch, "hub", "--config", str(path))
+
+    assert hub_started["token"] == "environment-token"
+    assert hub_started["device_id"] == "hostname-hub"
+    assert launched["host"] == "127.0.0.1" and launched["port"] == 8765
+
+
+@pytest.mark.parametrize("mode", ["hub", "standalone"])
+def test_server_parser_leaves_listen_defaults_unset(mode):
+    args = main_module.build_parser().parse_args(["hub"] if mode == "hub" else [])
+    assert args.device_id is None and args.host is None and args.port is None
+
+
+def test_standalone_ignores_both_role_configs(tmp_path, monkeypatch, launched):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CHAT2LOCAL_HUB_TOKEN", raising=False)
+    monkeypatch.setattr(main_module.socket, "gethostname", lambda: "standalone-hostname")
+    path = write_config(tmp_path, """hub:
+  device_id: configured-hub
+  host: 0.0.0.0
+  port: 9999
+  token_file: missing-hub.token
+agent:
+  device_id: configured-agent
+  hub_url: wss://configured/device/ws
+  token_file: missing-agent.token
+""")
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Standalone must not resolve any role token")
+
+    monkeypatch.setattr(main_module, "_resolve_token", unexpected)
+    run_main(monkeypatch, "--config", str(path))
+
+    assert mcp_tools.get_router().device_id == "standalone-hostname"
+    assert mcp_tools.get_workspace().root == tmp_path.resolve()
+    assert launched["app"] == "chat2local.app:app"
+    assert launched["host"] == "127.0.0.1" and launched["port"] == 8765
+
+
+def test_agent_ignores_hub_config(tmp_path, monkeypatch, agent_started):
+    path = write_config(tmp_path, """hub:
+  device_id: configured-hub
+  token_file: missing-hub.token
+agent:
+  hub_url: ws://localhost/device/ws
+""")
+    monkeypatch.setattr(main_module.socket, "gethostname", lambda: "agent-hostname")
+    run_main(monkeypatch, "agent", "--config", str(path), "--token", "agent-token")
+    assert agent_started["device_id"] == "agent-hostname"
+    assert agent_started["token"] == "agent-token"

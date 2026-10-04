@@ -54,11 +54,26 @@ class ProcessConfig(_ConfigModel):
     finished_retention: float = Field(default=600.0, gt=0, allow_inf_nan=False)
 
 
+class HubConfig(_ConfigModel):
+    device_id: str | None = None
+    host: str | None = None
+    port: int | None = None
+    token_file: str | None = None
+
+
+class AgentConfig(_ConfigModel):
+    device_id: str | None = None
+    hub_url: str | None = None
+    token_file: str | None = None
+
+
 class AppConfig(_ConfigModel):
     read: ReadConfig = Field(default_factory=ReadConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     process: ProcessConfig = Field(default_factory=ProcessConfig)
+    hub: HubConfig = Field(default_factory=HubConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
 
 
 def load_config(
