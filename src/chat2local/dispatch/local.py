@@ -1,6 +1,7 @@
 """Execute registered tools with this device's own configuration and permissions."""
 
 from collections.abc import Awaitable, Callable
+import logging
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -9,18 +10,21 @@ from chat2local.handoff.store import (
     HandoffStore, SUMMARY_MAX_LENGTH, TITLE_MAX_LENGTH,
     validate_summary, validate_title, validate_workstream,
 )
+from chat2local.handoff.models import HandoffError
 
-from chat2local.runtime.config import AppConfig
-from chat2local.runtime.process_manager import ProcessManager, UnknownProcessError
-from chat2local.runtime.workspace import WorkspaceManager
-from chat2local.tools.apply_patch import apply_patch as apply_patch_impl
+from chat2local.runtime.config import AppConfig, validation_message
+from chat2local.runtime.process_manager import ProcessManager, ProcessError, UnknownProcessError
+from chat2local.runtime.workspace import WorkspaceManager, WorkspaceError
+from chat2local.runtime.shell import ShellError
+from chat2local.tools.apply_patch import PatchError, apply_patch as apply_patch_impl
 from chat2local.tools.exec_command import exec_command as exec_command_impl
 from chat2local.tools.interact_process import interact_process as interact_process_impl
 from chat2local.tools.kill_process import kill_process as kill_process_impl
-from chat2local.tools.read import read as read_impl
-from chat2local.tools.search import search as search_impl
+from chat2local.tools.read import ReadError, read as read_impl
+from chat2local.tools.search import SearchError, search as search_impl
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutionError(ValueError):
@@ -136,11 +140,15 @@ class LocalToolDispatcher:
         try:
             return await handler(arguments)
         except ValidationError as error:
-            raise ToolExecutionError(f"Invalid arguments for {tool_name}: {error}") from error
+            raise ToolExecutionError(f"Invalid arguments for {tool_name}: {validation_message(error)}") from None
         except UnknownProcessError as error:
             raise ToolExecutionError("unknown_process: Unknown managed process_id") from error
-        except (ValueError, OSError, RuntimeError) as error:
+        except (ToolExecutionError, WorkspaceError, ShellError, HandoffError, PatchError,
+                ReadError, SearchError, OSError, ProcessError) as error:
             raise ToolExecutionError(str(error)) from error
+        except Exception:
+            logger.exception("Unexpected local tool failure")
+            raise ToolExecutionError("Internal local tool error") from None
 
     def _workspace(self, selected: str | None) -> WorkspaceManager:
         return self.workspace if selected is None else self.workspace.select_workspace(selected)

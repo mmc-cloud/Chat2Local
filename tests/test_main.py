@@ -49,6 +49,9 @@ def restore_runtime(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(mcp_tools, "_workspace", None)
     monkeypatch.setattr(mcp_tools, "_config", mcp_tools.AppConfig())
+    # In-process wiring tests must not replace pytest's handlers. Real CLI logging
+    # (including force=True for every role) is verified in subprocess tests.
+    monkeypatch.setattr(main_module, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(
         "chat2local.runtime.config.DEFAULT_CONFIG_PATH", Path("__missing_test_config__.yaml")
     )
@@ -791,3 +794,62 @@ agent:
     run_main(monkeypatch, "agent", "--config", str(path), "--token", "agent-token")
     assert agent_started["device_id"] == "agent-hostname"
     assert agent_started["token"] == "agent-token"
+
+
+@pytest.mark.parametrize("proxy,expected", [("system", True), ("direct", None),
+                                           ("http://user:pass@localhost:7897", "http://user:pass@localhost:7897")])
+def test_agent_startup_passes_configured_proxy(tmp_path, monkeypatch, launched, proxy, expected):
+    import asyncio
+    from chat2local.agent.client import AgentClient
+    path = write_config(tmp_path, f"agent:\n  proxy: '{proxy}'\n  hub_url: ws://localhost/device/ws\n")
+    captured = {}
+    async def start(client):
+        captured["proxy"] = client.proxy
+        assert asyncio.get_running_loop().get_exception_handler() is not None
+    monkeypatch.setattr(AgentClient, "run", start)
+    run_main(monkeypatch, "agent", "--config", str(path), "--token", "token")
+    assert captured["proxy"] == expected and launched == {}
+
+
+@pytest.mark.parametrize("proxy", ["ftp://user:PRIVATE-SECRET@host", "http://host:bad", "http://host/path"])
+def test_bad_proxy_fails_at_startup_without_traceback(tmp_path, monkeypatch, launched, agent_started, capsys, proxy):
+    path = write_config(tmp_path, f"agent:\n  proxy: '{proxy}'\n")
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, "agent", "--config", str(path), "--hub-url", "ws://localhost", "--token", "token")
+    text = capsys.readouterr().err
+    assert failure.value.code == 2
+    assert "agent.proxy" in text and "PRIVATE-SECRET" not in text and "Traceback" not in text
+    assert agent_started == {} and launched == {}
+
+
+@pytest.mark.parametrize("url", ["ws://host:bad", "ws://host:65536", "ws://[bad", "ws://host:0",
+                                 "wss://user:PRIVATE-SECRET@host", "wss://host/#PRIVATE-SECRET"])
+def test_invalid_hub_url_is_a_safe_startup_error(tmp_path, monkeypatch, launched, capsys, url):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, "agent", "--hub-url", url, "--token", "token")
+    text = capsys.readouterr().err
+    assert failure.value.code == 2 and "Hub URL" in text
+    assert "PRIVATE-SECRET" not in text and "Traceback" not in text and launched == {}
+
+
+@pytest.mark.parametrize("argv", [["--debug"], ["--debug", "hub"], ["hub", "--debug"], ["agent", "--debug"]])
+def test_debug_flag_before_or_after_mode(argv):
+    assert main_module.build_parser().parse_args(argv).debug is True
+
+
+def test_default_logging_is_info():
+    assert main_module.build_parser().parse_args([]).debug is False
+
+
+def test_fatal_registration_has_clean_cli_exit(tmp_path, monkeypatch, launched, caplog, capsys):
+    from chat2local.agent.client import AgentClient, RegistrationError
+    monkeypatch.chdir(tmp_path)
+    async def rejected(client):
+        raise RegistrationError("authentication_failed")
+    monkeypatch.setattr(AgentClient, "_run", rejected)
+    with pytest.raises(SystemExit) as failure:
+        run_main(monkeypatch, "agent", "--hub-url", "ws://localhost", "--token", "PRIVATE-TOKEN")
+    assert failure.value.code == 1
+    assert "Internal Agent error" not in capsys.readouterr().err
+    assert not any(record.exc_info for record in caplog.records)

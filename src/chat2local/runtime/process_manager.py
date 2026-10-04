@@ -219,9 +219,12 @@ class ProcessManager:
     def _spawn_done(self, task: asyncio.Task) -> None:
         self._spawning.discard(task)
         if not task.cancelled():
-            error = task.exception()
-            if error is not None:
-                logger.error("Managed process spawn failed: %s", error)
+            try:
+                task.result()
+            except ProcessError:
+                logger.error("Managed process spawn failed (ProcessError)")
+            except Exception:
+                logger.exception("Unexpected managed process spawn failure")
 
     async def _spawn(self, argv: tuple[str, ...], cwd: Path) -> ProcessRecord:
         if self._closing:

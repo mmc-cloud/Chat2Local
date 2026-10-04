@@ -1,16 +1,19 @@
 """In-memory online registry; connections own their pending requests."""
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from pydantic import BaseModel, Field
 
 from chat2local.protocol.messages import PROTOCOL_VERSION, Request, Response
 
 REMOTE_REQUEST_TIMEOUT = 30.0
+logger = logging.getLogger(__name__)
 
 
 class DeviceError(RuntimeError):
@@ -55,12 +58,18 @@ class DeviceSession:
                 raise DeviceError(response.error)
             return response.result
         except TimeoutError as error:
+            logger.warning("Remote request timed out: device=%s tool=%s", self.device_id, tool)
             raise DeviceError(f"Remote request timed out: {self.device_id} ({tool})") from error
-        except (OSError, RuntimeError, WebSocketDisconnect) as error:
-            if isinstance(error, DeviceError):
-                raise
+        except (OSError, WebSocketDisconnect) as error:
             self.disconnect()
             raise DeviceError(f"Device offline: {self.device_id}") from error
+        except RuntimeError as error:
+            if isinstance(error, DeviceError):
+                raise
+            if self.closed or self.websocket.application_state is WebSocketState.DISCONNECTED:
+                self.disconnect()
+                raise DeviceError(f"Device offline: {self.device_id}") from error
+            raise  # Unexpected bugs are diagnosed by the router, not disguised as offline.
         finally:
             self.pending.pop(request.request_id, None)
             if not future.done():

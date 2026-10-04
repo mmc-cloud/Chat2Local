@@ -17,15 +17,19 @@ import socket
 from pathlib import Path
 
 import uvicorn
+from pydantic import ValidationError
 
 from chat2local.mcp.tools import configure_config, configure_workspace, configure_router
 from chat2local.dispatch.local import LocalToolDispatcher
 from chat2local.device.registry import DeviceRegistry
 from chat2local.hub.router import DeviceRouter
-from chat2local.runtime.config import ConfigError, load_config
+from chat2local.runtime.config import ConfigError, load_config, validation_message
+from chat2local.runtime.logging import configure_logging, websocket_callback_noise
 from chat2local.runtime.process_manager import ProcessManager
 from chat2local.runtime.shell import ShellError
 from chat2local.runtime.workspace import WorkspaceError
+
+logger = logging.getLogger(__name__)
 
 
 def _runtime_arguments(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
@@ -65,6 +69,8 @@ def _runtime_arguments(parser: argparse.ArgumentParser, *, inherited: bool = Fal
     )
 
     parser.add_argument("--device-id", default=argparse.SUPPRESS if inherited else None, help="Device identity (Hub/Agent: role config, then hostname).")
+    parser.add_argument("--debug", action="store_true", default=argparse.SUPPRESS if inherited else False,
+                        help="Enable safe project diagnostics (no authentication/frame dumps).")
 
 
 def _server_arguments(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
@@ -113,6 +119,11 @@ def _resolve_token(cli_token: str | None, token_file: str | None, *, role: str) 
             f"Hub token is required: use --token, CHAT2LOCAL_HUB_TOKEN or {role}.token_file in config.yaml"
         )
     return token
+
+
+async def _run_agent(client) -> None:
+    with websocket_callback_noise(asyncio.get_running_loop()):
+        await client.run()
 
 
 def main() -> None:
@@ -164,13 +175,14 @@ def main() -> None:
     if port is None:
         port = 8765
 
-    workspace = Path(args.workspace).expanduser() if args.workspace else Path.cwd()
-    allowed_roots = config.security.allowed_roots or [workspace]
-
     try:
+        workspace = Path(args.workspace).expanduser() if args.workspace else Path.cwd()
+        allowed_roots = config.security.allowed_roots or [workspace]
         workspace_manager = configure_workspace(workspace, allowed_roots=allowed_roots)
     except WorkspaceError as error:
         parser.error(str(error))
+    except (OSError, RuntimeError, ValueError):
+        parser.error("Could not resolve workspace or allowed roots")
 
     configure_config(config)
 
@@ -181,21 +193,30 @@ def main() -> None:
     local = LocalToolDispatcher(workspace_manager, config, process_manager)
 
     if args.mode == "agent":
-        from chat2local.agent.client import AgentClient
+        from chat2local.agent.client import AgentClient, RegistrationError
         try:
-            client = AgentClient(hub_url, device_id, token, local)
+            client = AgentClient(hub_url, device_id, token, local, proxy=config.agent.proxy)
         except ValueError as error:
             parser.error(str(error))
-        logging.basicConfig(level=logging.INFO)
+        configure_logging(debug=args.debug, secrets=(token, hub_url, config.agent.proxy))
         try:
-            asyncio.run(client.run())
+            asyncio.run(_run_agent(client))
         except KeyboardInterrupt:
             pass
+        except ConfigError as error:
+            parser.error(str(error))
+        except RegistrationError:
+            # The runner already logged a safe, classified terminal rejection.
+            parser.exit(1)
+        except Exception:
+            parser.exit(1, "Internal Agent error; see local logs\n")
         return
 
     try:
         registry = DeviceRegistry(device_id) if args.mode == "hub" else None
         router = DeviceRouter(device_id, local, registry)
+    except ValidationError as error:
+        parser.error(validation_message(error))
     except ValueError as error:
         parser.error(str(error))
 
@@ -206,12 +227,18 @@ def main() -> None:
     else:
         application = "chat2local.app:app"
 
-    uvicorn.run(
-        application,
-        host=host,
-        port=port,
-        reload=False,
-    )
+    role = "Hub" if args.mode == "hub" else "Standalone"
+    configure_logging(debug=args.debug, secrets=(token,) if token else ())
+    logger.info("%s starting as %s", role, device_id)
+    try:
+        uvicorn.run(application, host=host, port=port, reload=False)
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        logger.exception("Unexpected server runtime failure")
+        parser.exit(1, "Internal server error; see local logs\n")
+    finally:
+        logger.info("%s stopped as %s", role, device_id)
 
 
 if __name__ == "__main__":

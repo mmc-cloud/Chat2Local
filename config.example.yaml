@@ -45,6 +45,12 @@ security:
 #   device_id: desktop # --device-id > agent.device_id > hostname
 #   hub_url: wss://hub.example.com/device/ws # --hub-url > agent.hub_url；必须提供其一
 #   token_file: ~/.chat2local/hub.token # --token > CHAT2LOCAL_HUB_TOKEN > 文件内容
+#   proxy: system # 默认 system -> proxy=True；direct -> proxy=None；或显式代理 URL
+# 例如 proxy: http://127.0.0.1:7897；支持 HTTP/HTTPS、SOCKS4/4a/5/5h。
+# SOCKS 需要 python-socks[asyncio]；非法代理配置/缺少依赖时停止，不无限重连。
+# 显式 URL 仅做结构校验；系统代理发现与最终解析交给 websockets connect()。
+# 代理仅影响 Agent -> Hub WebSocket，不记录认证 URL，不改变 Hub/standalone 网络行为。
+# 使用 --debug 启用安全连接诊断；默认 INFO，不输出认证 payload 或第三方帧日志。
 # 两种角色的 token_file 都使用 UTF-8，支持 ~，读取后去除首尾空白/换行；
 # 缺失、不可读、无效 UTF-8 或为空会报错，错误不会输出 token 内容。
 

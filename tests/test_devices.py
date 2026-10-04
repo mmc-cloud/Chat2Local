@@ -178,7 +178,7 @@ def test_hub_agent_mcp_read_search_and_local_permissions(tmp_path: Path) -> None
     ("hub", TOKEN, "conflicts"),
     ("desktop", TOKEN, "already connected"),
 ])
-def test_registration_rejects_token_or_duplicate_identity(tmp_path, device, token, message):
+def test_registration_rejects_token_or_duplicate_identity(tmp_path, device, token, message, caplog):
     async def scenario():
         router = hub_runtime(tmp_path)
         async with running_server(create_app(router, hub_token=TOKEN)) as (_, url):
@@ -193,6 +193,7 @@ def test_registration_rejects_token_or_duplicate_identity(tmp_path, device, toke
             await eventually(lambda: not router.registry.sessions)
 
     run(scenario())
+    assert "Agent registration rejected (DeviceError)" in caplog.text
 
 
 @pytest.mark.parametrize("raw", [
@@ -214,7 +215,7 @@ def test_bad_protocol_hello_does_not_register_or_echo_token(tmp_path, raw):
     run(scenario())
 
 
-def test_pending_timeout_late_response_and_disconnect_cleanup(tmp_path):
+def test_pending_timeout_late_response_and_disconnect_cleanup(tmp_path, caplog):
     async def scenario():
         router = hub_runtime(tmp_path, timeout=0.05)
         async with running_server(create_app(router, hub_token=TOKEN)) as (_, url):
@@ -244,6 +245,7 @@ def test_pending_timeout_late_response_and_disconnect_cleanup(tmp_path):
                     await router.execute("read", {"path": "."}, device)
 
     run(scenario())
+    assert "Remote request timed out: device=desktop tool=read" in caplog.text
 
 
 def test_concurrent_remote_responses_match_request_ids(tmp_path):
@@ -262,7 +264,8 @@ def test_concurrent_remote_responses_match_request_ids(tmp_path):
     run(scenario())
 
 
-def test_agent_reconnects_and_tools_remain_generic(tmp_path):
+def test_agent_reconnects_and_tools_remain_generic(tmp_path, caplog):
+    caplog.set_level("INFO", logger="chat2local.agent.client")
     async def scenario():
         router = hub_runtime(tmp_path)
         local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
@@ -284,6 +287,8 @@ def test_agent_reconnects_and_tools_remain_generic(tmp_path):
                 assert await router.execute("echo", {"value": 8}, "desktop") == {"value": 8}
 
     run(scenario())
+    assert "Agent connected as desktop" in caplog.text
+    assert "Agent reconnected as desktop" in caplog.text
 
 
 def test_hub_restart_has_empty_registry_and_agent_reconnects(tmp_path):
@@ -469,21 +474,27 @@ def test_protocol_models_reject_invalid_messages(model, data):
         model.model_validate_json(json.dumps(data))
 
 
-@pytest.mark.parametrize("reason,version,expected", [
-    ("Invalid Hub token", 1, "Invalid Hub token"),
-    ("Device already connected: desktop", 1, "Device already connected: desktop"),
-    ("Invalid hello or unsupported protocol version", 1, "Invalid hello or unsupported protocol version"),
-    (f"Invalid Hub token: {TOKEN}\n\x1b[31m" + "x" * 400, 1, "Invalid Hub token: [redacted]"),
-    ("unsupported version", 2, "Invalid Hub hello acknowledgement or unsupported protocol version"),
+@pytest.mark.parametrize("reason,version,code,expected", [
+    ("Invalid Hub token", 1, "authentication_failed", "Agent authentication failed: invalid Hub token"),
+    ("Device already connected: desktop", 1, "device_already_connected", "Device already connected; retrying in 1s"),
+    ("Device ID conflicts with Hub local device: desktop", 1, "device_id_conflict", "Agent device_id conflict"),
+    ("Invalid hello or unsupported protocol version", 1, "protocol_incompatible", "Agent protocol incompatible with Hub"),
+    ("Invalid Hub hello acknowledgement or unsupported protocol version", 1, "protocol_incompatible", "Agent protocol incompatible with Hub"),
+    (f"Invalid Hub token: {TOKEN}\n\x1b[31m" + "x" * 400, 1, "registration_rejected", "Registration rejected"),
+    (f"Device already connected: desktop {TOKEN}", 1, "registration_rejected", "Registration rejected"),
+    ("unsupported version", 2, "protocol_incompatible", "Agent protocol incompatible with Hub"),
 ])
-def test_agent_logs_registration_reason_safely(tmp_path, caplog, reason, version, expected):
+def test_agent_logs_registration_reason_safely(tmp_path, caplog, reason, version, code, expected):
     from fastapi import FastAPI, WebSocket
+    from chat2local.agent.client import RegistrationError
     application = FastAPI()
+    attempts = []
 
     @application.websocket("/device/ws")
     async def reject(ws: WebSocket):
         await ws.accept()
         await ws.receive_text()
+        attempts.append(1)
         await ws.send_text(json.dumps({
             "type": "hello_ack", "protocol_version": version, "ok": False, "error": reason,
         }))
@@ -492,18 +503,30 @@ def test_agent_logs_registration_reason_safely(tmp_path, caplog, reason, version
     async def scenario():
         local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
         async with running_server(application) as (_, url):
-            async with running_agent(AgentClient(url, "desktop", TOKEN, local)) as task:
-                await eventually(lambda: any(
-                    "Registration rejected:" in record.getMessage() for record in caplog.records
-                ))
-                assert not task.done()  # rejection still follows the reconnect policy
+            agent = AgentClient(url, "desktop", TOKEN, local)
+            if code == "device_already_connected":
+                async with running_agent(agent) as task:
+                    await eventually(lambda: len(attempts) >= 2 and any(
+                        "Device already connected; retrying in 2s" in record.getMessage()
+                        for record in caplog.records
+                    ))
+                    assert not task.done()
+            else:
+                with pytest.raises(RegistrationError) as failure:
+                    await asyncio.wait_for(agent.run(), 3)
+                assert failure.value.reason_code == code and not failure.value.retryable
+                assert len(attempts) == 1
 
     caplog.set_level("WARNING", logger="chat2local.agent.client")
     run(scenario())
     messages = [record.getMessage() for record in caplog.records
                 if record.name == "chat2local.agent.client"]
-    assert any(f"Registration rejected: {expected}" in message for message in messages)
-    assert all("reconnecting in 1s" in message for message in messages)
+    assert any(expected in message for message in messages)
+    if code == "device_already_connected":
+        assert any("retrying in 2s" in message for message in messages)
+    else:
+        assert all("retrying" not in message for message in messages)
+    assert all(record.exc_info is None for record in caplog.records if record.name == "chat2local.agent.client")
     assert all(TOKEN not in message and "\n" not in message and "\x1b" not in message
                and len(message) < 360 for message in messages)
 
@@ -517,13 +540,13 @@ def test_agent_network_error_log_does_not_echo_credentials(tmp_path, monkeypatch
     async def scenario():
         local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
         async with running_agent(AgentClient("ws://localhost/device/ws", "desktop", TOKEN, local)) as task:
-            await eventually(lambda: any("Agent disconnected;" in record.getMessage()
+            await eventually(lambda: any("Agent connection failed (" in record.getMessage()
                                          for record in caplog.records))
             assert not task.done()
 
     monkeypatch.setattr(agent_module, "connect", failed_connect)
     caplog.set_level("WARNING", logger="chat2local.agent.client")
     run(scenario())
-    assert "Agent disconnected; reconnecting in 1s" in caplog.text
-    assert "Registration rejected:" not in caplog.text
+    assert "Agent connection failed (OSError); retrying in 1s" in caplog.text
+    assert "Registration rejected" not in caplog.text
     assert TOKEN not in caplog.text

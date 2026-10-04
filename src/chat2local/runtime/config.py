@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Literal, Mapping
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 DEFAULT_CONFIG_PATH = Path.home() / ".chat2local" / "config.yaml"
 
@@ -65,6 +66,40 @@ class AgentConfig(_ConfigModel):
     device_id: str | None = None
     hub_url: str | None = None
     token_file: str | None = None
+    proxy: str = Field(default="system", strict=True)
+
+    @field_validator("proxy")
+    @classmethod
+    def valid_proxy(cls, value: str) -> str:
+        return validate_agent_proxy(value)
+
+
+def validate_agent_proxy(value: str) -> str:
+    if value in ("system", "direct"):
+        return value
+    try:
+        if not isinstance(value, str) or not value or any(char.isspace() or not char.isprintable() for char in value):
+            raise ValueError
+        parsed = urlsplit(value)
+        if parsed.scheme not in ("http", "https", "socks4", "socks4a", "socks5", "socks5h") or not parsed.hostname:
+            raise ValueError
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError
+        if parsed.path or parsed.query or parsed.fragment:
+            raise ValueError
+        if parsed.username is not None and parsed.password is None:
+            raise ValueError
+    except ValueError:
+        raise ValueError("agent.proxy must be system, direct or a valid HTTP/HTTPS/SOCKS proxy URL") from None
+    return value
+
+
+def validation_message(error: ValidationError) -> str:
+    """Keep field locations and reasons without echoing input values or context."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+        for item in error.errors(include_input=False, include_context=False, include_url=False)
+    )
 
 
 class AppConfig(_ConfigModel):
@@ -110,7 +145,7 @@ def load_config(
     try:
         return AppConfig.model_validate(merged)
     except ValidationError as error:
-        raise ConfigError(f"Invalid config: {error}") from error
+        raise ConfigError(f"Invalid config: {validation_message(error)}") from None
 
 
 def _read_config_file(path: Path) -> dict[str, Any]:
@@ -122,7 +157,9 @@ def _read_config_file(path: Path) -> dict[str, Any]:
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as error:
-        raise ConfigError(f"Invalid YAML in {path}: {error}") from error
+        mark = getattr(error, "problem_mark", None)
+        location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
+        raise ConfigError(f"Invalid YAML in {path}{location}") from None
 
     if data is None:
         return {}

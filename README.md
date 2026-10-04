@@ -38,6 +38,7 @@ agent:
   device_id: desktop
   hub_url: wss://hub.example.com/device/ws
   token_file: ~/.chat2local/hub.token
+  proxy: system
 ```
 
 把共享 token 写入 `token_file` 指定的 UTF-8 文本文件后，可直接运行 `chat2local hub`
@@ -57,6 +58,37 @@ Hub 和 Agent 共用 token 解析及文件读取逻辑。token 文件路径支�
 都会报清晰错误，错误不会输出 token 内容。配置继续拒绝未知字段。
 原有带 CLI 参数或环境变量启动方式继续有效。standalone 不读取这两个角色的 token 文件。
 workspace 不存入配置；Hub/Agent 与 standalone 一样，未传 `--workspace` 时使用启动目录 `Path.cwd()`。
+
+`agent.proxy` 仅控制 Agent → Hub 的 WebSocket 连接，默认 `system` 保持系统代理发现行为：
+
+| agent.proxy | 显式传给 websockets 的参数 |
+| --- | --- |
+| `system` | `proxy=True`，跟随 OS / 环境变量代理发现及 bypass 规则 |
+| `direct` | `proxy=None`，强制直连 |
+| `http://127.0.0.1:7897` 等代理 URL | 原样传入 `proxy` |
+
+支持 HTTP/HTTPS、SOCKS4/4a/5/5h 代理 URL。SOCKS 需要额外安装 `python-socks[asyncio]`；
+配置侧仅用标准库校验显式 URL 的结构，不读取或解析系统代理；系统代理发现及最终代理解析由
+websockets `connect()` 完成。非法显式 URL 在启动阶段报错；系统代理非法或 SOCKS 缺少依赖
+在连接建立阶段报清晰配置错误并停止，不无限重试。代理 URL 可以带认证信息，日志不会输出完整认证 URL。
+本轮不增加 `--proxy`，通过现有 `--config` 选择配置文件即可。
+
+日志使用 Python 标准库，默认 INFO：显示角色启动/停止、Agent 首次连接和重连成功。
+可恢复网络、代理和握手失败记录 WARNING（安全错误类别和重试间隔），保持 1–30 秒重连退避；
+设备已连接冲突可以重试，记录 WARNING；无效 token、Hub 本机 device_id 冲突、hello/请求协议
+不兼容记录安全的 ERROR 并停止。未知注册拒绝只显示 `Registration rejected` 并停止，
+不会回显 Hub 的任意原始 reason。远程请求超时记录 WARNING，不输出异常正文、token 或认证 payload。
+无明确异常关闭显示 `connection closed`；实际异常断线/连接建立失败分别显示 `lost` / `failed` 及安全类别。
+启动/配置错误直接停止并显示简洁错误；普通 Tool 失败返回可读错误，不输出 traceback。
+未知内部错误只向调用方返回 `Internal ... error`，本地 ERROR 日志保留 traceback 用于诊断。
+CLI 日志初始化会替换已有 root handlers，确保安装 SafeFormatter；shutdown 失败有本地 traceback，
+已有主流程异常时保留主异常，正常主流程退出后 shutdown 失败才成为最终失败。
+
+`--debug` 可放在角色参数前后，例如 `chat2local agent --debug`；启用项目 DEBUG 日志，
+增加连接阶段、errno 和 WebSocket close code，不启用第三方认证/帧/完整请求体日志。
+Agent runner 精确识别 websockets `connection_lost()` 中缺少 `recv_messages` 的已知 asyncio
+二次异常，将其降为 DEBUG；其他 callback 异常仍交给原有/default exception handler，保留 traceback。
+这只是降噪，不修复网络断线或第三方连接生命周期问题。
 
 Agent 主动连接，不暴露 MCP。ChatGPT 只连接 Hub MCP：`/mcp`；健康检查为 `/health`。
 先调用 `list_devices()`，再为文件或进程 Tool 传 `device="desktop"`。

@@ -358,28 +358,30 @@ def test_invalid_regex_becomes_a_tool_error(server: MCPServer, bound) -> None:
         call(server, "search", {"query": "needle[", "mode": "content", "regex": True})
 
 
-def test_programmer_errors_are_not_swallowed(server: MCPServer, bound, monkeypatch) -> None:
-    """A genuine bug is reported as a crash, not as a readable bad request.
-
-    The Tool only translates the errors it expects; anything else reaches the
-    server uncaught, which marks it unexpected and keeps the original as the
-    cause instead of passing its text on as if the caller had asked badly.
-    """
-
-    from mcp.server.mcpserver.exceptions import UnexpectedToolError
+@pytest.mark.parametrize("kind", [KeyError, ValueError, RuntimeError])
+@pytest.mark.parametrize("tool,arguments,implementation", [
+    ("read", {"path": "notes.txt"}, "read_impl"),
+    ("search", {"query": "needle", "mode": "content"}, "search_impl"),
+])
+def test_programmer_errors_are_not_swallowed(server: MCPServer, bound, monkeypatch, caplog,
+                                            kind, tool, arguments, implementation) -> None:
+    """Unknown bugs retain a local traceback while MCP receives only a safe error."""
 
     bound()
 
     async def boom(*args: Any, **kwargs: Any) -> Any:
-        raise KeyError("unexpected bug")
+        raise kind("unexpected bug")
 
-    monkeypatch.setattr(local_dispatch, "read_impl", boom)
+    monkeypatch.setattr(local_dispatch, implementation, boom)
 
-    with pytest.raises(UnexpectedToolError) as failure:
-        call(server, "read", {"path": "notes.txt"})
+    with pytest.raises(ToolError, match="Internal local tool error") as failure:
+        call(server, tool, arguments)
 
     assert "unexpected bug" not in str(failure.value)
-    assert isinstance(failure.value.__cause__, KeyError)
+    records = [record for record in caplog.records if record.getMessage() == "Unexpected local tool failure"]
+    assert len(records) == 1 and records[0].exc_info[0] is kind
+    assert records[0].exc_info[2] is not None
+    assert "unexpected bug" in caplog.text
 
 
 @pytest.fixture

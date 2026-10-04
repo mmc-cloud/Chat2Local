@@ -1,9 +1,12 @@
 """Route by device only; tool algorithms remain in the local dispatcher."""
 
 from typing import Any
+import logging
 
 from chat2local.device.registry import DeviceError, DeviceInfo, DeviceRegistry, REMOTE_REQUEST_TIMEOUT
-from chat2local.dispatch.local import LocalToolDispatcher
+from chat2local.dispatch.local import LocalToolDispatcher, ToolExecutionError
+
+logger = logging.getLogger(__name__)
 
 
 class DeviceRouter:
@@ -23,11 +26,17 @@ class DeviceRouter:
     async def execute(
         self, tool_name: str, arguments: dict[str, Any], device: str | None = None,
     ) -> dict[str, Any]:
-        if device is None or device == self.device_id:
-            return await self.local.execute(tool_name, arguments)
-        if self.registry is None:
-            raise DeviceError(f"Device unavailable in standalone mode: {device}")
-        return await self.registry.get(device).execute(tool_name, arguments, self.timeout)
+        try:
+            if device is None or device == self.device_id:
+                return await self.local.execute(tool_name, arguments)
+            if self.registry is None:
+                raise DeviceError(f"Device unavailable in standalone mode: {device}")
+            return await self.registry.get(device).execute(tool_name, arguments, self.timeout)
+        except (ToolExecutionError, DeviceError):
+            raise
+        except Exception:
+            logger.exception("Unexpected device routing failure")
+            raise DeviceError("Internal device error") from None
 
     def list_devices(self) -> dict[str, Any]:
         devices = [DeviceInfo(

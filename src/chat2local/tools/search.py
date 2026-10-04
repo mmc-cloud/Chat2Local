@@ -57,6 +57,10 @@ IGNORE_FILES = (".gitignore", ".ignore", ".rgignore")
 _SNIFF_BYTES = 8192
 
 
+class SearchError(ValueError):
+    """Expected search argument or pattern validation failure."""
+
+
 async def search(
     workspace: WorkspaceManager,
     query: str,
@@ -78,18 +82,18 @@ async def search(
     """
 
     if mode not in ("name", "content"):
-        raise ValueError("mode must be 'name' or 'content'")
+        raise SearchError("mode must be 'name' or 'content'")
 
     if not query:
-        raise ValueError("query must not be empty")
+        raise SearchError("query must not be empty")
 
     limit = DEFAULT_MAX_RESULTS if max_results is None else max_results
 
     if limit < 1:
-        raise ValueError("max_results must be >= 1")
+        raise SearchError("max_results must be >= 1")
 
     if timeout <= 0:
-        raise ValueError("timeout must be > 0")
+        raise SearchError("timeout must be > 0")
 
     limit = min(limit, HARD_MAX_RESULTS)
 
@@ -174,7 +178,7 @@ def _compile(query: str, regex: bool, case_sensitive: bool) -> re.Pattern[str]:
     try:
         return re.compile(pattern, flags)
     except re.error as error:
-        raise ValueError(f"Invalid pattern: {error}") from error
+        raise SearchError(f"Invalid pattern: {error}") from error
 
 
 def _glob_match(pattern: str, relative: str, name: str) -> bool:

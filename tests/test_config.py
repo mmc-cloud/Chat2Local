@@ -251,7 +251,7 @@ def test_windows_allowed_roots_use_yaml_single_quotes(tmp_path: Path) -> None:
 def test_agent_defaults_are_optional() -> None:
     assert AppConfig().agent == AgentConfig()
     assert AgentConfig().model_dump() == {
-        "device_id": None, "hub_url": None, "token_file": None,
+        "device_id": None, "hub_url": None, "token_file": None, "proxy": "system",
     }
 
 
@@ -324,3 +324,36 @@ def test_hub_config_rejects_invalid_types(tmp_path: Path, field, value) -> None:
     path = write_config(tmp_path, f"hub:\n  {field}: {value}\n")
     with pytest.raises(ConfigError):
         load_config(path)
+
+
+@pytest.mark.parametrize("proxy", ["system", "direct", "http://127.0.0.1:7897",
+                                  "https://user:pass@proxy.example.com:8443", "socks5h://localhost:1080",
+                                  "http://[::1]:7897", "socks4://host:1080", "socks4a://host:1080",
+                                  "socks5://user:pass@host:1080"])
+def test_agent_proxy_config(tmp_path, proxy):
+    path = write_config(tmp_path, f"agent:\n  proxy: '{proxy}'\n")
+    assert load_config(path).agent.proxy == proxy
+
+
+@pytest.mark.parametrize("proxy", [None, True, 1, "", "SYSTEM", "ftp://user:secret@host",
+                                  "http://", "http://host:not-a-port", "http://host:65536",
+                                  "http://host/path", "http://host?secret=x", "http://host#fragment",
+                                  "http://user@host", "http://host\n", "http://host:0",
+                                  "http://host/", "http://host:99999", "http://[broken", "http://host\x7f"])
+def test_invalid_proxy_rejected_without_echoing_value(proxy):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AgentConfig(proxy=proxy)
+
+
+def test_config_error_does_not_echo_credentials(tmp_path):
+    path = write_config(tmp_path, "agent:\n  proxy: ftp://user:PRIVATE-PASSWORD@host\n")
+    with pytest.raises(ConfigError) as failure:
+        load_config(path)
+    assert "agent.proxy" in str(failure.value)
+    assert "PRIVATE-PASSWORD" not in str(failure.value)
+    path.write_text("agent: [http://user:PRIVATE-PASSWORD@host\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as failure:
+        load_config(path)
+    assert "Invalid YAML" in str(failure.value)
+    assert "PRIVATE-PASSWORD" not in str(failure.value)

@@ -40,6 +40,10 @@ SCAN_LIMIT = "scan_limit"
 _SNIFF_BYTES = 8192
 
 
+class ReadError(ValueError):
+    """Expected read validation or text decoding failure."""
+
+
 def detect_encoding(sample: bytes) -> str:
     """Return the text encoding of a file based on its BOM, defaulting to UTF-8."""
 
@@ -80,19 +84,19 @@ async def read(
     """
 
     if start_line is not None and start_line < 1:
-        raise ValueError("start_line must be >= 1")
+        raise ReadError("start_line must be >= 1")
 
     if end_line is not None and end_line < 1:
-        raise ValueError("end_line must be >= 1")
+        raise ReadError("end_line must be >= 1")
 
     if start_line is not None and end_line is not None and end_line < start_line:
-        raise ValueError("end_line must be >= start_line")
+        raise ReadError("end_line must be >= start_line")
 
     if max_lines < 1:
-        raise ValueError("max_lines must be >= 1")
+        raise ReadError("max_lines must be >= 1")
 
     if max_bytes < 1:
-        raise ValueError("max_bytes must be >= 1")
+        raise ReadError("max_bytes must be >= 1")
 
     target = workspace.resolve_path(path)
 
@@ -103,7 +107,7 @@ async def read(
         raise FileNotFoundError(f"Path does not exist: {path}")
 
     if not target.is_file():
-        raise ValueError(f"Path is not a regular file: {path}")
+        raise ReadError(f"Path is not a regular file: {path}")
 
     return await asyncio.to_thread(
         _read_file, workspace, target, start_line, end_line, max_lines, max_bytes
@@ -195,7 +199,7 @@ def _read_file(
                 else:
                     reached_eof = True
             except UnicodeDecodeError as error:
-                raise ValueError(
+                raise ReadError(
                     f"{relative} is not valid {encoding} text: unsupported or invalid text encoding"
                 ) from error
 
