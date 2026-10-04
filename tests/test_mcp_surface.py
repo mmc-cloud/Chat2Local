@@ -84,6 +84,9 @@ def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> No
     assert mcp.instructions == MCP_INSTRUCTIONS
     assert "AGENTS.md" in MCP_INSTRUCTIONS
     assert "handoff_list" in MCP_INSTRUCTIONS
+    assert "cross-chat checkpoints, not progress logs" in MCP_INSTRUCTIONS
+    assert "If unsure whether a milestone" in MCP_INSTRUCTIONS
+    assert "defer saving" in MCP_INSTRUCTIONS
 
     local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
     router = DeviceRouter("hub", local, DeviceRegistry("hub"))
@@ -91,6 +94,13 @@ def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> No
 
     assert hub_app.state.mcp is not mcp
     assert hub_app.state.mcp.instructions == MCP_INSTRUCTIONS
+
+
+def test_handoff_save_description_discourages_progress_logging(server: MCPServer) -> None:
+    tool = next(tool for tool in run(server.list_tools()) if tool.name == "handoff_save")
+
+    assert "not a routine progress logger" in tool.description
+    assert "If unsure, do not save yet" in tool.description
 
 
 @pytest.mark.parametrize(
