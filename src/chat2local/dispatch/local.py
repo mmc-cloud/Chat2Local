@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 import logging
+import time
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -137,18 +138,28 @@ class LocalToolDispatcher:
         handler = self._handlers.get(tool_name)
         if handler is None:
             raise ToolExecutionError(f"Unknown local tool: {tool_name}")
+        started = time.perf_counter()
+        logger.debug("Tool %s started", tool_name)
         try:
-            return await handler(arguments)
+            result = await handler(arguments)
         except ValidationError as error:
+            logger.warning("Tool %s failed error_type=%s duration_ms=%d",
+                           tool_name, type(error).__name__, (time.perf_counter() - started) * 1000)
             raise ToolExecutionError(f"Invalid arguments for {tool_name}: {validation_message(error)}") from None
         except UnknownProcessError as error:
+            logger.warning("Tool %s failed error_type=%s duration_ms=%d",
+                           tool_name, type(error).__name__, (time.perf_counter() - started) * 1000)
             raise ToolExecutionError("unknown_process: Unknown managed process_id") from error
         except (ToolExecutionError, WorkspaceError, ShellError, HandoffError, PatchError,
                 ReadError, SearchError, OSError, ProcessError) as error:
+            logger.warning("Tool %s failed error_type=%s duration_ms=%d",
+                           tool_name, type(error).__name__, (time.perf_counter() - started) * 1000)
             raise ToolExecutionError(str(error)) from error
         except Exception:
             logger.exception("Unexpected local tool failure")
             raise ToolExecutionError("Internal local tool error") from None
+        logger.info("Tool %s succeeded duration_ms=%d", tool_name, (time.perf_counter() - started) * 1000)
+        return result
 
     def _workspace(self, selected: str | None) -> WorkspaceManager:
         return self.workspace if selected is None else self.workspace.select_workspace(selected)

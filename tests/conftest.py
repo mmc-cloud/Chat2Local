@@ -7,6 +7,7 @@ One module per Tool lives alongside this file (``test_read.py``,
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Coroutine
 
@@ -27,6 +28,28 @@ def isolated_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "user-data"
     monkeypatch.setattr(config, "user_data_directory", lambda: directory)
     return directory
+
+
+@pytest.fixture
+def configure_test_logging():
+    """Exercise real handlers without closing or retaining pytest's handlers."""
+    from chat2local.runtime.logging import configure_logging
+
+    root = logging.getLogger()
+    previous_handlers, previous_level = root.handlers[:], root.level
+    names = ("chat2local", "websockets", "mcp", "httpx", "httpx2", "httpcore")
+    levels = {name: logging.getLogger(name).level for name in names}
+    root.handlers = []
+    try:
+        yield configure_logging
+    finally:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+            handler.close()
+        root.handlers = previous_handlers
+        root.setLevel(previous_level)
+        for name, level in levels.items():
+            logging.getLogger(name).setLevel(level)
 
 
 def handoff_directory(workspace: WorkspaceManager | Path) -> Path:

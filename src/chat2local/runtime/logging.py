@@ -1,12 +1,16 @@
-"""Small stdlib logging setup and one narrowly identified WebSocket callback noise."""
+"""Safe console/rotating file logging and narrowly identified callback noise."""
 
 import asyncio
 from contextlib import contextmanager
 import logging
+from logging.handlers import RotatingFileHandler
 import re
+import time
 
 from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.connection import Connection
+
+from chat2local.runtime import config
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +18,10 @@ logger = logging.getLogger(__name__)
 class SafeFormatter(logging.Formatter):
     """Redact known connection credentials, including those in exception traces."""
 
-    def __init__(self, secrets: tuple[str, ...] = ()) -> None:
-        super().__init__("%(levelname)s %(name)s: %(message)s")
+    converter = time.gmtime
+
+    def __init__(self, secrets: tuple[str, ...] = (), *, fmt: str | None = None) -> None:
+        super().__init__(fmt or "%(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S")
         self.secrets = tuple(sorted({value for value in secrets if value}, key=len, reverse=True))
 
     def format(self, record: logging.LogRecord) -> str:
@@ -27,15 +33,44 @@ class SafeFormatter(logging.Formatter):
         return text
 
 
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """Do not let stdlib handleError dump an unredacted record to stderr."""
+
+    def __init__(self, filename, console: logging.Handler) -> None:
+        self.console = console
+        super().__init__(filename, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        # Report only to the console, avoiding recursion through the failing sink.
+        self.console.handle(logger.makeRecord(
+            logger.name, logging.WARNING, __file__, 0,
+            "File logging write/rotation failed; console logging remains available", (), None,
+        ))
+
+
 def configure_logging(*, debug: bool = False, secrets: tuple[str, ...] = ()) -> None:
-    handler = logging.StreamHandler()
-    handler.setFormatter(SafeFormatter(secrets))
-    # The CLI owns logging setup; replace any preinstalled unsafe console handlers.
-    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    console = logging.StreamHandler()
+    console.setFormatter(SafeFormatter(secrets))
+    handlers = [console]
+    file_failed = False
+    try:
+        directory = config.user_data_directory() / "logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        handler = _SafeRotatingFileHandler(directory / "chat2local.log", console)
+        handler.setFormatter(SafeFormatter(
+            secrets, fmt="%(asctime)s.%(msecs)03dZ %(levelname)s %(name)s: %(message)s",
+        ))
+        handlers.append(handler)
+    except (OSError, RuntimeError, ValueError):
+        file_failed = True
+    # The CLI owns logging setup; replace any preinstalled unsafe handlers.
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
     logging.getLogger("chat2local").setLevel(logging.DEBUG if debug else logging.INFO)
     # Dependency DEBUG messages can include authentication frames or request bodies.
     for name in ("websockets", "mcp", "httpx", "httpx2", "httpcore"):
         logging.getLogger(name).setLevel(logging.WARNING)
+    if file_failed:
+        logger.warning("Could not initialize file logging; console logging remains available")
 
 
 def _is_recv_messages_noise(error: BaseException | None) -> bool:

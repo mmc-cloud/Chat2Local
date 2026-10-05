@@ -100,15 +100,21 @@ def test_logging_setup_uses_stdlib_and_keeps_dependency_payload_logging_disabled
     assert logging.getLogger("chat2local").level == level
     assert logging.getLogger("websockets").level == logging.WARNING
     assert logging.getLogger("mcp").level == logging.WARNING
+    for handler in captured["handlers"]:
+        handler.close()
 
 
-def test_real_console_logging_redacts_credentials_with_traceback():
+def test_real_console_and_file_logging_redact_credentials_with_traceback(tmp_path):
     import subprocess
     import sys
     script = '''
 import logging
 import io
+import sys
+from pathlib import Path
+from chat2local.runtime import config
 from chat2local.runtime.logging import configure_logging, SafeFormatter
+config.user_data_directory = lambda: Path(sys.argv[1])
 old_output = io.StringIO()
 old_handler = logging.StreamHandler(old_output)
 logging.basicConfig(level=logging.DEBUG, handlers=[old_handler])
@@ -122,11 +128,14 @@ except Exception:
     logging.getLogger("chat2local.test").exception("Internal failure")
 assert old_output.getvalue() == ""
 '''
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=10)
+    result = subprocess.run([sys.executable, "-c", script, str(tmp_path / "data")],
+                            capture_output=True, text=True, timeout=10)
     assert result.returncode == 0
-    assert "Traceback" in result.stderr and "TypeError" in result.stderr
-    assert all(secret not in result.stderr for secret in ("TOKEN-SECRET", "URL-SECRET", "QUERY-SECRET"))
-    assert "[redacted]" in result.stderr
+    file_text = (tmp_path / "data" / "logs" / "chat2local.log").read_text(encoding="utf-8")
+    for text in (result.stderr, file_text):
+        assert "Traceback" in text and "TypeError" in text
+        assert all(secret not in text for secret in ("TOKEN-SECRET", "URL-SECRET", "QUERY-SECRET"))
+        assert "[redacted]" in text
 
 
 @pytest.mark.parametrize("mode", ["hub", "agent", "standalone"])
@@ -150,6 +159,10 @@ logging.basicConfig(level=logging.DEBUG, handlers=[old_handler])
 def check():
     assert old_handler not in logging.getLogger().handlers
     assert all(isinstance(h.formatter, SafeFormatter) for h in logging.getLogger().handlers)
+    from logging.handlers import RotatingFileHandler
+    files = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+    assert len(files) == 1
+    assert Path(files[0].baseFilename) == Path(config).parent / "user-data" / "logs" / "chat2local.log"
     message = "http://user:PROXY-SECRET@localhost:7897"
     if mode != "standalone":
         message = "TOKEN-SECRET " + message
@@ -172,8 +185,10 @@ assert "PROXY-SECRET" not in old_output.getvalue()
     result = subprocess.run([sys.executable, "-c", script, mode, str(config)],
                             capture_output=True, text=True, cwd=tmp_path, timeout=15)
     assert result.returncode == 0, result.stderr
-    assert "PROXY-SECRET" not in result.stderr
-    # Standalone has no configured Hub token; verify token redaction on network roles.
-    if mode != "standalone":
-        assert "TOKEN-SECRET" not in result.stderr
-    assert "[redacted]" in result.stderr
+    file_text = (tmp_path / "user-data" / "logs" / "chat2local.log").read_text(encoding="utf-8")
+    for text in (result.stderr, file_text):
+        assert "PROXY-SECRET" not in text
+        # Standalone has no configured Hub token; verify it on network roles.
+        if mode != "standalone":
+            assert "TOKEN-SECRET" not in text
+        assert "[redacted]" in text

@@ -115,6 +115,13 @@ websockets `connect()` 完成。非法显式 URL 在启动阶段报错；系统�
 CLI 日志初始化会替换已有 root handlers，确保安装 SafeFormatter；shutdown 失败有本地 traceback，
 已有主流程异常时保留主异常，正常主流程退出后 shutdown 失败才成为最终失败。
 
+Console 和文件日志共用 SafeFormatter 脱敏；文件位于 `~/.chat2local/logs/chat2local.log`，
+使用 UTF-8 和 UTC 时间戳，单文件 5 MiB，保留 3 个轮转备份。Runtime 日志按 Core/device 统一存放，
+不按 workspace 分文件；Handoff 继续按 workspace 隔离。本地 Tool 执行记录开始（DEBUG）、
+成功（INFO）或预期失败（WARNING），包含耗时及失败类型，不记录 arguments、results 或内容。
+未知内部错误仍只记录一份 ERROR traceback。文件日志初始化或写入失败会安全警告，Console 保持可用，
+不阻断 Core 功能。
+
 `--debug` 可放在角色参数前后，例如 `chat2local agent --debug`；启用项目 DEBUG 日志，
 增加连接阶段、errno 和 WebSocket close code，不启用第三方认证/帧/完整请求体日志。
 Agent runner 精确识别 websockets `connection_lost()` 中缺少 `recv_messages` 的已知 asyncio
