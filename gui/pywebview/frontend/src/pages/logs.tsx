@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { coreApi } from "@/lib/bridge";
 import { usePoll } from "@/lib/poll";
+import { useLocale } from "@/lib/locale";
 import type { LogCursor } from "@/types/pywebview";
 interface LogLine {
   id: number;
@@ -18,6 +19,7 @@ interface LogLine {
   level: string;
 }
 export function Logs() {
+  const { t } = useLocale();
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState("ALL");
   const [follow, setFollow] = useState(true);
@@ -53,38 +55,38 @@ export function Logs() {
       line.text.toLowerCase().includes(query.toLowerCase()),
   );
   return (
-    <>
+    <div className="logs-page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">ACTIVITY STREAM</p>
-          <h1>Logs</h1>
-          <p>Read-only view of the local Core log.</p>
+          <p className="eyebrow">{t("ACTIVITY STREAM")}</p>
+          <h1>{t("Logs")}</h1>
+          <p>{t("Read-only view of the local Core log.")}</p>
         </div>
       </div>
       {error && (
         <div className="error-note" role="alert">
-          {error}
+          {t(error)}
         </div>
       )}
       <div className="log-toolbar">
         <div className="search-input">
           <Search size={16} />
           <Input
-            aria-label="Search logs"
-            placeholder="Search logs..."
+            aria-label={t("Search logs")}
+            placeholder={t("Search logs...")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
         <Select value={level} onValueChange={setLevel}>
-          <SelectTrigger aria-label="Log level" className="level-select">
+          <SelectTrigger aria-label={t("Log level")} className="level-select">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {["ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].map(
               (value) => (
                 <SelectItem key={value} value={value}>
-                  {value === "ALL" ? "All levels" : value}
+                  {t(value === "ALL" ? "All levels" : value)}
                 </SelectItem>
               ),
             )}
@@ -92,7 +94,7 @@ export function Logs() {
         </Select>
         <div className="follow-control">
           <Radio size={15} />
-          <label htmlFor="follow">Follow</label>
+          <label htmlFor="follow">{t("Follow")}</label>
           <Switch id="follow" checked={follow} onCheckedChange={setFollow} />
         </div>
       </div>
@@ -100,7 +102,7 @@ export function Logs() {
         className="log-viewer"
         ref={viewer}
         role="region"
-        aria-label="Core log output"
+        aria-label={t("Core log output")}
         tabIndex={0}
       >
         <div className="log-date">
@@ -118,20 +120,25 @@ export function Logs() {
           ))
         ) : (
           <div className="log-empty">
-            {data?.missing
-              ? "No log file yet. Logs appear when Core starts."
-              : lines.length
-                ? "No logs match your filters."
-                : "Waiting for log entries..."}
+            {t(
+              data?.missing
+                ? "No log file yet. Logs appear when Core starts."
+                : lines.length
+                  ? "No logs match your filters."
+                  : "Waiting for log entries...",
+            )}
           </div>
         )}
       </div>
       <div className="log-footer">
         <span>
-          {filtered.length} of {lines.length} lines
+          {t("{shown} of {total} lines", {
+            shown: filtered.length,
+            total: lines.length,
+          })}
         </span>
-        <span>{follow ? "Following" : "Paused"}</span>
+        <span>{t(follow ? "Following" : "Paused")}</span>
       </div>
-    </>
+    </div>
   );
 }

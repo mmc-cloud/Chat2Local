@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
 import { coreApi, errorMessage } from "@/lib/bridge";
+import { useLocale } from "@/lib/locale";
 import type { RuntimeSnapshot } from "@/types/pywebview";
 interface Props {
   runtime: RuntimeSnapshot | null;
@@ -36,6 +37,7 @@ export function Overview({
   onAction,
   connected,
 }: Props) {
+  const { t, language } = useLocale();
   const core = runtime?.core;
   const lifecycle = busy
     ? busy === "start"
@@ -49,35 +51,38 @@ export function Overview({
     runtime?.lifecycle === "Starting" ||
     runtime?.lifecycle === "Stopping";
   const perform = (action: "start" | "stop" | "restart") =>
-    void onAction(action).catch((error) => toast.error(errorMessage(error)));
+    void onAction(action).catch((error) => toast.error(t(errorMessage(error))));
   const browse = async () => {
     try {
       const selected = await coreApi.chooseWorkspace();
       if (selected) onWorkspace(selected);
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(t(errorMessage(error)));
     }
   };
   return (
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">YOUR LOCAL CONTROL PLANE</p>
+          <p className="eyebrow">{t("YOUR LOCAL CONTROL PLANE")}</p>
           <h1>Chat2Local</h1>
-          <p>Your local agent, workspace and connection at a glance.</p>
+          <p>{t("Your local agent, workspace and connection at a glance.")}</p>
         </div>
-        <StatusBadge online={running} label={lifecycle} />
+        <StatusBadge online={running} label={t(lifecycle)} />
       </div>
       {(error || runtime?.message) && (
         <div className="error-note" role="alert">
-          {error || runtime?.message} · See Logs for diagnostics.
+          {t(error || runtime?.message || "")} ·{" "}
+          {t("See Logs for diagnostics.")}
         </div>
       )}
       {runtime?.restart_required && (
         <div className="info-note">
           <RotateCw size={17} />
           <p>
-            Restart required. Saved configuration will apply when Core restarts.
+            {t(
+              "Restart required. Saved configuration will apply when Core restarts.",
+            )}
           </p>
         </div>
       )}
@@ -87,19 +92,22 @@ export function Overview({
             <div className="section-title">
               <CardTitle>
                 <Activity size={17} />
-                Core status
+                {t("Core status")}
               </CardTitle>
               <Badge variant="secondary">
-                {core?.mode ?? "No active Core"}
+                {t(core?.mode ?? "No active Core")}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
             <div className="runtime-summary">
               <div>
-                <StatusBadge online={running} label={lifecycle} />
+                <StatusBadge online={running} label={t(lifecycle)} />
                 <p>
-                  {core?.state ?? "Choose a mode and workspace to get started."}
+                  {t(
+                    core?.state ??
+                      "Choose a mode and workspace to get started.",
+                  )}
                 </p>
               </div>
             </div>
@@ -111,13 +119,13 @@ export function Overview({
                 [
                   "Started",
                   core?.started_at
-                    ? new Date(core.started_at).toLocaleString()
+                    ? new Date(core.started_at).toLocaleString(language)
                     : undefined,
                 ],
-                ["Core state", core?.state],
+                ["Core state", core?.state ? t(core.state) : undefined],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dt>{label}</dt>
+                  <dt>{t(String(label))}</dt>
                   <dd>{value ?? "—"}</dd>
                 </div>
               ))}
@@ -132,7 +140,7 @@ export function Overview({
                     onClick={() => perform("stop")}
                   >
                     <Square />
-                    Stop
+                    {t("Stop")}
                   </Button>
                   <Button
                     variant="outline"
@@ -141,7 +149,7 @@ export function Overview({
                     onClick={() => perform("restart")}
                   >
                     <RotateCw />
-                    Restart
+                    {t("Restart")}
                   </Button>
                 </>
               ) : (
@@ -151,7 +159,7 @@ export function Overview({
                   onClick={() => perform("start")}
                 >
                   <Play />
-                  {busy === "start" ? "Starting..." : "Start Core"}
+                  {t(busy === "start" ? "Starting..." : "Start Core")}
                 </Button>
               )}
             </div>
@@ -161,13 +169,13 @@ export function Overview({
           <CardHeader>
             <CardTitle className="startup-card-title">
               <Folder size={17} />
-              Startup context
+              {t("Startup context")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="startup-fields">
               <label htmlFor="startup-mode">
-                Mode
+                {t("Mode")}
                 <Select
                   value={locked && core ? core.mode : mode}
                   onValueChange={onMode}
@@ -179,21 +187,21 @@ export function Overview({
                   <SelectContent>
                     {["standalone", "hub", "agent"].map((value) => (
                       <SelectItem key={value} value={value}>
-                        {value[0].toUpperCase() + value.slice(1)}
+                        {t(value[0].toUpperCase() + value.slice(1))}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </label>
               <label htmlFor="startup-workspace">
-                Workspace
+                {t("Workspace")}
                 <div className="path-picker">
                   <Input
                     id="startup-workspace"
                     value={locked && core ? core.workspace : workspace}
                     onChange={(event) => onWorkspace(event.target.value)}
                     disabled={locked}
-                    placeholder="Choose a workspace folder"
+                    placeholder={t("Choose a workspace folder")}
                   />
                   <Button
                     variant="outline"
@@ -202,14 +210,16 @@ export function Overview({
                     onClick={() => void browse()}
                   >
                     <Folder />
-                    Browse
+                    {t("Browse")}
                   </Button>
                 </div>
               </label>
               <p>
-                {locked
-                  ? "Stop Core before switching mode or workspace."
-                  : "Used for the next Core start. Configuration comes from config.yaml."}
+                {t(
+                  locked
+                    ? "Stop Core before switching mode or workspace."
+                    : "Used for the next Core start. Configuration comes from config.yaml.",
+                )}
               </p>
             </div>
           </CardContent>
@@ -222,19 +232,25 @@ export function Overview({
           </div>
           <div className="workspace-copy">
             <p className="eyebrow">
-              {core ? "ACTIVE WORKSPACE" : "NEXT STARTUP WORKSPACE"}
+              {t(core ? "ACTIVE WORKSPACE" : "NEXT STARTUP WORKSPACE")}
             </p>
-            <h3>{core?.workspace || workspace || "No workspace selected"}</h3>
-            <p>Core validates access using the configured allowed roots.</p>
+            <h3>
+              {core?.workspace || workspace || t("No workspace selected")}
+            </h3>
+            <p>
+              {t("Core validates access using the configured allowed roots.")}
+            </p>
           </div>
         </CardContent>
       </Card>
       <div className="info-note">
         <Cable size={17} />
         <p>
-          {connected
-            ? "Connected to the local Python shell. Core continues running when this window closes."
-            : "Waiting for the desktop Python bridge."}
+          {t(
+            connected
+              ? "Connected to the local Python shell. Core continues running when this window closes."
+              : "Waiting for the desktop Python bridge.",
+          )}
         </p>
       </div>
     </>

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { coreApi, errorMessage } from "@/lib/bridge";
+import { useLocale } from "@/lib/locale";
 import type { ConfigMap, ConfigSnapshot, ConfigValue } from "@/types/pywebview";
 interface Field {
   name: string;
@@ -154,7 +155,11 @@ function canonical(config: ConfigMap) {
     ),
   );
 }
-export function Settings() {
+const advancedSections = ["security", "process", "read", "search"].flatMap(
+  (name) => sections.filter((section) => section.name === name),
+);
+export function Settings({ currentMode }: { currentMode: string }) {
+  const { t, language, setLanguage } = useLocale();
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null);
   const [candidate, setCandidate] = useState<ConfigMap>({});
   const [error, setError] = useState("");
@@ -206,9 +211,11 @@ export function Settings() {
       setSnapshot(saved);
       setCandidate(structuredClone(saved.persisted));
       toast.success(
-        saved.restart_required
-          ? "Configuration saved · Restart required"
-          : "Configuration saved",
+        t(
+          saved.restart_required
+            ? "Configuration saved · Restart required"
+            : "Configuration saved",
+        ),
       );
     } catch (error) {
       setError(errorMessage(error));
@@ -229,13 +236,222 @@ export function Settings() {
       setBusy(false);
     }
   };
+  const renderSection = (section: Section) => (
+    <section className="settings-section" key={section.name}>
+      <div className="settings-intro">
+        <h2>{t(section.name[0].toUpperCase() + section.name.slice(1))}</h2>
+        <p>{t(section.description)}</p>
+      </div>
+      <div className="settings-fields">
+        {section.fields
+          .filter(
+            (field) =>
+              section.name !== "auth" ||
+              field.name === "mode" ||
+              valueFor("auth", "mode") === "oauth",
+          )
+          .map((field) => {
+            const value = valueFor(section.name, field.name);
+            const explicit = Object.hasOwn(
+              candidate[section.name] ?? {},
+              field.name,
+            );
+            const id = `${section.name}-${field.name}`;
+            const set = (value: ConfigValue) =>
+              update(section.name, field.name, value);
+            const text =
+              typeof value === "string" || typeof value === "number"
+                ? String(value)
+                : "";
+            return (
+              <div
+                className={
+                  field.kind === "roots" || field.kind === "proxy"
+                    ? "config-field full-field"
+                    : "config-field"
+                }
+                key={field.name}
+              >
+                <label htmlFor={id}>{t(field.label)}</label>
+                {field.kind === "roots" ? (
+                  <div className="roots-editor">
+                    {(Array.isArray(value) ? value : []).map((path, index) => (
+                      <div className="path-picker" key={index}>
+                        <Input
+                          aria-label={t("Allowed root {index}", {
+                            index: index + 1,
+                          })}
+                          value={path}
+                          onChange={(event) => {
+                            const roots = [
+                              ...(Array.isArray(value) ? value : []),
+                            ];
+                            roots[index] = event.target.value;
+                            set(roots);
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          type="button"
+                          aria-label={t("Remove root {index}", {
+                            index: index + 1,
+                          })}
+                          onClick={() =>
+                            set(
+                              (Array.isArray(value) ? value : []).filter(
+                                (_, position) => position !== index,
+                              ),
+                            )
+                          }
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      onClick={() =>
+                        set([...(Array.isArray(value) ? value : []), ""])
+                      }
+                    >
+                      <Plus />
+                      {t("Add root")}
+                    </Button>
+                  </div>
+                ) : field.kind === "proxy" ? (
+                  <>
+                    <Select
+                      value={
+                        text === "system" || text === "direct" ? text : "custom"
+                      }
+                      onValueChange={(selected) =>
+                        set(selected === "custom" ? "" : selected)
+                      }
+                    >
+                      <SelectTrigger id={id}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="system">
+                          {t("System proxy")}
+                        </SelectItem>
+                        <SelectItem value="direct">
+                          {t("Direct connection")}
+                        </SelectItem>
+                        <SelectItem value="custom">
+                          {t("Custom URL")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {text !== "system" && text !== "direct" && (
+                      <>
+                        <Input
+                          aria-label={t("Custom proxy URL")}
+                          type="password"
+                          autoComplete="off"
+                          value={text}
+                          onChange={(event) => set(event.target.value)}
+                          placeholder={t("HTTP / HTTPS / SOCKS proxy URL")}
+                        />
+                        <p className="text-muted-foreground text-xs">
+                          {t(
+                            "Custom proxy URL is hidden. Edit or paste a new value to replace it.",
+                          )}
+                        </p>
+                      </>
+                    )}
+                  </>
+                ) : field.kind === "select" ? (
+                  <Select
+                    value={text || "__null__"}
+                    onValueChange={(selected) =>
+                      set(selected === "__null__" ? null : selected)
+                    }
+                  >
+                    <SelectTrigger id={id}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {field.nullable && (
+                        <SelectItem value="__null__">
+                          {t("Not configured (null)")}
+                        </SelectItem>
+                      )}
+                      {field.options?.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {t(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id={id}
+                    type={field.kind === "number" ? "number" : "text"}
+                    step="any"
+                    value={text}
+                    placeholder={
+                      value === null ? t("Not configured") : undefined
+                    }
+                    onChange={(event) =>
+                      set(
+                        field.kind === "number" && event.target.value !== ""
+                          ? Number(event.target.value)
+                          : event.target.value,
+                      )
+                    }
+                  />
+                )}
+                <div className="field-meta">
+                  <span>
+                    {t(
+                      explicit
+                        ? value === null
+                          ? "Explicit null"
+                          : "Explicit value"
+                        : "Core default",
+                    )}
+                  </span>
+                  <div>
+                    {field.nullable && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => set(null)}
+                      >
+                        {t("Set null")}
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={!explicit}
+                      onClick={() => reset(section.name, field.name)}
+                    >
+                      {t("Reset")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </section>
+  );
   return (
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">PERSISTED CONFIGURATION</p>
-          <h1>Settings</h1>
-          <p>Explicit values are saved. Unset fields use Core defaults.</p>
+          <p className="eyebrow">{t("PERSISTED CONFIGURATION")}</p>
+          <h1>{t("Settings")}</h1>
+          <p>
+            {t("Explicit values are saved. Unset fields use Core defaults.")}
+          </p>
         </div>
         <Button
           variant="outline"
@@ -244,15 +460,44 @@ export function Settings() {
           disabled={busy || dirty}
         >
           <RotateCcw />
-          Reload
+          {t("Reload")}
         </Button>
       </div>
+      <section className="settings-section">
+        <div className="settings-intro">
+          <h2>{t("Display language")}</h2>
+          <p>
+            {t(
+              "Applies immediately and is remembered for this GUI. Core configuration is unchanged.",
+            )}
+          </p>
+        </div>
+        <div className="settings-fields">
+          <Select
+            value={language}
+            onValueChange={(value) =>
+              setLanguage(value === "en" ? "en" : "zh-CN")
+            }
+          >
+            <SelectTrigger
+              id="display-language"
+              aria-label={t("Display language")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="zh-CN">简体中文</SelectItem>
+              <SelectItem value="en">English</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </section>
       {error && (
         <div className="error-note" role="alert">
-          Configuration is invalid or unavailable: {error}
+          {t("Configuration is invalid or unavailable")}: {t(error)}
         </div>
       )}
-      {!snapshot && !error && <p>Loading configuration...</p>}
+      {!snapshot && !error && <p>{t("Loading configuration...")}</p>}
       {snapshot && (
         <form
           onSubmit={(event) => {
@@ -261,237 +506,31 @@ export function Settings() {
           }}
         >
           <fieldset disabled={busy} className="config-fieldset">
-            {sections.map((section) => (
-              <section className="settings-section" key={section.name}>
-                <div className="settings-intro">
-                  <h2>
-                    {section.name[0].toUpperCase() + section.name.slice(1)}
-                  </h2>
-                  <p>{section.description}</p>
-                </div>
-                <div className="settings-fields">
-                  {section.fields
-                    .filter(
-                      (field) =>
-                        section.name !== "auth" ||
-                        field.name === "mode" ||
-                        valueFor("auth", "mode") === "oauth",
-                    )
-                    .map((field) => {
-                      const value = valueFor(section.name, field.name);
-                      const explicit = Object.hasOwn(
-                        candidate[section.name] ?? {},
-                        field.name,
-                      );
-                      const id = `${section.name}-${field.name}`;
-                      const set = (value: ConfigValue) =>
-                        update(section.name, field.name, value);
-                      const text =
-                        typeof value === "string" || typeof value === "number"
-                          ? String(value)
-                          : "";
-                      return (
-                        <div
-                          className={
-                            field.kind === "roots" || field.kind === "proxy"
-                              ? "config-field full-field"
-                              : "config-field"
-                          }
-                          key={field.name}
-                        >
-                          <label htmlFor={id}>{field.label}</label>
-                          {field.kind === "roots" ? (
-                            <div className="roots-editor">
-                              {(Array.isArray(value) ? value : []).map(
-                                (path, index) => (
-                                  <div className="path-picker" key={index}>
-                                    <Input
-                                      aria-label={`Allowed root ${index + 1}`}
-                                      value={path}
-                                      onChange={(event) => {
-                                        const roots = [
-                                          ...(Array.isArray(value)
-                                            ? value
-                                            : []),
-                                        ];
-                                        roots[index] = event.target.value;
-                                        set(roots);
-                                      }}
-                                    />
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      type="button"
-                                      aria-label={`Remove root ${index + 1}`}
-                                      onClick={() =>
-                                        set(
-                                          (Array.isArray(value)
-                                            ? value
-                                            : []
-                                          ).filter(
-                                            (_, position) => position !== index,
-                                          ),
-                                        )
-                                      }
-                                    >
-                                      <X />
-                                    </Button>
-                                  </div>
-                                ),
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                type="button"
-                                onClick={() =>
-                                  set([
-                                    ...(Array.isArray(value) ? value : []),
-                                    "",
-                                  ])
-                                }
-                              >
-                                <Plus />
-                                Add root
-                              </Button>
-                            </div>
-                          ) : field.kind === "proxy" ? (
-                            <>
-                              <Select
-                                value={
-                                  text === "system" || text === "direct"
-                                    ? text
-                                    : "custom"
-                                }
-                                onValueChange={(selected) =>
-                                  set(selected === "custom" ? "" : selected)
-                                }
-                              >
-                                <SelectTrigger id={id}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="system">
-                                    System proxy
-                                  </SelectItem>
-                                  <SelectItem value="direct">
-                                    Direct connection
-                                  </SelectItem>
-                                  <SelectItem value="custom">
-                                    Custom URL
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                              {text !== "system" && text !== "direct" && (
-                                <>
-                                  <Input
-                                    aria-label="Custom proxy URL"
-                                    type="password"
-                                    autoComplete="off"
-                                    value={text}
-                                    onChange={(event) =>
-                                      set(event.target.value)
-                                    }
-                                    placeholder="HTTP / HTTPS / SOCKS proxy URL"
-                                  />
-                                  <p className="text-muted-foreground text-xs">
-                                    Custom proxy URL is hidden. Edit or paste a
-                                    new value to replace it.
-                                  </p>
-                                </>
-                              )}
-                            </>
-                          ) : field.kind === "select" ? (
-                            <Select
-                              value={text || "__null__"}
-                              onValueChange={(selected) =>
-                                set(selected === "__null__" ? null : selected)
-                              }
-                            >
-                              <SelectTrigger id={id}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {field.nullable && (
-                                  <SelectItem value="__null__">
-                                    Not configured (null)
-                                  </SelectItem>
-                                )}
-                                {field.options?.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
-                              id={id}
-                              type={field.kind === "number" ? "number" : "text"}
-                              step="any"
-                              value={text}
-                              placeholder={
-                                value === null ? "Not configured" : undefined
-                              }
-                              onChange={(event) =>
-                                set(
-                                  field.kind === "number" &&
-                                    event.target.value !== ""
-                                    ? Number(event.target.value)
-                                    : event.target.value,
-                                )
-                              }
-                            />
-                          )}
-                          <div className="field-meta">
-                            <span>
-                              {explicit
-                                ? value === null
-                                  ? "Explicit null"
-                                  : "Explicit value"
-                                : "Core default"}
-                            </span>
-                            <div>
-                              {field.nullable && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => set(null)}
-                                >
-                                  Set null
-                                </Button>
-                              )}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={!explicit}
-                                onClick={() => reset(section.name, field.name)}
-                              >
-                                Reset
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </section>
-            ))}
+            {sections
+              .filter(
+                (section) =>
+                  section.name === currentMode ||
+                  (currentMode === "hub" && section.name === "auth"),
+              )
+              .map(renderSection)}
+            <details className="settings-advanced">
+              <summary>{t("Advanced")}</summary>
+              {advancedSections.map(renderSection)}
+            </details>
             <div className="save-bar">
               <span role="status">
                 {dirty ? (
                   <>
                     <i className="status-dot unsaved" />
-                    Unsaved Changes
+                    {t("Unsaved Changes")}
                   </>
                 ) : (
-                  "Only explicit fields are persisted."
+                  t("Only explicit fields are persisted.")
                 )}
               </span>
               <Button type="submit" size="sm" disabled={busy || !dirty}>
                 <Save />
-                {busy ? "Saving..." : "Save changes"}
+                {t(busy ? "Saving..." : "Save changes")}
               </Button>
             </div>
           </fieldset>

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from bridge import GuiBridge
+from chat2local.runtime import config as core_config
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
@@ -75,6 +76,8 @@ def main() -> None:
     webview.start(
         gui="edgechromium" if sys.platform == "win32" else None,
         http_server=False,
+        private_mode=False,
+        storage_path=str(core_config.user_data_directory() / "gui" / "webview"),
     )
 
 

@@ -89,4 +89,8 @@ def test_shell_start_never_configures_core_logging(
     configure.assert_not_called()
     desktop.create_window.assert_called_once()
     desktop.start.assert_called_once()
+    assert desktop.start.call_args.kwargs["private_mode"] is False
+    assert desktop.start.call_args.kwargs["storage_path"] == str(
+        isolated_user_data / "gui" / "webview"
+    )
     assert not isolated_user_data.exists()

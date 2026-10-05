@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { BridgeState } from "@/lib/bridge";
+import { useLocale } from "@/lib/locale";
 export type Page = "Overview" | "Devices" | "Settings" | "Logs";
 const navigation = [
   { name: "Overview", Icon: LayoutDashboard },
@@ -25,11 +26,14 @@ export function AppSidebar({
   page,
   onNavigate,
   bridge,
+  showDevices,
 }: {
   page: Page;
   onNavigate: (page: Page) => void;
   bridge: BridgeState;
+  showDevices: boolean;
 }) {
+  const { t } = useLocale();
   return (
     <aside className="sidebar">
       <div className="wordmark">
@@ -38,31 +42,33 @@ export function AppSidebar({
         </span>
         <strong>Chat2Local</strong>
       </div>
-      <p className="sidebar-label">WORKSPACE</p>
-      <nav aria-label="Main navigation">
-        {navigation.map(({ name, Icon }) => (
-          <Button
-            key={name}
-            variant="ghost"
-            className={page === name ? "nav-item active" : "nav-item"}
-            aria-current={page === name ? "page" : undefined}
-            onClick={() => onNavigate(name)}
-          >
-            <Icon size={17} />
-            {name}
-          </Button>
-        ))}
+      <p className="sidebar-label">{t("WORKSPACE")}</p>
+      <nav aria-label={t("Main navigation")}>
+        {navigation
+          .filter(({ name }) => name !== "Devices" || showDevices)
+          .map(({ name, Icon }) => (
+            <Button
+              key={name}
+              variant="ghost"
+              className={page === name ? "nav-item active" : "nav-item"}
+              aria-current={page === name ? "page" : undefined}
+              onClick={() => onNavigate(name)}
+            >
+              <Icon size={17} />
+              {t(name)}
+            </Button>
+          ))}
       </nav>
       <div className="sidebar-bottom">
         <div className="prototype-pill">
           <FlaskConical size={15} />
-          <span>Local control</span>
+          <span>{t("Local control")}</span>
           <span className="stage-dot">02</span>
         </div>
         <p>
-          Local by design.
+          {t("Local by design.")}
           <br />
-          Connected when you need it.
+          {t("Connected when you need it.")}
         </p>
         <Separator />
         <Tooltip>
@@ -76,20 +82,22 @@ export function AppSidebar({
                 }
               />
               <span>
-                {bridge.status === "connected"
-                  ? "Backend connected"
-                  : bridge.status === "connecting"
-                    ? "Connecting..."
-                    : "Backend unavailable"}
+                {t(
+                  bridge.status === "connected"
+                    ? "Backend connected"
+                    : bridge.status === "connecting"
+                      ? "Connecting..."
+                      : "Backend unavailable",
+                )}
               </span>
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            Live connection to the local Python shell.
+            {t("Live connection to the local Python shell.")}
           </TooltipContent>
         </Tooltip>
         <div className="version-line">
-          <span>GUI Stage 2</span>
+          <span>{t("GUI Stage 2")}</span>
           <span>Core {bridge.info?.version ?? "—"}</span>
         </div>
       </div>
