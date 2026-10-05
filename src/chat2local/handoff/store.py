@@ -13,7 +13,7 @@ from chat2local.handoff.models import (
     HandoffMetadata, HandoffNotFoundError, HandoffRecord, InvalidHandoffError,
     InvalidWorkstreamError, RevisionConflictError,
 )
-from chat2local.handoff.paths import checked_path, publish_bytes, storage_directory
+from chat2local.handoff.paths import checked_path, storage_directory
 from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
 
@@ -45,14 +45,6 @@ def validate_summary(value: str) -> str:
     return _validate_single_line(value, "summary", SUMMARY_MAX_LENGTH)
 
 
-def _legacy_path(workspace: WorkspaceManager) -> Path:
-    resolved = workspace.resolve_path("HANDOFFS")
-    candidate = workspace.root / "HANDOFFS"
-    if candidate.is_symlink() or candidate.is_junction():
-        raise InvalidHandoffError("HANDOFFS paths must not be symlinks or junctions")
-    return resolved
-
-
 def _read(path: Path, workstream: str) -> HandoffRecord:
     if not path.exists():
         raise HandoffNotFoundError(workstream)
@@ -63,17 +55,16 @@ def _read(path: Path, workstream: str) -> HandoffRecord:
         # A fixed header avoids interpreting user Markdown as YAML metadata.
         header = re.fullmatch(
             r"---\nrevision: ([1-9][0-9]*)\nupdated_at: ([^\n]+)\n"
-            r"(?:title: ([^\n]*)\nsummary: ([^\n]*)\n)?---\n\n([\s\S]*)", text,
+            r"title: ([^\n]*)\nsummary: ([^\n]*)\n---\n\n([\s\S]*)", text,
         )
         if header is None:
-            raise ValueError("expected revision/updated_at and either both title/summary or neither")
+            raise ValueError("expected revision/updated_at/title/summary header")
         revision, updated_at, title, summary, content = header.groups()
         if _TIMESTAMP.fullmatch(updated_at) is None:
             raise ValueError("updated_at must be a UTC RFC3339 timestamp")
         datetime.fromisoformat(updated_at)
-        if title is not None:
-            validate_title(title)
-            validate_summary(summary)
+        validate_title(title)
+        validate_summary(summary)
         return HandoffRecord(workstream, int(revision), updated_at, title, summary, content)
     except (UnicodeError, ValueError) as error:
         raise InvalidHandoffError(f"{workstream}: {error}") from error
@@ -85,57 +76,13 @@ class HandoffStore:
     def __init__(self, user_data: Path | None = None) -> None:
         self._locks: dict[Path, asyncio.Lock] = {}
         self._user_data = user_data if user_data is not None else config.user_data_directory()
-        # Resolution/migration runs in worker threads. Serialize it across all
-        # workstreams so readers cannot observe a partially migrated directory.
+        # Serialize resolution across workstreams so no worker observes a newly
+        # created directory before its workspace.json ownership is published.
         self._directory_lock = threading.Lock()
 
     def _directory(self, workspace: WorkspaceManager, *, create: bool = False) -> Path:
         with self._directory_lock:
-            legacy = _legacy_path(workspace)
-            directory = storage_directory(workspace.root, self._user_data, create=create)
-            if legacy.exists():
-                if not legacy.is_dir():
-                    raise InvalidHandoffError("HANDOFFS must be a directory")
-                directory = self._migrate(workspace, legacy, directory)
-            return directory
-
-    def _migrate(self, workspace: WorkspaceManager, legacy: Path, directory: Path) -> Path:
-        files = []
-        # Preflight everything before writing or deleting any legacy file.
-        for entry in sorted(legacy.iterdir(), key=lambda path: path.name):
-            source = workspace.resolve_path(entry)
-            if entry.is_symlink() or entry.is_junction() or not source.is_file():
-                raise InvalidHandoffError(f"legacy migration requires regular files: {entry.name}")
-            if entry.name == "workspace.json":
-                raise InvalidHandoffError("legacy workspace.json conflicts with internal metadata")
-            if entry.suffix == ".md":
-                try:
-                    validate_workstream(entry.stem)
-                except InvalidWorkstreamError as error:
-                    raise InvalidHandoffError(f"invalid workstream filename: {entry.name}") from error
-                _read(source, entry.stem)
-            data = source.read_bytes()
-            destination = checked_path(directory, entry.name)
-            if destination.exists() and (not destination.is_file() or destination.read_bytes() != data):
-                raise InvalidHandoffError(f"legacy migration conflict: {entry.name}; old data retained")
-            files.append((source, entry.name, data))
-        directory = storage_directory(workspace.root, self._user_data, create=True)
-        for source, name, data in files:
-            destination = checked_path(directory, name)
-            try:
-                publish_bytes(destination, data)
-            except FileExistsError:
-                if not destination.is_file() or destination.read_bytes() != data:
-                    raise InvalidHandoffError(f"legacy migration conflict: {name}; old data retained")
-        # Verify all copies and sources before cleanup. Interrupted copying leaves
-        # every old file intact; retry safely reuses byte-identical destinations.
-        for source, name, data in files:
-            if source.read_bytes() != data or checked_path(directory, name).read_bytes() != data:
-                raise InvalidHandoffError(f"legacy migration changed during copy: {name}; old data retained")
-        for source, _, _ in files:
-            source.unlink()
-        legacy.rmdir()
-        return directory
+            return storage_directory(workspace.root, self._user_data, create=create)
 
     async def list(self, workspace: WorkspaceManager) -> dict:
         return await asyncio.to_thread(self._list, workspace)

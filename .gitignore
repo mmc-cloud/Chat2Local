@@ -18,6 +18,5 @@ wheels/
 .env.*
 !.env.example
 
-# Local documentation and cross-Chat handoffs
+# Local documentation
 /docs/
-/HANDOFFS/

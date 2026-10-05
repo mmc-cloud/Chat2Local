@@ -32,8 +32,8 @@ class HandoffMetadata:
     workstream: str
     revision: int
     updated_at: str
-    title: str | None
-    summary: str | None
+    title: str
+    summary: str
 
 
 @dataclass(frozen=True)

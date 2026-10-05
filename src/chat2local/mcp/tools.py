@@ -331,10 +331,9 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         allowed_roots; omitted uses its startup default. device defaults to local.
         Returns sorted workstream/title/summary/revision/updated_at, without bodies.
         Use title and summary to discover and understand existing workstreams,
-        then choose which full handoff to read. Legacy title/summary are null.
-        Storage is in the device's ~/.chat2local/handoffs/<workspace-key>/; first
-        access migrates old project HANDOFFS/ without rewriting file content.
-        If both locations are missing, returns an empty list without creating them.
+        then choose which full handoff to read.
+        Storage is in the device's ~/.chat2local/handoffs/<workspace-key>/.
+        If storage is missing, returns an empty list without creating it.
         Malformed files fail with invalid_handoff; this tool never silently hides
         corrupted handoffs.
         """
@@ -395,7 +394,6 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         semantic content. Title, summary and body update atomically as one state.
         expected_revision is a strict integer >= 0: use 0 to create, or the latest
         handoff_get revision to update. Success returns all metadata, without content.
-        Reading legacy files returns null title/summary; the next save upgrades them.
         revision_conflict writes nothing: get the latest body, merge its meaning
         yourself, and save with that revision. No automatic merge or history.
         workspace selects a single absolute project inside the target device's

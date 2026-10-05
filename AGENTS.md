@@ -54,15 +54,14 @@ Handoff 只保存按 workstream 划分的最新跨 Chat 交接状态，长期项
 Handoff scope = workspace；Handoff storage = Chat2Local user-data directory。
 文件保存在目标设备的 `~/.chat2local/handoffs/<workspace-key>/<workstream>.md`，
 复用 config.yaml 的用户数据根目录，每个 workspace 独立目录及 workspace.json 归属记录。
-首次访问自动迁移旧 `<workspace>/HANDOFFS/`，原样保留文件内容；同名不同内容报错，
-全部新文件验证成功后才清理旧目录。用户 workspace 的普通文件工具仍受 WorkspaceManager 边界约束；
+用户 workspace 的普通文件工具仍受 WorkspaceManager 边界约束；
 Handoff 内部存储不要求位于 workspace 内，也不成为全局共享 workstream。
 
 Handoff 的 `workstream` 是稳定机器 ID / 文件名，`title` 是可读工作线名称，
 `summary` 是简短当前状态，`content` 是完整恢复上下文。
 title / summary 由调用模型生成并显式传入；Chat2Local 本身没有 LLM，只做严格校验和持久化。
 新 Chat 先通过 `handoff_list` 的 title / summary 发现并理解已有工作线，再选择完整 Handoff。
-旧格式文件可读取（title / summary 为 null），下一次正式 save 才升级格式，不批量迁移或自动猜测。
+文件必须包含 revision / updated_at / title / summary，缺失或无效 metadata 视为 invalid_handoff。
 
 ### Handoff 使用规范
 

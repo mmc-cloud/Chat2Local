@@ -36,7 +36,7 @@ def test_dispatcher_strict_handoff_arguments(tmp_path, tool, arguments, message)
     local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
     with pytest.raises(ToolExecutionError, match=message):
         run(local.execute(tool, arguments))
-    assert not (tmp_path / "HANDOFFS").exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize("field,value", INVALID_DISCOVERY)
@@ -46,7 +46,7 @@ def test_dispatcher_rejects_invalid_title_summary(tmp_path, field, value):
     arguments[field] = value
     with pytest.raises(ToolExecutionError, match=field):
         run(local.execute("handoff_save", arguments))
-    assert not (tmp_path / "HANDOFFS").exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize("field", ["title", "summary"])
@@ -56,7 +56,7 @@ def test_dispatcher_requires_discovery_metadata(tmp_path, field):
     del arguments[field]
     with pytest.raises(ToolExecutionError, match=field):
         run(local.execute("handoff_save", arguments))
-    assert not (tmp_path / "HANDOFFS").exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_dispatcher_workspace_override_and_concurrency(tmp_path):
@@ -90,7 +90,7 @@ def test_dispatcher_workspace_override_and_concurrency(tmp_path):
                     await local.execute(tool, {**extra, "workspace": workspace})
         assert local.handoff_store is store and local.workspace is manager
     run(scenario())
-    assert not (a / "HANDOFFS").exists() and not (outside / "HANDOFFS").exists()
+    assert list(a.iterdir()) == [] and list(outside.iterdir()) == []
 
 
 @pytest.mark.parametrize("mode", ["standalone", "hub-local", "agent"])
@@ -143,7 +143,7 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                 async def call(name, **args):
                     return await client.call_tool(name, {**args, "device": device})
                 assert decode(await call("handoff_list")) == {"handoffs": []}
-                assert not (target / "HANDOFFS").exists()
+                assert list(target.iterdir()) == []
                 created = decode(await call("handoff_save", title="阶段四：跨会话续接 🚀", summary="State: implemented; next: 验证跨 Chat resume。", workstream="design", content="正文😀", expected_revision=0))
                 assert created["revision"] == 1
                 assert created["title"] == "阶段四：跨会话续接 🚀"
@@ -189,34 +189,21 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                     args = dict(workstream="bad", title="Title", summary="Summary", content="body", expected_revision=0)
                     del args[field]
                     assert (await call("handoff_save", **args)).is_error
-                assert not (target / "HANDOFFS/bad.md").exists()
+                assert not (handoff_directory(target) / "bad.md").exists()
                 if mode == "standalone":
                     unavailable = await client.call_tool("handoff_list", {"device": "remote"})
                     assert unavailable.is_error and "unavailable" in unavailable.content[0].text
-                # Legacy reads leave bytes intact; only a normal save upgrades.
-                legacy_path = target / "HANDOFFS/legacy.md"
-                legacy_path.parent.mkdir()
-                legacy_bytes = b"---\nrevision: 1\nupdated_at: 2026-10-03T02:30:00Z\n---\n\nlegacy body"
-                legacy_path.write_bytes(legacy_bytes)
-                legacy = decode(await call("handoff_get", workstream="legacy"))
-                assert legacy["title"] is None and legacy["summary"] is None and legacy["content"] == "legacy body"
-                listed_legacy = next(item for item in decode(await call("handoff_list"))["handoffs"] if item["workstream"] == "legacy")
-                assert listed_legacy == {key: value for key, value in legacy.items() if key != "content"}
-                assert not legacy_path.parent.exists()
-                legacy_path = handoff_directory(target) / "legacy.md"
-                assert legacy_path.read_bytes() == legacy_bytes
-                upgraded = decode(await call("handoff_save", workstream="legacy", title="Legacy: upgraded", summary="Now current", content="new body", expected_revision=1))
-                assert upgraded["revision"] == 2
-                assert decode(await call("handoff_get", workstream="legacy")) == {**upgraded, "content": "new body"}
-                assert b"title: Legacy: upgraded\nsummary: Now current\n" in legacy_path.read_bytes()
                 # Corrupt metadata is transported as a tool error, including over WS.
-                (handoff_directory(target) / "broken.md").write_bytes(b"broken")
-                for name, args in (("handoff_list", {}), ("handoff_get", {"workstream": "broken"}),
-                                   ("handoff_save", {"title": "Title", "summary": "Summary", "workstream": "broken", "content": "new", "expected_revision": 0})):
-                    error = await call(name, **args)
-                    assert error.is_error and "invalid_handoff:" in error.content[0].text
+                broken_path = handoff_directory(target) / "broken.md"
+                for data in (b"broken", b"---\nrevision: 1\nupdated_at: 2026-10-03T02:30:00Z\n---\n\nbody"):
+                    broken_path.write_bytes(data)
+                    for name, args in (("handoff_list", {}), ("handoff_get", {"workstream": "broken"}),
+                                       ("handoff_save", {"title": "Title", "summary": "Summary", "workstream": "broken", "content": "new", "expected_revision": 1})):
+                        error = await call(name, **args)
+                        assert error.is_error and "invalid_handoff:" in error.content[0].text
+                        assert broken_path.read_bytes() == data
                 if remote:
-                    assert not (hub / "HANDOFFS").exists()
+                    assert list(hub.iterdir()) == []
                     # Reconnect preserves the same dispatcher/store and persisted revision.
                     store = agent.handoff_store
                     session = router.registry.get("desktop")

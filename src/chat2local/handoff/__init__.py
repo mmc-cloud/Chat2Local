@@ -1,1 +1,1 @@
-"""Latest workstream handoffs stored in the selected project workspace."""
+"""Workspace-scoped latest workstream handoffs stored in Chat2Local user data."""
