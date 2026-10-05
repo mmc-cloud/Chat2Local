@@ -27,6 +27,8 @@ from chat2local.runtime.config import ConfigError, load_config, validation_messa
 from chat2local.runtime.logging import configure_logging, websocket_callback_noise
 from chat2local.runtime.process_manager import ProcessManager
 from chat2local.runtime.shell import ShellError
+from chat2local.runtime.instance import RuntimeManagementError
+from chat2local.runtime.supervisor import CoreServer, RuntimeSupervisor
 from chat2local.runtime.workspace import WorkspaceError
 
 logger = logging.getLogger(__name__)
@@ -123,7 +125,20 @@ def _resolve_token(cli_token: str | None, token_file: str | None, *, role: str) 
 
 async def _run_agent(client) -> None:
     with websocket_callback_noise(asyncio.get_running_loop()):
-        await client.run()
+        supervisor = RuntimeSupervisor(
+            "agent", client.device_id, client.local.workspace.root, state=lambda: client.state,
+        )
+        await supervisor.run(client.run, lambda task: task.cancel())
+
+
+async def _run_server(application, *, mode: str, device_id: str, workspace: Path,
+                      host: str, port: int) -> None:
+    server = CoreServer(uvicorn.Config(application, host=host, port=port, reload=False))
+    supervisor = RuntimeSupervisor(
+        mode, device_id, workspace,
+        state=lambda: "stopping" if server.should_exit else "running" if server.started else "starting",
+    )
+    await supervisor.run(server.serve, lambda task: setattr(server, "should_exit", True))
 
 
 def main() -> None:
@@ -203,6 +218,8 @@ def main() -> None:
             asyncio.run(_run_agent(client))
         except KeyboardInterrupt:
             pass
+        except RuntimeManagementError as error:
+            parser.exit(1, f"{error}\n")
         except ConfigError as error:
             parser.error(str(error))
         except RegistrationError:
@@ -228,9 +245,12 @@ def main() -> None:
     configure_logging(debug=args.debug, secrets=(token,) if token else ())
     logger.info("%s starting as %s", role, device_id)
     try:
-        uvicorn.run(application, host=host, port=port, reload=False)
+        asyncio.run(_run_server(application, mode=args.mode or "standalone", device_id=device_id,
+                                workspace=workspace_manager.root, host=host, port=port))
     except KeyboardInterrupt:
         pass
+    except RuntimeManagementError as error:
+        parser.exit(1, f"{error}\n")
     except Exception:
         logger.exception("Unexpected server runtime failure")
         parser.exit(1, "Internal server error; see local logs\n")

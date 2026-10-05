@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket
@@ -52,7 +53,7 @@ def create_app(
                 finally:
                     await local_router.local.process_manager.shutdown()
 
-    application = FastAPI(title="Chat2Local", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title="Chat2Local", version=version("chat2local"), lifespan=lifespan)
     application.state.router = router
     application.state.mcp = server
 

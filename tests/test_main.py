@@ -1,6 +1,6 @@
 """Startup wiring: what ``main()`` binds before Uvicorn serves anything.
 
-The server itself is never started here; ``uvicorn.run`` is replaced so the
+The server itself is never started here; ``CoreServer.serve`` is replaced so the
 test can inspect the runtime state the process would have launched with.
 """
 
@@ -34,11 +34,11 @@ def launched(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     calls: dict[str, Any] = {}
 
-    def fake_run(app: str, **kwargs: Any) -> None:
-        calls["app"] = app
-        calls.update(kwargs)
+    async def fake_serve(server) -> None:
+        calls["app"] = server.config.app
+        calls.update(host=server.config.host, port=server.config.port, reload=server.config.reload)
 
-    monkeypatch.setattr(main_module.uvicorn, "run", fake_run)
+    monkeypatch.setattr(main_module.CoreServer, "serve", fake_serve)
 
     yield calls
 

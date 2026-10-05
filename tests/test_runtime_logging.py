@@ -139,8 +139,11 @@ def test_each_cli_role_replaces_existing_handlers_and_redacts_output(tmp_path, m
 import importlib, io, logging, sys
 from chat2local.agent.client import AgentClient
 from chat2local.runtime.logging import SafeFormatter
+from chat2local.runtime import config as runtime_config
 entry = importlib.import_module("chat2local.main")
 mode, config = sys.argv[1:]
+from pathlib import Path
+runtime_config.user_data_directory = lambda: Path(config).parent / "user-data"
 old_output = io.StringIO()
 old_handler = logging.StreamHandler(old_output)
 logging.basicConfig(level=logging.DEBUG, handlers=[old_handler])
@@ -154,7 +157,9 @@ def check():
 async def agent_run(client):
     check()
 AgentClient.run = agent_run
-entry.uvicorn.run = lambda *args, **kwargs: check()
+async def server_serve(server):
+    check()
+entry.CoreServer.serve = server_serve
 sys.argv = ["chat2local", "--config", config, "--device-id", "test"]
 if mode != "standalone":
     sys.argv += [mode, "--token", "TOKEN-SECRET"]

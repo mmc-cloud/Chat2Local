@@ -15,6 +15,37 @@ uv run chat2local
 `config.example.yaml` 是示例；每台设备自己的 `security.allowed_roots` 是本地授权上限，
 默认 `[]` 只授权本次启动的 default workspace。
 
+Runtime Management V0.1：每台设备、每个 OS 用户同时只能运行一个 Core（standalone / hub / agent
+共用限制）。多 workspace 继续通过 Tool 的 workspace 参数和 allowed_roots 选择。
+复用用户数据目录的 `runtime.lock`：Windows 使用 `msvcrt.locking`，Linux/macOS 使用
+`fcntl.flock`；进程全生命周期持锁，残留锁文件不影响重启。第二个 Core 启动报
+`Chat2Local is already running`。
+
+取得锁后，先启动本地 control listener，再原子发布 `~/.chat2local/runtime.json`，最后运行 Core。
+descriptor 字段为 `schema_version=1`、`instance_id`（每次启动新 UUID）、`pid`、`mode`、
+`device_id`、`workspace`（startup workspace）、`started_at`（UTC RFC3339）、`version`（包 metadata），
+以及 `control={transport: tcp, host: 127.0.0.1, port: <OS 分配端口>}`；不保存认证或 Tool 参数。
+descriptor 仅用于发现，客户端必须 ping 并比对 instance_id，不能仅凭文件判断在线。
+
+Control 使用 IPv4 loopback TCP，与 HTTP / MCP 独立。每个连接只处理一个 UTF-8 JSON request / response，
+均以换行结束。request 严格为 `{"id":"1","method":"ping"}`：id 为 1–128 字符串，method
+仅允许 `ping`、`status`、`stop`，拒绝未知字段。请求最大 4096 bytes、响应最大 16384 bytes
+（含换行），读取和发送等待最多 5 秒；客户端也应为 TCP connect 设置 timeout。
+
+- 成功响应：`{"id":"1","ok":true,"result":{...}}`。
+- ping result：`{"instance_id":"..."}`。
+- status result：descriptor 的实例信息字段（不含 schema_version/control），加实时 `state`。
+  Agent 复用连接状态；Hub/Standalone 使用 starting / running；退出期间为 stopping。
+- stop result：`{"accepted":true}`。回送确认后触发统一 shutdown signal，重复 stop 幂等。
+- 失败响应：`{"id":null,"ok":false,"error":"invalid_request"}`，另有
+  request_too_large / request_timeout；response_too_large 保留合法 request id。响应后关闭连接。
+
+Agent stop 取消主任务并等待其现有 finally；HTTP Core 设置 Uvicorn `should_exit`，继续走
+FastAPI lifespan 的 registry / process cleanup。Ctrl+C、正常退出和运行错误也走统一清理：
+Core → control → 自己的 descriptor → 释放锁。异常 kill 可留下 descriptor；下次成功持锁后安全替换。
+V0.1 不增加 control token，loopback 控制不构成针对本机其他进程的安全沙箱。
+GUI 和 status/stop CLI 尚未实现。
+
 多设备：在 Hub 和每台 Agent 上设置同一个 `CHAT2LOCAL_HUB_TOKEN`，也可以用 `--token` 覆盖。
 Standalone 无需 token 或 Hub。
 
