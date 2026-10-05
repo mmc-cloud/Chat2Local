@@ -378,13 +378,10 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
     ) -> dict[str, Any]:
         """Atomically replace a workstream's latest Markdown body using its revision.
 
-        Lifecycle rule: this Tool checkpoints cross-chat continuation state; it is
-        not a routine progress logger. Do not call it after individual Tool calls,
-        investigation findings, code changes or each completed subtask while the
-        same chat is actively continuing. Normally defer saving until the user is
-        switching chats, work is being paused for later, the user explicitly asks
-        to save, or a major phase boundary materially changes what a future chat
-        must know to resume. If unsure, do not save yet.
+        Saving is a cross-chat checkpoint, not a routine progress logger.
+        Follow the server's Handoff lifecycle guidance: save when switching chats,
+        pausing for later, explicitly requested, or at a meaningful phase boundary.
+        If unsure, do not save yet.
 
         workstream is an ASCII slug, never a file path. content is only the body;
         Chat2Local manages front matter and normalizes body line endings to LF.
