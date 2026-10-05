@@ -244,7 +244,8 @@ def test_unknown_tool_failure_safe_over_real_mcp_with_local_traceback(tmp_path, 
                     assert "Internal local tool error" in text
                     assert "PRIVATE-INTERNAL-DETAIL" not in text and "Traceback" not in text
     run(scenario())
-    errors = [record for record in caplog.records if record.getMessage() == "Unexpected local tool failure"]
+    errors = [record for record in caplog.records if record.name == "chat2local.dispatch.local"
+              and record.getMessage().startswith(f"Tool read failed error_type={exception.__name__} duration_ms=")]
     assert len(errors) == 1 and errors[0].exc_info[0] is exception
     assert errors[0].exc_info[2] is not None
     assert "PRIVATE-INTERNAL-DETAIL" in caplog.text

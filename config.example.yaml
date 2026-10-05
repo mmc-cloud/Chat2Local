@@ -10,6 +10,9 @@
 #   CLI 显式参数
 #
 # 未写出的字段使用内置默认值；未知字段会报错，避免拼写错误被静默忽略。
+# CLI 参数只对本次启动有效，不写回此配置。保存配置只保留显式字段，重启 Core 后生效。
+# Config Management 保存会规范化 YAML，不保留原始注释；本文件继续作为带注释的参考。
+# workspace/default_workspace 不属于 config；启动目录仍由 --workspace 或 cwd 决定。
 
 read:
   max_lines: 1000 # 单次最多返回行数
@@ -25,7 +28,7 @@ process:
   stdout_buffer_limit: 1048576 # 保留最近 1 MiB（UTF-8 bytes）
   stderr_buffer_limit: 1048576
   response_output_limit: 32768 # stdout + stderr，总计 32 KiB；至少 4 bytes
-  terminate_grace_period: 3 # 秒
+  terminate_grace_period: 3 # POSIX SIGTERM 后等待秒数；Windows taskkill helper 独立固定等待 5 秒
   finished_retention: 600 # 秒；进程状态只保存在内存中
 
 security:

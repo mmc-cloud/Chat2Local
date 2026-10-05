@@ -29,6 +29,7 @@ from chat2local.runtime.workspace import WorkspaceManager
 MAX_FINISHED_PROCESSES = 64
 STDIN_RESPONSE_WAIT = 0.250
 PIPE_READ_SIZE = 16384
+WINDOWS_TASKKILL_TIMEOUT = 5.0
 ProcessState = Literal["running", "exited", "terminated"]
 logger = logging.getLogger(__name__)
 
@@ -403,9 +404,8 @@ class ProcessManager:
         executable = shutil.which("taskkill.exe")
         if executable is None:
             raise ProcessError("taskkill.exe is unavailable")
-        arguments = [executable, "/PID", str(record.process.pid), "/T"]
-        if force:
-            arguments.append("/F")
+        # CREATE_NO_WINDOW has no supported graceful termination path in V0.1.
+        arguments = [executable, "/PID", str(record.process.pid), "/T", "/F"]
         try:
             helper = await asyncio.create_subprocess_exec(
                 *arguments, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
@@ -414,14 +414,14 @@ class ProcessManager:
         except OSError as error:
             raise ProcessError(f"Could not start taskkill: {error.strerror}") from error
         try:
-            await asyncio.wait_for(helper.wait(), max(1.0, self.config.terminate_grace_period))
+            await asyncio.wait_for(helper.wait(), WINDOWS_TASKKILL_TIMEOUT)
         except TimeoutError:
             raise ProcessError("taskkill timed out") from None
         finally:
             if helper.returncode is None:
                 helper.kill()
                 await helper.wait()
-        if helper.returncode != 0 and force and record.process.returncode is None:
+        if helper.returncode != 0 and record.process.returncode is None:
             raise ProcessError(f"taskkill /T /F failed with exit code {helper.returncode}")
         if helper.returncode == 0:
             record.termination_sent = True
@@ -430,10 +430,11 @@ class ProcessManager:
     async def _terminate(self, record: ProcessRecord) -> TerminationResult:
         if record.process.returncode is not None:
             return TerminationResult("already_exited", record.status())
-        forced_initially = record.force_requested.is_set()
+        # Windows sends one forced tree termination; only POSIX waits/escalates.
+        forced_initially = os.name == "nt" or record.force_requested.is_set()
         sent = await self._signal_tree(record, force=forced_initially)
         record.termination_sent |= sent
-        if not record.force_requested.is_set():
+        if os.name != "nt" and not record.force_requested.is_set():
             finished = asyncio.create_task(record.finished.wait())
             force = asyncio.create_task(record.force_requested.wait())
             try:

@@ -375,7 +375,8 @@ def test_programmer_errors_are_not_swallowed(server: MCPServer, bound, monkeypat
         call(server, tool, arguments)
 
     assert "unexpected bug" not in str(failure.value)
-    records = [record for record in caplog.records if record.getMessage() == "Unexpected local tool failure"]
+    records = [record for record in caplog.records if record.name == "chat2local.dispatch.local"
+               and record.getMessage().startswith(f"Tool {tool} failed error_type={kind.__name__} duration_ms=")]
     assert len(records) == 1 and records[0].exc_info[0] is kind
     assert records[0].exc_info[2] is not None
     assert "unexpected bug" in caplog.text

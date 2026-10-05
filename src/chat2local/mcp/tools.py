@@ -305,8 +305,9 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
             device: Same device used by exec_command. Omitted selects the local
                 device; the Hub never guesses process ownership.
 
-        The device runtime attempts graceful termination then force after its
-        configured grace period. Returns outcome=terminated or already_exited,
+        Windows force-terminates the process tree directly. Linux/macOS attempt
+        graceful termination then force after the configured grace period.
+        Returns outcome=terminated or already_exited,
         plus the common process output fields. Killing consumes one output page;
         unread final output remains available through interact_process during
         retention. Already exited is a normal result; unknown_process is an error.

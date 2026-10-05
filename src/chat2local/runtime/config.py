@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
@@ -158,6 +160,70 @@ class AppConfig(_ConfigModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
+def read_persisted_config(path: Path | str | None = None) -> dict[str, Any]:
+    """Read explicit YAML fields, without defaults or CLI overrides.
+
+    A missing default file means an empty configuration. An explicitly named
+    missing file remains an error, matching ``load_config``.
+    """
+    config_path = DEFAULT_CONFIG_PATH if path is None else Path(path).expanduser()
+    if config_path.exists():
+        return _read_config_file(config_path)
+    if path is not None:
+        raise ConfigError(f"Config file does not exist: {config_path}")
+    return {}
+
+
+def validate_persisted_config(candidate: Mapping[str, Any]) -> AppConfig:
+    """Validate with the Core schema; the returned model includes defaults.
+
+    ``model_dump(exclude_unset=True)`` retains only explicit fields, including
+    explicit defaults and nulls. Do not persist a full effective runtime model.
+    """
+    if not isinstance(candidate, Mapping):
+        raise ConfigError("Invalid config: expected a mapping")
+    try:
+        return AppConfig.model_validate(candidate)
+    except ValidationError as error:
+        raise ConfigError(f"Invalid config: {validation_message(error)}") from None
+
+
+def save_persisted_config(candidate: Mapping[str, Any], path: Path | str | None = None) -> None:
+    """Validate and atomically replace sparse YAML; a running Core is unchanged.
+
+    PyYAML produces normalized UTF-8/LF YAML; original comments aren't retained.
+    No revision or lock is used. Concurrent saves follow last-replace-wins.
+    """
+    validated = validate_persisted_config(candidate)
+    try:
+        content = yaml.safe_dump(
+            validated.model_dump(exclude_unset=True), allow_unicode=True, sort_keys=False,
+        ).encode("utf-8")
+    except (yaml.YAMLError, TypeError, ValueError):
+        raise ConfigError("Could not serialize config") from None
+
+    config_path = DEFAULT_CONFIG_PATH if path is None else Path(path).expanduser()
+    temporary: Path | None = None
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=config_path.parent, prefix=".config-", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, config_path)
+    except OSError:
+        raise ConfigError(f"Could not save config file: {config_path}") from None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass  # Cleanup must not hide the original save failure.
+
+
 def load_config(
     path: Path | str | None = None,
     overrides: Mapping[str, Any] | None = None,
@@ -172,34 +238,16 @@ def load_config(
     ``None`` entries are ignored and never hide a configured value.
     """
 
-    if path is None:
-        config_path: Path | None = DEFAULT_CONFIG_PATH
-        missing_is_error = False
-    else:
-        config_path = Path(path).expanduser()
-        missing_is_error = True
-
-    data: dict[str, Any] = {}
-
-    if config_path is not None:
-        if config_path.exists():
-            data = _read_config_file(config_path)
-        elif missing_is_error:
-            raise ConfigError(f"Config file does not exist: {config_path}")
-
+    data = read_persisted_config(path)
     merged = _merge(data, _without_none(overrides or {}))
-
-    try:
-        return AppConfig.model_validate(merged)
-    except ValidationError as error:
-        raise ConfigError(f"Invalid config: {validation_message(error)}") from None
+    return validate_persisted_config(merged)
 
 
 def _read_config_file(path: Path) -> dict[str, Any]:
     try:
         content = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        raise ConfigError(f"Could not read config file: {path}") from error
+    except (OSError, UnicodeDecodeError):
+        raise ConfigError(f"Could not read config file: {path}") from None
 
     try:
         data = yaml.safe_load(content)

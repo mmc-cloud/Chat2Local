@@ -389,8 +389,8 @@ def pid_alive(pid):
     return True
 
 
-@pytest.mark.parametrize("shutdown", [False, True])
-def test_real_process_tree_is_terminated_and_output_drained(workspace, shutdown):
+@pytest.mark.parametrize("operation", ["terminate", "force", "shutdown"])
+def test_real_process_tree_is_terminated_and_output_drained(workspace, operation):
     async def scenario():
         async with managed() as manager:
             code = (
@@ -407,21 +407,23 @@ def test_real_process_tree_is_terminated_and_output_drained(workspace, shutdown)
                 await asyncio.sleep(0.005)
             child_pid = int(text.split("CHILD=", 1)[1].splitlines()[0])
             await eventually(lambda: pid_alive(child_pid))
-            if shutdown:
+            if operation == "shutdown":
                 await manager.shutdown()
             else:
-                result = await manager.terminate(record.process_id)
+                result = await manager.terminate(record.process_id, force=operation == "force")
                 assert result.status.state == "terminated"
             await eventually(lambda: not pid_alive(child_pid))
+            assert not pid_alive(record.process.pid)
             assert record.process.returncode is not None and record.finished.is_set()
             assert all(task.done() for task in record.drain_tasks)
     run(scenario())
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows taskkill tree")
-def test_windows_taskkill_uses_tree_and_force_flags(workspace, monkeypatch):
+@pytest.mark.parametrize("force", [False, True])
+def test_windows_taskkill_uses_tree_and_force_flags(workspace, monkeypatch, force):
     async def scenario():
-        async with managed() as manager:
+        async with managed(ProcessConfig(terminate_grace_period=60)) as manager:
             original = module.asyncio.create_subprocess_exec
             arguments = []
             async def create(*args, **kwargs):
@@ -431,9 +433,135 @@ def test_windows_taskkill_uses_tree_and_force_flags(workspace, monkeypatch):
             monkeypatch.setattr(module.asyncio, "create_subprocess_exec", create)
             record = await manager.spawn("import time; print('ready'); time.sleep(30)", workspace=workspace)
             await eventually(lambda: record.stdout.retained_end > 0)
-            await manager.terminate(record.process_id)
-            assert arguments[0][1:] == ("/PID", str(record.process.pid), "/T")
-            assert arguments[-1][1:] == ("/PID", str(record.process.pid), "/T", "/F")
+            result = await asyncio.wait_for(manager.terminate(record.process_id, force=force), 10)
+            assert len(arguments) == 1
+            assert arguments[0][1:] == ("/PID", str(record.process.pid), "/T", "/F")
+            assert result.status.state == "terminated" and not result.status.draining
+    run(scenario())
+
+
+class TaskkillHelper:
+    """A controlled helper boundary, without running taskkill on arbitrary PIDs."""
+
+    def __init__(self, *, exit_code=0, delay=0):
+        self.exit_code = exit_code
+        self.delay = delay
+        self.returncode = None
+        self.killed = False
+        self.wait_calls = 0
+
+    async def wait(self):
+        self.wait_calls += 1
+        if self.returncode is None:
+            await asyncio.sleep(self.delay)
+            self.returncode = self.exit_code
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self.returncode = 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows helper timeout")
+@pytest.mark.parametrize("grace", [0.05, 60])
+def test_windows_helper_timeout_is_five_seconds_independent_of_grace(monkeypatch, grace):
+    async def scenario():
+        manager = ProcessManager(ProcessConfig(terminate_grace_period=grace), shell=PYTHON)
+        record = SimpleNamespace(process=SimpleNamespace(pid=1234, returncode=None), termination_sent=False)
+        helper = TaskkillHelper(delay=1.1)  # The former one-second minimum would fail.
+        calls, timeouts = [], []
+        original_wait_for = module.asyncio.wait_for
+        async def create(*args, **kwargs):
+            calls.append((args, kwargs))
+            return helper
+        async def wait_for(awaitable, timeout):
+            timeouts.append(timeout)
+            return await original_wait_for(awaitable, timeout)
+        monkeypatch.setattr(module.shutil, "which", lambda name: "taskkill.exe")
+        monkeypatch.setattr(module.asyncio, "create_subprocess_exec", create)
+        monkeypatch.setattr(module.asyncio, "wait_for", wait_for)
+        assert await manager._windows_signal_tree(record, force=False)
+        assert timeouts == [5.0] and module.WINDOWS_TASKKILL_TIMEOUT == 5.0
+        assert calls[0][0] == ("taskkill.exe", "/PID", "1234", "/T", "/F")
+        assert calls[0][1] == {
+            "stdin": asyncio.subprocess.DEVNULL, "stdout": asyncio.subprocess.DEVNULL,
+            "stderr": asyncio.subprocess.DEVNULL, "creationflags": module.subprocess.CREATE_NO_WINDOW,
+        }
+        assert helper.wait_calls == 1 and not helper.killed and record.termination_sent
+    run(scenario())
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill failures")
+@pytest.mark.parametrize("failure", ["missing", "spawn", "timeout", "nonzero"])
+@pytest.mark.parametrize("force", [False, True])
+def test_windows_taskkill_failures_are_safe_and_helper_is_reaped(monkeypatch, caplog, failure, force):
+    async def scenario():
+        manager = ProcessManager(ProcessConfig(terminate_grace_period=0.05), shell=PYTHON)
+        record = SimpleNamespace(
+            process=SimpleNamespace(pid=1234, returncode=None), termination_sent=False,
+            signal_lock=asyncio.Lock(), signal_finished=asyncio.Event(),
+        )
+        record.signal_finished.set()
+        helper = TaskkillHelper(exit_code=7 if failure == "nonzero" else 0)
+        calls = []
+        async def create(*args, **kwargs):
+            calls.append(args)
+            if failure == "spawn":
+                raise OSError(errno.EACCES, "Permission denied", "PRIVATE-HOST-PATH")
+            return helper
+        async def timeout(awaitable, seconds):
+            assert seconds == 5.0
+            awaitable.close()
+            raise TimeoutError("PRIVATE-HELPER-BODY")
+        monkeypatch.setattr(module.shutil, "which", lambda name: None if failure == "missing" else "taskkill.exe")
+        monkeypatch.setattr(module.asyncio, "create_subprocess_exec", create)
+        if failure == "timeout":
+            monkeypatch.setattr(module.asyncio, "wait_for", timeout)
+        expected = {
+            "missing": "taskkill.exe is unavailable", "spawn": "Could not start taskkill: Permission denied",
+            "timeout": "taskkill timed out", "nonzero": "taskkill /T /F failed with exit code 7",
+        }
+        with pytest.raises(ProcessError) as caught:
+            await manager._signal_tree(record, force=force)
+        assert str(caught.value) == expected[failure]
+        assert "PRIVATE" not in str(caught.value) and not record.termination_sent
+        assert calls == ([] if failure == "missing" else [("taskkill.exe", "/PID", "1234", "/T", "/F")])
+        if failure == "timeout":
+            assert helper.killed and helper.wait_calls == 1 and helper.returncode is not None
+        assert record.signal_finished.is_set() and not record.signal_lock.locked()
+    run(scenario())
+    assert caplog.records == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows natural exit race")
+@pytest.mark.parametrize("force", [False, True])
+def test_windows_nonzero_helper_after_natural_exit_is_already_exited(workspace, monkeypatch, force):
+    async def scenario():
+        async with managed() as manager:
+            record = await manager.spawn("import sys; print('ready'); sys.stdin.buffer.read(1)", workspace=workspace)
+            await eventually(lambda: record.stdout.retained_end > 0)
+            calls = []
+            async def on_exit():
+                await manager.write_stdin(record.process_id, "x")
+                await eventually(lambda: record.process.returncode is not None)
+            helper = TaskkillHelper(exit_code=128)
+            async def wait():
+                await on_exit()
+                helper.returncode = helper.exit_code
+                return helper.returncode
+            helper.wait = wait
+            async def create(*args, **kwargs):
+                calls.append(args)
+                return helper
+            with monkeypatch.context() as patch:
+                patch.setattr(module.shutil, "which", lambda name: "taskkill.exe")
+                patch.setattr(module.asyncio, "create_subprocess_exec", create)
+                result = await manager.terminate(record.process_id, force=force)
+            assert len(calls) == 1 and calls[0][-2:] == ("/T", "/F")
+            assert result.outcome == "already_exited" and result.status.state == "exited"
+            assert result.status.exit_code == 0 and not result.status.draining
+            assert not record.termination_sent and record.watch_task.done()
+            assert all(task.done() for task in record.drain_tasks)
     run(scenario())
 
 

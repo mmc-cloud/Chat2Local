@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
 from time import monotonic
 from uuid import UUID
 
@@ -399,7 +400,7 @@ def test_kill_natural_exit_race_maps_already_exited_truthfully(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("forced", [False, True])
-def test_kill_result_mapping_for_graceful_and_forced_paths(tmp_path, monkeypatch, forced):
+def test_kill_result_mapping_for_platform_termination_paths(tmp_path, monkeypatch, forced):
     async def scenario():
         async with dispatched(tmp_path) as local:
             result = await local.execute("exec_command", {"command": "import sys; sys.stdin.buffer.read(1)"})
@@ -414,10 +415,11 @@ def test_kill_result_mapping_for_graceful_and_forced_paths(tmp_path, monkeypatch
                 await record.finished.wait()
                 return True
             # Deterministic manager signaling boundary; Tool still exercises real
-            # runtime grace/escalation and output mapping, not a fake Tool result.
+            # runtime platform termination and output mapping, not a fake Tool result.
             monkeypatch.setattr(local.process_manager, "_signal_tree", signal)
             killed = await local.execute("kill_process", {"process_id": pid})
-            assert calls == ([False, True] if forced else [False])
+            expected = [True] if os.name == "nt" else ([False, True] if forced else [False])
+            assert calls == expected
             assert killed["outcome"] == killed["state"] == "terminated"
             assert killed["exit_code"] == 0 and not killed["draining"]
     run(scenario())

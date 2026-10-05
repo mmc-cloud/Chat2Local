@@ -155,8 +155,9 @@ class LocalToolDispatcher:
             logger.warning("Tool %s failed error_type=%s duration_ms=%d",
                            tool_name, type(error).__name__, (time.perf_counter() - started) * 1000)
             raise ToolExecutionError(str(error)) from error
-        except Exception:
-            logger.exception("Unexpected local tool failure")
+        except Exception as error:
+            logger.exception("Tool %s failed error_type=%s duration_ms=%d",
+                             tool_name, type(error).__name__, (time.perf_counter() - started) * 1000)
             raise ToolExecutionError("Internal local tool error") from None
         logger.info("Tool %s succeeded duration_ms=%d", tool_name, (time.perf_counter() - started) * 1000)
         return result

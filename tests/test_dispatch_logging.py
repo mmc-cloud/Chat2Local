@@ -20,6 +20,12 @@ from conftest import run
 from test_dispatch import make_dispatcher
 
 
+@pytest.fixture(autouse=True)
+def dispatch_log_level(caplog):
+    # Logging setup tests may enable DEBUG globally; each case has a stable base.
+    caplog.set_level(logging.INFO)
+
+
 def fixed_duration(monkeypatch):
     ticks = iter((8.0, 8.25))
     monkeypatch.setattr(local_module, "time", SimpleNamespace(perf_counter=lambda: next(ticks)))
@@ -86,21 +92,44 @@ def test_expected_failure_logs_only_type_and_preserves_normalization(tmp_path, m
     assert "PRIVATE-ERROR-BODY" not in caplog.text and "PRIVATE-PATH" not in caplog.text
 
 
-def test_unexpected_failure_has_one_traceback_and_preserves_outward_error(tmp_path, caplog):
+def test_unexpected_failure_has_one_traceback_and_preserves_outward_error(tmp_path, monkeypatch, caplog):
     dispatcher = make_dispatcher(tmp_path)
-    error = RuntimeError("internal bug")
+    error = RuntimeError("PRIVATE-INTERNAL-BODY")
     async def handler(arguments):
         raise error
     dispatcher._handlers["read"] = handler
+    fixed_duration(monkeypatch)
     with pytest.raises(ToolExecutionError) as failure:
-        run(dispatcher.execute("read", {}))
+        run(dispatcher.execute("read", {"path": "PRIVATE-ARGUMENT"}))
     assert str(failure.value) == "Internal local tool error"
     assert failure.value.__cause__ is None and failure.value.__suppress_context__ is True
     records = dispatch_records(caplog)
     assert len(records) == 1 and records[0].levelno == logging.ERROR
-    assert records[0].getMessage() == "Unexpected local tool failure"
+    assert records[0].getMessage() == "Tool read failed error_type=RuntimeError duration_ms=250"
+    assert "PRIVATE-INTERNAL-BODY" not in caplog.text.splitlines()[0]
+    assert "PRIVATE-ARGUMENT" not in caplog.text
     assert records[0].exc_info[1] is error
     assert caplog.text.count("Traceback (most recent call last)") == 1
+
+
+def test_unexpected_metadata_and_redacted_traceback_reach_both_sinks(
+    tmp_path, monkeypatch, isolated_user_data, configure_test_logging, capsys,
+):
+    configure_test_logging(secrets=("PRIVATE-INTERNAL-BODY",))
+    dispatcher = make_dispatcher(tmp_path)
+    async def handler(arguments):
+        raise RuntimeError("PRIVATE-INTERNAL-BODY")
+    dispatcher._handlers["read"] = handler
+    fixed_duration(monkeypatch)
+    with pytest.raises(ToolExecutionError, match="^Internal local tool error$"):
+        run(dispatcher.execute("read", {"path": "PRIVATE-ARGUMENT"}))
+    file_text = (isolated_user_data / "logs" / "chat2local.log").read_text(encoding="utf-8")
+    for text in (capsys.readouterr().err, file_text):
+        assert "Tool read failed error_type=RuntimeError duration_ms=250" in text.splitlines()[0]
+        assert text.count("ERROR") == 1
+        assert text.count("Traceback (most recent call last)") == 1
+        assert "[redacted]" in text
+        assert "PRIVATE-INTERNAL-BODY" not in text and "PRIVATE-ARGUMENT" not in text
 
 
 @pytest.mark.parametrize("tool,arguments", [

@@ -15,6 +15,20 @@ uv run chat2local
 `config.example.yaml` 是示例；每台设备自己的 `security.allowed_roots` 是本地授权上限，
 默认 `[]` 只授权本次启动的 default workspace。
 
+Config Management V0.1 在 `runtime/config.py` 提供 `read_persisted_config()`、
+`validate_persisted_config(candidate)` 和 `save_persisted_config(candidate)`。
+默认文件不存在时读取返回 `{}`；读取保留文件中的显式字段，验证复用 `AppConfig` schema。
+`load_config()` 构建启动时的 effective config：内置默认值 → persisted config → CLI overrides。
+CLI overrides 只影响本次启动，永远不写回文件。
+
+保存接受候选 mapping，完整验证后仅写入用户显式设置的字段；显式默认值和 `null` 均保留，
+未设置的默认值不会被固化。使用同目录临时文件、flush、fsync 和 `os.replace` 原子替换；
+非法配置或写入失败不覆盖原文件。YAML 为 UTF-8/LF，保留 Unicode 和字段自然顺序，
+不保留手写注释、缩进或空行；带注释的配置文档仍是 `config.example.yaml`。
+保存只修改文件，当前 Core 继续使用启动配置，重启后生效。workspace/default_workspace 不属于
+config.yaml，仍由 `--workspace` 或 cwd 决定；token 继续使用 token_file / CLI / env 机制。
+未来 GUI Settings 将直接编辑 persisted config 并提示需要重启；本版没有 GUI 或 IPC config API。
+
 Runtime Management V0.1：每台设备、每个 OS 用户同时只能运行一个 Core（standalone / hub / agent
 共用限制）。多 workspace 继续通过 Tool 的 workspace 参数和 allowed_roots 选择。
 复用用户数据目录的 `runtime.lock`：Windows 使用 `msvcrt.locking`，Linux/macOS 使用
@@ -189,6 +203,9 @@ kill_process(process_id, device=None)
 `stdout_dropped` / `stderr_dropped` 表示本次读取遇到缓冲区淘汰；`draining` 表示尚未读完 pipe EOF。
 无 input 立即读取；有 input 原样 UTF-8 写入，不自动加换行，写后短等 250ms。
 `kill_process` 返回 `terminated` 或 `already_exited`，并读取一页输出；剩余输出在保留期内仍可读取。
+Windows terminate/shutdown 直接调用一次 `taskkill /PID <pid> /T /F`，helper 独立等待最多 5 秒，
+再等待 managed process 退出和 stdout/stderr drain；V0.1 不提供 Windows graceful termination。
+Linux/macOS 继续向进程组发送 SIGTERM，等待 `terminate_grace_period` 后按需发送 SIGKILL。
 非零 exit code、等待超时、输出分页和 dropped 都是普通结果。
 
 远程进程的后续 `interact_process` / `kill_process` 必须显式带创建时相同的 `device`；Hub 不猜进程归属。
