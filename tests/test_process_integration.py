@@ -285,6 +285,7 @@ def test_hub_shutdown_does_not_shutdown_remote_agent_manager(tmp_path):
     hub, root = tmp_path / "hub", tmp_path / "agent"
     hub.mkdir()
     root.mkdir()
+    hub_ready = hub / "ready"
     async def scenario():
         hub_local, local = device_runtime(hub), device_runtime(root)
         router = DeviceRouter("hub", hub_local, DeviceRegistry("hub"))
@@ -300,10 +301,15 @@ def test_hub_shutdown_does_not_shutdown_remote_agent_manager(tmp_path):
                         "device": "desktop",
                     }))
                     own = decode(await client.call_tool("exec_command", {
-                        "command": python_command(hub_local, "import time; time.sleep(60)"),
+                        "command": python_command(
+                            hub_local,
+                            "from pathlib import Path; import time; "
+                            f"Path({str(hub_ready)!r}).write_text('ready'); time.sleep(60)",
+                        ),
                     }))
                 remote_record = local.process_manager.records[remote["process_id"]]
                 own_record = hub_local.process_manager.records[own["process_id"]]
+                await eventually(lambda: hub_ready.is_file())
                 await server_context.__aexit__(None, None, None)
                 server_closed = True
                 assert hub_local.process_manager.records == {} and own_record.finished.is_set()

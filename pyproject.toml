@@ -28,3 +28,6 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+pywebview-gui = [
+    "pywebview>=6.2.1",
+]

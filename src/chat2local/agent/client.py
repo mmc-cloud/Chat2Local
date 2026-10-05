@@ -45,6 +45,12 @@ class RegistrationError(DeviceError):
 
 
 class AgentClient:
+    def list_devices(self) -> dict:
+        """The Agent owns only its local device, never a Hub registry."""
+        return {"devices": [DeviceInfo(
+            device_id=self.device_id, kind="local", online=True, tools=list(self.local.tools),
+        ).model_dump()]}
+
     def __init__(
         self, hub_url: str, device_id: str, token: str, local: LocalToolDispatcher,
         *, proxy: str = "system",

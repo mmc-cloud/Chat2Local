@@ -20,3 +20,8 @@ wheels/
 
 # Local documentation
 /docs/
+
+# GUI frontend artifacts
+node_modules/
+.vite/
+*.tsbuildinfo

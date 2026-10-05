@@ -26,6 +26,8 @@ from chat2local.runtime.workspace import WorkspaceManager
 from conftest import run
 
 TOKEN = "test-shared-token"
+# Includes Windows tree termination, pipe drain and lifespan cleanup.
+SERVER_SHUTDOWN_TIMEOUT = 10.0
 
 
 async def eventually(predicate, timeout=5):
@@ -54,7 +56,7 @@ async def running_server(app, port=0):
     finally:
         server.should_exit = True
         try:
-            await asyncio.wait_for(task, 5)
+            await asyncio.wait_for(task, SERVER_SHUTDOWN_TIMEOUT)
         finally:
             listener.close()
 

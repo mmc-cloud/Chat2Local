@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 class ControlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     id: str = Field(min_length=1, max_length=128)
-    method: Literal["ping", "status", "stop"]
+    method: Literal["ping", "status", "stop", "devices"]
 
 
 class ControlServer:
-    def __init__(self, status: Callable[[], dict], stop: Callable[[], None]) -> None:
+    def __init__(self, status: Callable[[], dict], stop: Callable[[], None],
+                 devices: Callable[[], dict] | None = None) -> None:
         self.status = status
         self.stop = stop
+        self.devices = devices
         self._server = None
         self._connections: dict[asyncio.Task, asyncio.StreamWriter] = {}
         self._closing = False
@@ -82,10 +84,13 @@ class ControlServer:
                             result = {"instance_id": self.status()["instance_id"]}
                         elif request.method == "status":
                             result = self.status()
+                        elif request.method == "devices":
+                            result = self.devices() if self.devices is not None else None
                         else:
                             result = {"accepted": True}
                             stopping = True
-                        response = {"id": request_id, "ok": True, "result": result}
+                        response = ({"id": request_id, "ok": False, "error": "devices_unavailable"}
+                                    if result is None else {"id": request_id, "ok": True, "result": result})
             except ValueError:
                 response = {"id": None, "ok": False, "error": "request_too_large"}
             except TimeoutError:

@@ -75,7 +75,8 @@ async def _settle(task: asyncio.Task):
 
 class RuntimeSupervisor:
     def __init__(self, mode: str, device_id: str, workspace: Path,
-                 *, state: Callable[[], str], directory: Path | None = None) -> None:
+                 *, state: Callable[[], str], directory: Path | None = None,
+                 devices: Callable[[], dict] | None = None) -> None:
         self.mode = mode
         self.device_id = device_id
         self.workspace = workspace
@@ -84,7 +85,7 @@ class RuntimeSupervisor:
         self.descriptor = None
         self.stopping = False
         self._shutdown = asyncio.Event()
-        self.control = ControlServer(self.status, self.request_stop)
+        self.control = ControlServer(self.status, self.request_stop, devices)
         self.lock = InstanceLock(self.directory)
 
     def request_stop(self) -> None:

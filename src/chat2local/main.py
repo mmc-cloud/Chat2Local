@@ -127,6 +127,7 @@ async def _run_agent(client) -> None:
     with websocket_callback_noise(asyncio.get_running_loop()):
         supervisor = RuntimeSupervisor(
             "agent", client.device_id, client.local.workspace.root, state=lambda: client.state,
+            devices=client.list_devices,
         )
         await supervisor.run(client.run, lambda task: task.cancel())
 
@@ -137,6 +138,7 @@ async def _run_server(application, *, mode: str, device_id: str, workspace: Path
     supervisor = RuntimeSupervisor(
         mode, device_id, workspace,
         state=lambda: "stopping" if server.should_exit else "running" if server.started else "starting",
+        devices=application.state.router.list_devices,
     )
     await supervisor.run(server.serve, lambda task: setattr(server, "should_exit", True))
 
