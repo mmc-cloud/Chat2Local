@@ -1,7 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { desktopApi } from "@/lib/bridge";
 
 export type Language = "zh-CN" | "en";
-const storageKey = "chat2local.gui.language";
+const legacyStorageKey = "chat2local.gui.language";
+const cacheStorageKey = "chat2local.gui.language.cache";
 const chinese: Record<string, string> = {
   Overview: "概览",
   Devices: "设备",
@@ -222,14 +224,34 @@ const chinese: Record<string, string> = {
   "Internal GUI/Core error; see logs": "GUI/Core 内部错误，请查看日志",
 };
 
-function readLanguage(): Language {
+function readStoredLanguage(key: string): Language | null {
   try {
-    return localStorage.getItem(storageKey) === "en" ? "en" : "zh-CN";
+    const value = localStorage.getItem(key);
+    return value === "en" || value === "zh-CN" ? value : null;
   } catch {
-    return "zh-CN";
+    return null;
   }
 }
-let language = readLanguage();
+
+function cacheLanguage(next: Language) {
+  try {
+    localStorage.setItem(cacheStorageKey, next);
+  } catch {
+    // Cache is optional; Desktop Preferences remain authoritative.
+  }
+}
+
+function applyLanguage(next: Language) {
+  if (language === next) return;
+  language = next;
+  document.documentElement.lang = next;
+  listeners.forEach((listener) => listener());
+}
+
+let language =
+  readStoredLanguage(cacheStorageKey) ??
+  readStoredLanguage(legacyStorageKey) ??
+  "zh-CN";
 document.documentElement.lang = language;
 const listeners = new Set<() => void>();
 function subscribe(listener: () => void) {
@@ -238,15 +260,39 @@ function subscribe(listener: () => void) {
     listeners.delete(listener);
   };
 }
-function setLanguage(next: Language) {
+export async function initializeLanguage() {
   try {
-    localStorage.setItem(storageKey, next);
+    const snapshot = await desktopApi.readPreferences();
+    const legacy = readStoredLanguage(legacyStorageKey);
+    if (legacy) {
+      const saved = await desktopApi.savePreferences({ language: legacy });
+      applyLanguage(saved.preferences.language);
+      cacheLanguage(saved.preferences.language);
+      try {
+        localStorage.removeItem(legacyStorageKey);
+      } catch {
+        // Retry migration on a future launch if legacy storage cannot be cleared.
+      }
+      return;
+    }
+    applyLanguage(snapshot.preferences.language);
+    cacheLanguage(snapshot.preferences.language);
   } catch {
-    // The session still works when browser storage is unavailable.
+    // Keep the cached/default language while the Python bridge is unavailable.
   }
-  language = next;
-  document.documentElement.lang = next;
-  listeners.forEach((listener) => listener());
+}
+
+async function setLanguage(next: Language) {
+  const previous = language;
+  applyLanguage(next);
+  try {
+    const saved = await desktopApi.savePreferences({ language: next });
+    applyLanguage(saved.preferences.language);
+    cacheLanguage(saved.preferences.language);
+  } catch (error) {
+    applyLanguage(previous);
+    throw error;
+  }
 }
 export function useLocale() {
   const current = useSyncExternalStore(subscribe, () => language);

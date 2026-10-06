@@ -7,15 +7,53 @@ import queue
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from desktop_logging import log_exception_safe
 
 logger = logging.getLogger("chat2local.desktop.tray")
+ASSETS = Path(__file__).resolve().parents[1] / "assets"
+TRAY_TEXT = {
+    "en": {
+        "open": "Open Chat2Local",
+        "start": "Start Core",
+        "stop": "Stop Core",
+        "restart": "Restart Core",
+        "logs": "Open Logs",
+        "exit": "Exit Chat2Local",
+        "standalone": "Standalone",
+        "hub": "Hub",
+        "agent": "Agent",
+        "Running": "Running",
+        "Stopped": "Stopped",
+        "Starting": "Starting",
+        "Stopping": "Stopping",
+        "Stale": "Stale",
+        "Error": "Error",
+    },
+    "zh-CN": {
+        "open": "打开 Chat2Local",
+        "start": "启动 Core",
+        "stop": "停止 Core",
+        "restart": "重启 Core",
+        "logs": "打开日志",
+        "exit": "退出 Chat2Local",
+        "standalone": "独立模式",
+        "hub": "Hub",
+        "agent": "Agent",
+        "Running": "运行中",
+        "Stopped": "已停止",
+        "Starting": "启动中",
+        "Stopping": "停止中",
+        "Stale": "状态已失效",
+        "Error": "错误",
+    },
+}
 
 
 def create_icon(controller):
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image
     from pystray._util import win32
 
     # pystray 0.19.5's setup helper waits forever if native initialization fails
@@ -51,29 +89,29 @@ def create_icon(controller):
                 else:
                     notify.errcheck = previous
 
-    image = Image.new("RGBA", (64, 64), "#245b83")
-    ImageDraw.Draw(image).rounded_rectangle((13, 16, 51, 47), radius=6, fill="white")
+    with Image.open(ASSETS / "chat2local_64.png") as source:
+        image = source.convert("RGBA")
     item = pystray.MenuItem
     menu = pystray.Menu(
-        item("Open Chat2Local", lambda: controller.submit("open"), default=True),
+        item(lambda _: controller.text("open"), lambda: controller.submit("open"), default=True),
         item(lambda _: controller.status_text, None, enabled=False),
         item(
-            "Start Core",
+            lambda _: controller.text("start"),
             lambda: controller.submit("start"),
             enabled=lambda _: controller.can_start,
         ),
         item(
-            "Stop Core",
+            lambda _: controller.text("stop"),
             lambda: controller.submit("stop"),
             enabled=lambda _: controller.lifecycle == "Running",
         ),
         item(
-            "Restart Core",
+            lambda _: controller.text("restart"),
             lambda: controller.submit("restart"),
             enabled=lambda _: controller.lifecycle == "Running",
         ),
-        item("Open Logs", lambda: controller.submit("logs")),
-        item("Exit Chat2Local", lambda: controller.submit("exit")),
+        item(lambda _: controller.text("logs"), lambda: controller.submit("logs")),
+        item(lambda _: controller.text("exit"), lambda: controller.submit("exit")),
     )
     return WindowsIcon("Chat2Local", image, "Chat2Local", menu)
 
@@ -94,16 +132,24 @@ class TrayController:
         self._worker = None
         self._operations = None
         self._operation = None
+        self._last_menu_state = None
 
     @property
     def lifecycle(self):
         return self.snapshot["lifecycle"]
 
     @property
+    def language(self):
+        return self.desktop.preferences.current.language
+
+    def text(self, key):
+        return TRAY_TEXT.get(self.language, TRAY_TEXT["zh-CN"]).get(key, key)
+
+    @property
     def status_text(self):
         core = self.snapshot.get("core")
         mode = core["mode"] if core else self.desktop.preferences.current.startup_mode
-        return f"Core: {mode or '—'} · {self.lifecycle}"
+        return f"Core: {self.text(mode) if mode else '—'} · {self.text(self.lifecycle)}"
 
     @property
     def can_start(self):
@@ -111,6 +157,10 @@ class TrayController:
         return self.lifecycle == "Stopped" and bool(
             preferences.startup_mode and preferences.startup_workspace
         )
+
+    @property
+    def menu_state(self):
+        return (self.language, self.status_text, self.can_start, self.lifecycle)
 
     def start(self, timeout=5) -> bool:
         if self.platform != "win32":
@@ -124,6 +174,7 @@ class TrayController:
             self._loop.start()
             if not self._ready.wait(timeout) or not self.available:
                 raise RuntimeError("Tray did not become ready")
+            self._last_menu_state = self.menu_state
             return True
         except Exception as error:  # noqa: BLE001 -- Desktop/native boundary, safe diagnostics.
             log_exception_safe(
@@ -217,9 +268,11 @@ class TrayController:
             self.snapshot = result["result"]
         else:
             self.snapshot = {"lifecycle": "Error", "core": None}
-        if self.available:
+        menu_state = self.menu_state
+        if self.available and menu_state != self._last_menu_state:
             try:
                 self.icon.update_menu()
+                self._last_menu_state = menu_state
             except Exception as error:  # noqa: BLE001 -- Desktop/native boundary, safe diagnostics.
                 log_exception_safe(logger, "Could not update tray menu", error)
                 self.available = False

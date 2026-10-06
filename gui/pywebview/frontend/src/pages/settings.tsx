@@ -476,9 +476,11 @@ export function Settings({ currentMode }: { currentMode: string }) {
         <div className="settings-fields">
           <Select
             value={language}
-            onValueChange={(value) =>
-              setLanguage(value === "en" ? "en" : "zh-CN")
-            }
+            onValueChange={(value) => {
+              void setLanguage(value === "en" ? "en" : "zh-CN").catch((error) =>
+                toast.error(t(errorMessage(error))),
+              );
+            }}
           >
             <SelectTrigger
               id="display-language"

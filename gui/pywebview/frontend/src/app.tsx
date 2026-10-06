@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,7 +9,7 @@ import { Settings } from "@/pages/settings";
 import { Logs } from "@/pages/logs";
 import { coreApi, desktopApi, useBridge } from "@/lib/bridge";
 import { usePoll } from "@/lib/poll";
-import { useLocale } from "@/lib/locale";
+import { initializeLanguage, useLocale } from "@/lib/locale";
 export function App() {
   const { t } = useLocale();
   const [page, setPage] = useState<Page>("Overview");
@@ -18,6 +18,9 @@ export function App() {
   const [busy, setBusy] = useState("");
   const discoveredInstance = useRef<string | null>(null);
   const bridge = useBridge();
+  useEffect(() => {
+    if (bridge.status === "connected") void initializeLanguage();
+  }, [bridge.status]);
   const loadRuntime = useCallback(async () => {
     const [snapshot, navigation] = await Promise.all([
       coreApi.status(),

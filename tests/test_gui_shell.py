@@ -117,6 +117,9 @@ def test_shell_start_never_configures_core_logging(
     desktop.create_window.assert_called_once()
     desktop.start.assert_called_once()
     assert desktop.start.call_args.kwargs["private_mode"] is False
+    assert desktop.start.call_args.kwargs["icon"] == (
+        str(shell.ASSETS / "chat2local.ico") if sys.platform == "win32" else None
+    )
     assert desktop.start.call_args.kwargs["storage_path"] == str(
         isolated_user_data / "gui" / "webview"
     )

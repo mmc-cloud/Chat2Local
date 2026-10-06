@@ -69,6 +69,7 @@ def test_preferences_defaults_missing_and_null(modules, tmp_path):
     store = modules.preferences.PreferencesStore(tmp_path / "missing.json")
     assert asdict(store.current) == {
         "schema_version": 1,
+        "language": "zh-CN",
         "launch_at_login": False,
         "silent_login_start": False,
         "close_behavior": "tray",
@@ -82,6 +83,28 @@ def test_preferences_defaults_missing_and_null(modules, tmp_path):
     assert (
         json.loads(store.path.read_text(encoding="utf-8"))["startup_workspace"] is None
     )
+
+
+def test_existing_schema1_preferences_without_language_remain_valid(modules, tmp_path):
+    path = tmp_path / "preferences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "launch_at_login": True,
+                "silent_login_start": False,
+                "close_behavior": "tray",
+                "auto_start_core": False,
+                "startup_mode": None,
+                "startup_workspace": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = modules.preferences.PreferencesStore(path)
+    assert store.load_state == "valid"
+    assert store.current.language == "zh-CN"
+    assert store.current.launch_at_login is True
 
 
 def test_preferences_save_utf8_and_atomic(modules, tmp_path, monkeypatch):
@@ -135,6 +158,7 @@ def test_atomic_save_failure_keeps_previous_state(modules, tmp_path, monkeypatch
     [
         {"schema_version": 2},
         {"schema_version": True},
+        {"language": "ja"},
         {"close_behavior": "minimize"},
         {"close_behavior": None},
         {"launch_at_login": 1},
@@ -703,9 +727,10 @@ def test_desktop_preferences_api_is_independent_and_preserves_context(
     desktop.test_state["snapshot"] = running(tmp_path)
     desktop.bridge.runtime_status()
     result = desktop.bridge.save_desktop_preferences(
-        {"launch_at_login": True, "silent_login_start": True}
+        {"language": "en", "launch_at_login": True, "silent_login_start": True}
     )
     assert result["ok"]
+    assert result["result"]["preferences"]["language"] == "en"
     assert result["result"]["preferences"]["launch_at_login"] is True
     assert desktop.preferences.current.startup_workspace == str(tmp_path)
     assert not (tmp_path / "config.yaml").exists()
@@ -713,6 +738,50 @@ def test_desktop_preferences_api_is_independent_and_preserves_context(
         "ok"
     ]
     assert desktop.preferences.current.startup_mode == "agent"
+
+
+@pytest.mark.parametrize(
+    "language,open_label,status",
+    [
+        ("zh-CN", "打开 Chat2Local", "Core: Agent · 运行中"),
+        ("en", "Open Chat2Local", "Core: Agent · Running"),
+    ],
+)
+def test_tray_text_follows_desktop_language(
+    modules, desktop, tmp_path, language, open_label, status
+):
+    desktop.preferences.current = replace(
+        desktop.preferences.current,
+        language=language,
+        startup_mode="agent",
+        startup_workspace=str(tmp_path),
+    )
+    desktop.test_state["snapshot"] = running(tmp_path)
+    tray = modules.tray.TrayController(desktop)
+    tray.refresh()
+    assert tray.text("open") == open_label
+    assert tray.status_text == status
+
+
+def test_tray_uses_packaged_icon_assets(modules):
+    from PIL import Image
+
+    icon = modules.tray.ASSETS / "chat2local_64.png"
+    windows_icon = modules.tray.ASSETS / "chat2local.ico"
+    assert icon.is_file() and windows_icon.is_file()
+    with Image.open(icon) as image:
+        assert image.size == (64, 64) and image.mode == "RGBA"
+    with Image.open(windows_icon) as image:
+        assert sorted(image.info["sizes"]) == [
+            (16, 16),
+            (20, 20),
+            (24, 24),
+            (32, 32),
+            (48, 48),
+            (64, 64),
+            (128, 128),
+            (256, 256),
+        ]
 
 
 def test_preferences_failure_rolls_back_own_registry_entry(
@@ -812,10 +881,39 @@ def test_tray_menu_state_comes_from_management(modules, desktop, tmp_path):
     )
     tray = modules.tray.TrayController(desktop)
     tray.refresh()
-    assert tray.can_start and "hub · Stopped" in tray.status_text
+    assert tray.can_start and "Hub · 已停止" in tray.status_text
     desktop.test_state["snapshot"] = running(tmp_path)
     tray.refresh()
-    assert not tray.can_start and tray.status_text == "Core: agent · Running"
+    assert not tray.can_start and tray.status_text == "Core: Agent · 运行中"
+
+
+def test_tray_menu_only_rebuilds_when_visible_state_changes(
+    modules, desktop, tmp_path
+):
+    desktop.preferences.current = replace(
+        desktop.preferences.current,
+        startup_mode="agent",
+        startup_workspace=str(tmp_path),
+    )
+    icon = FakeIcon()
+    tray = modules.tray.TrayController(
+        desktop, icon_factory=lambda _: icon, platform="win32"
+    )
+    assert tray.start()
+    try:
+        initial = icon.updates
+        tray.refresh()
+        tray.refresh()
+        assert icon.updates == initial
+        desktop.preferences.current = replace(
+            desktop.preferences.current, language="en"
+        )
+        tray.refresh()
+        assert icon.updates == initial + 1
+        tray.refresh()
+        assert icon.updates == initial + 1
+    finally:
+        tray.shutdown()
 
 
 def test_tray_callbacks_do_not_block_on_runtime_work(modules, desktop):

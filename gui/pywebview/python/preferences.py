@@ -17,6 +17,7 @@ from chat2local.runtime import config
 logger = logging.getLogger("chat2local.desktop.preferences")
 MODES = {"standalone", "hub", "agent"}
 EDITABLE = {
+    "language",
     "launch_at_login",
     "silent_login_start",
     "close_behavior",
@@ -27,6 +28,7 @@ EDITABLE = {
 @dataclass(frozen=True)
 class DesktopPreferences:
     schema_version: int = 1
+    language: str = "zh-CN"
     launch_at_login: bool = False
     silent_login_start: bool = False
     close_behavior: str = "tray"
@@ -41,6 +43,8 @@ class DesktopPreferences:
         result = cls(**raw)
         if type(result.schema_version) is not int or result.schema_version != 1:
             raise ValueError("Unsupported desktop preferences schema")
+        if result.language not in ("zh-CN", "en"):
+            raise ValueError("Invalid desktop preference: language")
         for name in ("launch_at_login", "silent_login_start", "auto_start_core"):
             if type(getattr(result, name)) is not bool:
                 raise ValueError(f"Invalid desktop preference: {name}")

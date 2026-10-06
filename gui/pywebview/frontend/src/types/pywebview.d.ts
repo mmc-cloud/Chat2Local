@@ -24,6 +24,7 @@ export interface RuntimeSnapshot {
 }
 export interface DesktopPreferences {
   schema_version: 1;
+  language: "zh-CN" | "en";
   launch_at_login: boolean;
   silent_login_start: boolean;
   close_behavior: "tray" | "exit";
@@ -34,6 +35,7 @@ export interface DesktopPreferences {
 export type DesktopChanges = Partial<
   Pick<
     DesktopPreferences,
+    | "language"
     | "launch_at_login"
     | "silent_login_start"
     | "close_behavior"

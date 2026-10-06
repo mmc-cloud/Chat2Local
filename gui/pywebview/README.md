@@ -32,8 +32,9 @@ Use Tray > Exit Chat2Local when finished; stop Vite separately with Ctrl+C.
 ## Pages
 
 The GUI defaults to Simplified Chinese. Settings > Display language switches between
-Chinese and English immediately, without saving Core configuration. The selection is
-stored in the GUI's WebView profile at `~/.chat2local/gui/webview/` and survives GUI restarts.
+Chinese and English immediately, without saving Core configuration. Language is persisted
+in `~/.chat2local/gui/preferences.json`, so the Python Tray and React UI share the same choice.
+The previous WebView localStorage value is migrated once and then kept only as a boot cache.
 Device IDs, workspace paths and original log entries are not translated.
 
 - **Overview** discovers `~/.chat2local/runtime.json`, verifies control ping and instance identity,
@@ -132,13 +133,16 @@ owner. Shutdown closes the socket, joins its bounded listener, retires its descr
 and releases the mutex handle after closing the persistent log handler, keeping a single
 desktop.log writer even while ownership changes. After a crash, mutex abandonment permits a new primary
 to replace any stale descriptor; descriptor contents do not establish ownership.
-Display language uses browser local storage in the separate GUI profile; it is not a Core config field.
+Display language is a Desktop Preference, not a Core config field. The Tray uses the same language
+for its menu and lifecycle labels. Tray graphics come from `gui/pywebview/assets/`; the multi-size
+`chat2local.ico` is reserved for Windows packaging while the Tray loads `chat2local_64.png`.
 
 Desktop preference defaults (UTF-8 JSON, atomic replacement; invalid files fall back with a log):
 
 ```json
 {
   "schema_version": 1,
+  "language": "zh-CN",
   "launch_at_login": false,
   "silent_login_start": false,
   "close_behavior": "tray",

@@ -18,7 +18,7 @@ from bridge import GuiBridge
 from desktop_logging import DesktopSafeFormatter, bootstrap_logging, log_exception_safe
 from preferences import PreferencesStore
 from single_instance import SingleInstance
-from tray import TrayController
+from tray import ASSETS, TrayController
 
 from chat2local.management.runtime import ManagementError
 from chat2local.runtime import config as core_config
@@ -324,6 +324,7 @@ def main() -> None:
                     webview.start(
                         desktop.tray.start_worker,
                         gui="edgechromium" if sys.platform == "win32" else None,
+                        icon=str(ASSETS / "chat2local.ico") if sys.platform == "win32" else None,
                         http_server=False,
                         private_mode=False,
                         storage_path=str(
