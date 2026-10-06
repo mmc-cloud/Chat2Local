@@ -5,6 +5,7 @@ import type {
   Envelope,
   ConfigMap,
   LogCursor,
+  DesktopChanges,
 } from "@/types/pywebview";
 export type BridgeState = {
   status: "connecting" | "failed" | "connected";
@@ -78,6 +79,12 @@ export const coreApi = {
     invoke((api) => api.save_config(candidate)),
   logs: (cursor: LogCursor | null) => invoke((api) => api.read_logs(cursor)),
   devices: () => invoke((api) => api.list_devices()),
+};
+export const desktopApi = {
+  readPreferences: () => invoke((api) => api.read_desktop_preferences()),
+  savePreferences: (changes: DesktopChanges) =>
+    invoke((api) => api.save_desktop_preferences(changes)),
+  takeNavigation: () => invoke((api) => api.take_desktop_navigation()),
 };
 export function useBridge(): BridgeState {
   const [state, setState] = useState<BridgeState>({ status: "connecting" });

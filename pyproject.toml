@@ -29,5 +29,7 @@ dev = [
     "pytest>=9.1.1",
 ]
 pywebview-gui = [
+    "pillow>=12.3.0",
+    "pystray==0.19.5",
     "pywebview>=6.2.1",
 ]

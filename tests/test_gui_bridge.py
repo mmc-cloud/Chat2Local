@@ -49,6 +49,9 @@ def test_bridge_exposes_only_transport_methods(bridge_module):
             "save_config",
             "read_logs",
             "list_devices",
+            "read_desktop_preferences",
+            "save_desktop_preferences",
+            "take_desktop_navigation",
         ]
     )
 
@@ -75,6 +78,12 @@ def test_bridge_returns_safe_errors(bridge_module):
         "error": {"message": "Internal GUI/Core error; see logs"},
     }
     assert "PRIVATE-PASSWORD" not in str(result)
+
+    def invalid_value():
+        raise ValueError("PRIVATE-PASSWORD")
+
+    bridge._adapter = SimpleNamespace(read_config=invalid_value)
+    assert bridge.read_config() == result
 
 
 def test_folder_picker_cancellation_and_selection(bridge_module, monkeypatch):

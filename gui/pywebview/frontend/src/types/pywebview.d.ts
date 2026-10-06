@@ -20,6 +20,30 @@ export interface RuntimeSnapshot {
   core: CoreStatus | null;
   restart_required?: boolean;
   message?: string;
+  desktop_error?: string | null;
+}
+export interface DesktopPreferences {
+  schema_version: 1;
+  launch_at_login: boolean;
+  silent_login_start: boolean;
+  close_behavior: "tray" | "exit";
+  auto_start_core: boolean;
+  startup_mode: "standalone" | "hub" | "agent" | null;
+  startup_workspace: string | null;
+}
+export type DesktopChanges = Partial<
+  Pick<
+    DesktopPreferences,
+    | "launch_at_login"
+    | "silent_login_start"
+    | "close_behavior"
+    | "auto_start_core"
+  >
+>;
+export interface DesktopSnapshot {
+  preferences: DesktopPreferences;
+  launch_at_login_supported: boolean;
+  tray_available: boolean;
 }
 export type ConfigValue = string | number | null | string[];
 export type ConfigMap = Record<string, Record<string, ConfigValue>>;
@@ -54,6 +78,11 @@ export interface LogBatch {
 export type Envelope<T> =
   { ok: true; result: T } | { ok: false; error: { message: string } };
 export interface CoreApi {
+  read_desktop_preferences: () => Promise<Envelope<DesktopSnapshot>>;
+  save_desktop_preferences: (
+    changes: DesktopChanges,
+  ) => Promise<Envelope<DesktopSnapshot>>;
+  take_desktop_navigation: () => Promise<Envelope<"Logs" | null>>;
   ping: () => Promise<PingResult>;
   runtime_status: () => Promise<Envelope<RuntimeSnapshot>>;
   start_core: (

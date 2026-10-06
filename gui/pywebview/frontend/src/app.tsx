@@ -7,7 +7,7 @@ import { Overview } from "@/pages/overview";
 import { Devices } from "@/pages/devices";
 import { Settings } from "@/pages/settings";
 import { Logs } from "@/pages/logs";
-import { coreApi, useBridge } from "@/lib/bridge";
+import { coreApi, desktopApi, useBridge } from "@/lib/bridge";
 import { usePoll } from "@/lib/poll";
 import { useLocale } from "@/lib/locale";
 export function App() {
@@ -19,7 +19,11 @@ export function App() {
   const discoveredInstance = useRef<string | null>(null);
   const bridge = useBridge();
   const loadRuntime = useCallback(async () => {
-    const snapshot = await coreApi.status();
+    const [snapshot, navigation] = await Promise.all([
+      coreApi.status(),
+      desktopApi.takeNavigation(),
+    ]);
+    if (navigation === "Logs") setPage("Logs");
     const core = snapshot.core;
     if (snapshot.lifecycle !== "Running" || core?.mode !== "hub") {
       setPage((current) => (current === "Devices" ? "Overview" : current));
@@ -81,6 +85,11 @@ export function App() {
                 : "page-content"
             }
           >
+            {runtime?.desktop_error && (
+              <div className="error-note" role="alert">
+                {t(runtime.desktop_error)}
+              </div>
+            )}
             {currentPage === "Overview" ? (
               <Overview
                 runtime={runtime}

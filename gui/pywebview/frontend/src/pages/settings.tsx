@@ -3,6 +3,7 @@ import { Save, RotateCcw, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DesktopSettings } from "@/components/desktop-settings";
 import {
   Select,
   SelectContent,
@@ -492,6 +493,7 @@ export function Settings({ currentMode }: { currentMode: string }) {
           </Select>
         </div>
       </section>
+      <DesktopSettings />
       {error && (
         <div className="error-note" role="alert">
           {t("Configuration is invalid or unavailable")}: {t(error)}

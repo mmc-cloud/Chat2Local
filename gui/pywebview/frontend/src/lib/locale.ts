@@ -146,6 +146,37 @@ const chinese: Record<string, string> = {
   "Configuration saved": "配置已保存",
   "Configuration saved · Restart required": "配置已保存 · 需要重启 Core",
   "Display language": "显示语言",
+  Desktop: "桌面",
+  "Saved immediately. Separate from Core configuration.":
+    "修改立即保存，独立于 Core 配置。",
+  "Launch Chat2Local when I sign in to Windows":
+    "登录 Windows 后启动 Chat2Local",
+  "Start silently when launched at sign-in": "登录启动时静默运行",
+  "Start Core automatically": "自动启动 Core",
+  "Close button": "点击关闭按钮",
+  "Hide to tray": "隐藏到托盘",
+  "Exit Chat2Local": "退出 Chat2Local",
+  "Loading desktop preferences...": "正在加载桌面设置…",
+  "Tray unavailable; closing the window will exit Chat2Local":
+    "托盘不可用，关闭窗口将退出 Chat2Local",
+  "Desktop operation failed; see desktop log": "桌面操作失败，请查看桌面日志",
+  "Could not save Core startup context; see desktop log":
+    "无法保存 Core 启动设置，请查看桌面日志",
+  "Could not save desktop preferences; see desktop log":
+    "无法保存桌面设置，请查看桌面日志",
+  "Could not update Windows login startup; see desktop log":
+    "无法修改 Windows 登录启动设置，请查看桌面日志",
+  "Desktop preferences invalid or unreadable; Windows login startup was not changed":
+    "桌面设置文件无效或无法读取，Windows 登录启动项未做修改",
+  "Windows login startup rollback failed; see desktop log":
+    "Windows 登录启动设置回滚失败，请查看桌面日志",
+  "Windows login startup is not supported on this platform":
+    "当前平台不支持 Windows 登录启动",
+  "Invalid desktop preferences fields": "无效的桌面设置字段",
+  "Invalid desktop preference: launch_at_login": "无效的登录启动设置",
+  "Invalid desktop preference: silent_login_start": "无效的静默登录启动设置",
+  "Invalid desktop preference: auto_start_core": "无效的自动启动 Core 设置",
+  "Invalid desktop preference: close_behavior": "无效的关闭按钮设置",
   "Applies immediately and is remembered for this GUI. Core configuration is unchanged.":
     "立即生效并记住选择，不影响 Core 配置。",
   auto: "自动检测",
