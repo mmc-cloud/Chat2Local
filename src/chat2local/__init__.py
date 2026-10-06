@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from chat2local!")
+"""Chat2Local package."""

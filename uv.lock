@@ -165,6 +165,7 @@ dependencies = [
 
 [package.dev-dependencies]
 desktop-build = [
+    { name = "packaging" },
     { name = "pyinstaller" },
 ]
 dev = [
@@ -173,6 +174,7 @@ dev = [
 pywebview-gui = [
     { name = "pillow" },
     { name = "pystray" },
+    { name = "python-socks" },
     { name = "pywebview" },
 ]
 
@@ -188,11 +190,15 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-desktop-build = [{ name = "pyinstaller", specifier = ">=6.22,<7" }]
+desktop-build = [
+    { name = "packaging", specifier = ">=24" },
+    { name = "pyinstaller", specifier = ">=6.22,<7" },
+]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 pywebview-gui = [
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pystray", specifier = "==0.19.5" },
+    { name = "python-socks", extras = ["asyncio"], specifier = ">=3.1.1,<4" },
     { name = "pywebview", specifier = ">=6.2.1" },
 ]
 
@@ -854,6 +860,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
+]
+
+[[package]]
+name = "python-socks"
+version = "3.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/ad/484ffb79532517b11a90af38647c38652224650b31a7ae1cedd5a418d8ab/python_socks-3.1.1.tar.gz", hash = "sha256:8d3e817cdbe858dc0bb8c8fdc8e79b6ce37acce110d33374c6f57a675cc9029e", size = 232781, upload-time = "2026-09-08T13:03:31.058Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/23/2c2cef1b4313c55d1713201acd4ee2043fb2cf22e546ca9d36bf4317faea/python_socks-3.1.1-py3-none-any.whl", hash = "sha256:327e0d6378702c73a7790bf732e9f01392f17b48c7348a50b5bd1f710c2df1be", size = 49566, upload-time = "2026-09-08T13:03:29.604Z" },
 ]
 
 [[package]]

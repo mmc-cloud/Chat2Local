@@ -4,7 +4,19 @@ version = "0.1.0"
 description = "A lightweight local agent that lets ChatGPT securely operate local files and processes through MCP."
 readme = "README.md"
 authors = [
-    { name = "mmc-cloud", email = "mmc-cloud@users.noreply.github.com" }
+    { name = "mmc-cloud" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["mcp", "chatgpt", "local-agent", "automation", "developer-tools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -20,6 +32,11 @@ dependencies = [
 [project.scripts]
 chat2local = "chat2local.main:main"
 
+[project.urls]
+Homepage = "https://github.com/mmc-cloud/Chat2Local"
+Repository = "https://github.com/mmc-cloud/Chat2Local"
+Issues = "https://github.com/mmc-cloud/Chat2Local/issues"
+
 [build-system]
 requires = ["uv_build>=0.9.21,<0.10.0"]
 build-backend = "uv_build"
@@ -32,7 +49,9 @@ pywebview-gui = [
     "pillow>=12.3.0",
     "pystray==0.19.5",
     "pywebview>=6.2.1",
+    "python-socks[asyncio]>=3.1.1,<4",
 ]
 desktop-build = [
+    "packaging>=24",
     "pyinstaller>=6.22,<7",
 ]

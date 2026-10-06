@@ -21,7 +21,7 @@ from test_apply_patch import create_link
 
 
 @pytest.mark.parametrize("canonical,key", [
-    (r"D:\Projects\Chat2Local", "D--杂物-vibe项目-Chat2Local-chat2local"),
+    (r"D:\Projects\Chat2Local", "D--Projects-Chat2Local"),
     ("/home/alice/项目/chat2local", "-home-alice-项目-chat2local"),
     (r"\\server\share\Project", "--server-share-Project"),
 ])

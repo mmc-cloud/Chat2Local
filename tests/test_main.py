@@ -21,8 +21,7 @@ from chat2local.runtime.config import (
     SearchConfig,
 )
 
-# `chat2local/__init__.py` defines its own main(), which shadows the submodule
-# attribute, so the module is imported by name rather than via `from ... import`.
+# Import the entry-point module explicitly so tests can monkeypatch its runtime wiring.
 main_module = importlib.import_module("chat2local.main")
 
 NL = chr(10)
@@ -72,6 +71,27 @@ def run_main(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     monkeypatch.setattr("sys.argv", ["chat2local", *argv])
 
     main_module.main()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]"])
+def test_loopback_host_detection(host):
+    assert main_module._is_loopback_host(host)
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.0.2.10", "mcp.example.com"])
+def test_non_loopback_host_detection(host):
+    assert not main_module._is_loopback_host(host)
+
+
+def test_unauthenticated_non_loopback_server_warns(tmp_path, monkeypatch, launched):
+    monkeypatch.chdir(tmp_path)
+    warnings = []
+    monkeypatch.setattr(main_module.logger, "warning", lambda *args: warnings.append(args))
+
+    run_main(monkeypatch, "--host", "0.0.0.0")
+
+    assert launched["host"] == "0.0.0.0"
+    assert warnings and "MCP authentication is disabled" in warnings[0][0]
 
 
 # --- in-process startup --------------------------------------------------------

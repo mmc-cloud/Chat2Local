@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import logging
 import os
 import socket
@@ -32,6 +33,15 @@ from chat2local.runtime.supervisor import CoreServer, RuntimeSupervisor
 from chat2local.runtime.workspace import WorkspaceError
 
 logger = logging.getLogger(__name__)
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
 
 
 def _runtime_arguments(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
@@ -245,6 +255,12 @@ def main() -> None:
 
     role = "Hub" if args.mode == "hub" else "Standalone"
     configure_logging(debug=args.debug, secrets=(token,) if token else ())
+    if config.auth.mode == "none" and not _is_loopback_host(host):
+        logger.warning(
+            "MCP authentication is disabled while listening on non-loopback address %s; "
+            "protect /mcp with OAuth or a trusted external access-control layer",
+            host,
+        )
     logger.info("%s starting as %s", role, device_id)
     try:
         asyncio.run(_run_server(application, mode=args.mode or "standalone", device_id=device_id,
