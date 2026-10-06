@@ -10,20 +10,19 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from ipaddress import ip_address
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from autostart import WindowsAutostart
 from bridge import GuiBridge
 from desktop_logging import DesktopSafeFormatter, bootstrap_logging, log_exception_safe
+from paths import ASSETS, FRONTEND
 from preferences import PreferencesStore
 from single_instance import SingleInstance
-from tray import ASSETS, TrayController
+from tray import TrayController
 
 from chat2local.management.runtime import ManagementError
 from chat2local.runtime import config as core_config
 
-FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 logger = logging.getLogger("chat2local.desktop.app")
 
 

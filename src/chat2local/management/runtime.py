@@ -183,10 +183,13 @@ class RuntimeClient:
     def _args(self, mode: str, workspace: str) -> list[str]:
         if mode not in ("standalone", "hub", "agent"):
             raise ManagementError("Invalid Core mode")
+        prefix = (
+            [sys.executable, "--core"]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-m", "chat2local.main"]
+        )
         return [
-            sys.executable,
-            "-m",
-            "chat2local.main",
+            *prefix,
             *([] if mode == "standalone" else [mode]),
             "--workspace",
             workspace,

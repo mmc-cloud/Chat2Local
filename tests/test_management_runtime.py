@@ -178,6 +178,24 @@ def test_start_args_and_detached_stdio(tmp_path, monkeypatch, mode, subcommand):
     child.kill.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "mode,subcommand",
+    [("standalone", []), ("hub", ["hub"]), ("agent", ["agent"])],
+)
+def test_frozen_start_args_reenter_desktop_executable(
+    tmp_path, monkeypatch, mode, subcommand
+):
+    client = RuntimeClient(tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert client._args(mode, str(tmp_path)) == [
+        sys.executable,
+        "--core",
+        *subcommand,
+        "--workspace",
+        str(tmp_path),
+    ]
+
+
 def test_start_already_running_does_not_spawn(tmp_path, monkeypatch):
     async def scenario():
         server, _ = await serve(tmp_path)

@@ -34,6 +34,33 @@ def test_build_loads_file_uri_without_server(shell, tmp_path, monkeypatch):
     assert shell.frontend_url(None) == (frontend / "dist/index.html").as_uri()
 
 
+def test_resource_root_uses_pyinstaller_bundle(monkeypatch):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[1] / "gui/pywebview/python")
+    )
+    paths = import_module("paths")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", r"C:\bundle\_internal", raising=False)
+    assert paths.pywebview_root() == Path(r"C:\bundle\_internal") / "gui/pywebview"
+
+
+def test_launcher_core_flag_dispatches_to_core(monkeypatch):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[1] / "gui/pywebview/python")
+    )
+    launcher = import_module("launcher")
+    core = import_module("chat2local.main")
+    called = []
+    monkeypatch.setattr(core, "main", lambda: called.append(tuple(sys.argv)))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["Chat2Local.exe", "--core", "agent", "--workspace", r"C:\work"],
+    )
+    launcher.main()
+    assert called == [("Chat2Local.exe", "agent", "--workspace", r"C:\work")]
+
+
 def test_missing_build_has_actionable_error(shell, tmp_path, monkeypatch):
     monkeypatch.setattr(shell, "FRONTEND", tmp_path)
     with pytest.raises(FileNotFoundError, match="pnpm build"):

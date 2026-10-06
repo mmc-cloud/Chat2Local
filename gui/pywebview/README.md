@@ -163,3 +163,22 @@ uv lock --check
 
 Tests use temporary configuration/runtime/log paths. Do not smoke-test Stop/Restart against
 an existing production Core; use an isolated test process instead.
+
+## Portable Windows build
+
+The portable release is a PyInstaller one-folder build. `Chat2Local.exe` is the desktop
+entry point and also re-enters the same executable with the internal `--core` flag when
+the GUI starts Standalone, Hub or Agent mode. Source runs continue to use
+`python -m chat2local.main`; there is no second Core implementation.
+
+Build from the repository root on Windows after installing the frontend dependencies:
+
+```powershell
+uv run --group pywebview-gui --group desktop-build python scripts/build_windows.py
+```
+
+The script rebuilds the Vite frontend and writes the portable folder to
+`dist/windows/Chat2Local/`. The executable icon uses `assets/chat2local.ico`; frontend
+assets and Tray graphics are collected under PyInstaller's internal bundle directory.
+No installer or machine-wide registration is created. Windows login startup, when enabled
+from the GUI, points directly at the frozen `Chat2Local.exe --startup` command.

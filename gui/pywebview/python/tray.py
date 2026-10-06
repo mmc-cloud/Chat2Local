@@ -7,12 +7,11 @@ import queue
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from desktop_logging import log_exception_safe
+from paths import ASSETS
 
 logger = logging.getLogger("chat2local.desktop.tray")
-ASSETS = Path(__file__).resolve().parents[1] / "assets"
 TRAY_TEXT = {
     "en": {
         "open": "Open Chat2Local",
