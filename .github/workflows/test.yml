@@ -39,7 +39,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked --group dev
+        run: uv sync --locked --group dev --group pywebview-gui
 
       - name: Run tests
         run: uv run pytest -q

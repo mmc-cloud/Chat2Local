@@ -1029,10 +1029,26 @@ def test_fallback_reports_timeout_inside_the_last_file(
     """
 
     force_fallback(monkeypatch)
-    make_file(workspace, "only.txt", "needle\n" * 400_000)
+    make_file(workspace, "only.txt", "needle\n" * 10)
+
+    calls = {"n": 0}
+    real_check = search_module._check_deadline
+
+    def expire_inside_file(deadline: float) -> None:
+        calls["n"] += 1
+
+        # First check happens before yielding the single file; the next happens
+        # on its first line. Expire on the following line so the timeout comes
+        # from the file read loop rather than depending on machine speed.
+        if calls["n"] > 2:
+            raise search_module._SearchTimedOut
+
+        real_check(deadline)
+
+    monkeypatch.setattr(search_module, "_check_deadline", expire_inside_file)
 
     result = run(
-        search(workspace, "needle", mode="content", path="only.txt", timeout=0.05, max_results=500)
+        search(workspace, "needle", mode="content", path="only.txt", timeout=10.0, max_results=500)
     )
 
     assert result["truncated"] is True
