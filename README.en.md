@@ -1,13 +1,18 @@
 <h1 align="center">Chat2Local</h1>
 
-[简体中文](https://github.com/mmc-cloud/Chat2Local/blob/master/README.md) | **English**
+<p align="center">
+  <a href="https://github.com/mmc-cloud/Chat2Local/blob/master/README.md">简体中文</a> ·
+  <strong>English</strong>
+</p>
 
-[![PyPI](https://img.shields.io/pypi/v/chat2local)](https://pypi.org/project/chat2local/)
-[![Python](https://img.shields.io/pypi/pyversions/chat2local)](https://pypi.org/project/chat2local/)
-[![Tests](https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml/badge.svg)](https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml)
-[![License](https://img.shields.io/pypi/l/chat2local)](https://github.com/mmc-cloud/Chat2Local/blob/master/LICENSE)
+<p align="center">
+  <a href="https://pypi.org/project/chat2local/"><img src="https://img.shields.io/pypi/v/chat2local" alt="PyPI"></a>
+  <a href="https://pypi.org/project/chat2local/"><img src="https://img.shields.io/pypi/pyversions/chat2local" alt="Python"></a>
+  <a href="https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml"><img src="https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/mmc-cloud/Chat2Local/blob/master/LICENSE"><img src="https://img.shields.io/pypi/l/chat2local" alt="License"></a>
+</p>
 
-**Let ChatGPT access and operate your authorized local computers and projects through MCP.**
+<p align="center"><strong>Let ChatGPT access and operate your authorized local computers and projects through MCP.</strong></p>
 
 Chat2Local is a lightweight MCP agent for single-user, self-hosted workflows. It can read and modify local files, run commands, manage long-running processes, and connect multiple computers or servers through a **Hub + Agent** architecture.
 
