@@ -1,4 +1,11 @@
-# Chat2Local
+<h1 align="center">Chat2Local</h1>
+
+**简体中文** | [English](https://github.com/mmc-cloud/Chat2Local/blob/master/README.en.md)
+
+[![PyPI](https://img.shields.io/pypi/v/chat2local)](https://pypi.org/project/chat2local/)
+[![Python](https://img.shields.io/pypi/pyversions/chat2local)](https://pypi.org/project/chat2local/)
+[![Tests](https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml/badge.svg)](https://github.com/mmc-cloud/Chat2Local/actions/workflows/test.yml)
+[![License](https://img.shields.io/pypi/l/chat2local)](https://github.com/mmc-cloud/Chat2Local/blob/master/LICENSE)
 
 **让 ChatGPT 通过 MCP 访问并操作你授权的本地电脑和项目。**
 
