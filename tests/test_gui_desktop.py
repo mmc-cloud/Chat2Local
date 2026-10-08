@@ -1,6 +1,8 @@
 """Desktop contracts without a real WebView, Notification Area or HKCU writes."""
 
 import json
+import os
+import socket
 import subprocess
 import sys
 import threading
@@ -637,33 +639,183 @@ def test_tray_failure_restores_window(desktop):
 def test_auto_start_disabled_does_not_query_or_act(desktop):
     desktop.bridge.runtime_status = Mock(side_effect=AssertionError("disabled"))
     desktop.auto_start_core()
+    desktop.bridge.runtime_status.assert_not_called()
     assert not desktop.test_state["actions"]
 
 
-@pytest.mark.parametrize(
-    "lifecycle", ["Running", "Starting", "Stopping", "Error", "Stale"]
-)
-def test_auto_start_no_duplicate_or_repair(desktop, tmp_path, lifecycle):
+@pytest.fixture
+def auto_start(desktop, modules, tmp_path, monkeypatch):
+    desktop.startup = True
     desktop.preferences.current = replace(
         desktop.preferences.current,
         auto_start_core=True,
         startup_mode="hub",
         startup_workspace=str(tmp_path),
     )
-    desktop.test_state["snapshot"] = (
-        running(tmp_path)
-        if lifecycle == "Running"
-        else {"lifecycle": lifecycle, "core": None}
+    # Advance only the GUI settling clock, without sleeping or changing asyncio time.
+    elapsed = [0.0]
+
+    def advance(seconds):
+        elapsed[0] += seconds
+
+    desktop.test_clock = SimpleNamespace(
+        monotonic=lambda: elapsed[0], sleep=Mock(side_effect=advance)
     )
-    desktop.auto_start_core()
-    assert not desktop.test_state["actions"]
+    monkeypatch.setattr(modules.app, "time", desktop.test_clock)
+    return desktop
+
+
+def auto_start_states(desktop, *lifecycles):
+    snapshots = [
+        running(desktop.preferences.current.startup_workspace)
+        if state == "Running"
+        else {"lifecycle": state, "core": None}
+        for state in lifecycles
+    ]
+    states = iter(snapshots)
+    status = Mock(side_effect=lambda: dict(next(states, snapshots[-1])))
+    desktop.bridge._adapter.runtime_status = status
+    return status
+
+
+def test_auto_start_running_does_not_change_mode_or_start(auto_start):
+    status = auto_start_states(auto_start, "Running")
+    auto_start.auto_start_core()
+    auto_start.auto_start_core()
+    assert status.call_count == 1
+    auto_start.test_clock.sleep.assert_not_called()
+    assert not auto_start.test_state["actions"]
+    assert auto_start.error is None
+
+
+@pytest.mark.parametrize(
+    "states,starts",
+    [
+        (["Stale", "Stale"], True),
+        (["Stale", "Stopped"], True),
+        (["Stale", "Running"], False),
+        (["Starting", "Running"], False),
+        (["Starting", "Stopped"], True),
+        (["Starting", "Stale", "Stale"], True),
+        (["Stopping", "Stopped"], True),
+        (["Stopping", "Stale", "Stale"], True),
+        (["Stale", "Starting", "Running"], False),
+    ],
+)
+def test_auto_start_reconciles_transitions(auto_start, states, starts, caplog):
+    status = auto_start_states(auto_start, *states)
+    workspace = auto_start.preferences.current.startup_workspace
+    with caplog.at_level("INFO", logger="chat2local.desktop.app"):
+        auto_start.auto_start_core()
+        auto_start.auto_start_core()
+    assert status.call_count == len(states)
+    assert auto_start.test_clock.sleep.call_count == len(states) - 1
+    assert auto_start.test_state["actions"] == (
+        [("start", "hub", workspace)] if starts else []
+    )
+    assert auto_start.error is None
+    if "Stale" in states:
+        assert "Stale" in caplog.text and "Unknown" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "states", [["Error"], ["Starting", "Error"], ["Stopping", "Error"]]
+)
+def test_auto_start_error_is_exposed_without_retry(auto_start, states):
+    status = auto_start_states(auto_start, *states)
+    original = status.side_effect
+    status.side_effect = lambda: {
+        **original(), "message": "Could not read runtime information"
+    }
+    auto_start.auto_start_core()
+    auto_start.auto_start_core()
+    assert status.call_count == len(states)
+    assert not auto_start.test_state["actions"]
+    assert auto_start.error == "Could not read runtime information"
+    assert (
+        auto_start.bridge.runtime_status()["result"]["desktop_error"]
+        == auto_start.error
+    )
+
+
+@pytest.mark.parametrize("state", ["Starting", "Stopping"])
+def test_auto_start_transition_wait_is_bounded(auto_start, modules, state):
+    status = auto_start_states(auto_start, state)
+    auto_start.auto_start_core()
+    auto_start.auto_start_core()
+    assert 1 < status.call_count <= 1 + (
+        modules.app.AUTO_START_SETTLE_TIMEOUT / modules.app.AUTO_START_POLL_INTERVAL
+    )
+    assert auto_start.test_clock.monotonic() == modules.app.AUTO_START_SETTLE_TIMEOUT
+    assert not auto_start.test_state["actions"]
+    assert "timed out" in auto_start.error and state in auto_start.error
+
+
+def test_auto_start_status_failure_is_exposed_without_retry(auto_start):
+    status = Mock(
+        return_value={"ok": False, "error": {"message": "Status unavailable"}}
+    )
+    auto_start.bridge.runtime_status = status
+    auto_start.auto_start_core()
+    auto_start.auto_start_core()
+    status.assert_called_once()
+    assert auto_start.error == "Status unavailable"
+    assert not auto_start.test_state["actions"]
+
+
+@pytest.mark.parametrize("cancel", ["exit", "disable"])
+def test_auto_start_cancels_during_transition_wait(auto_start, cancel):
+    status = auto_start_states(auto_start, "Starting", "Stopped")
+
+    def cancel_wait(_):
+        if cancel == "exit":
+            auto_start.exit()
+        else:
+            auto_start.preferences.current = replace(
+                auto_start.preferences.current, auto_start_core=False
+            )
+
+    auto_start.test_clock.sleep.side_effect = cancel_wait
+    auto_start.auto_start_core()
+    assert status.call_count == 1
+    assert not auto_start.test_state["actions"]
+    assert auto_start.error is None
+
+
+def test_auto_start_repeated_and_concurrent_calls_launch_once(auto_start):
+    entered, release = threading.Event(), threading.Event()
+    original = auto_start.bridge.start_core
+
+    def start(*args):
+        entered.set()
+        assert release.wait(5)
+        return original(*args)
+
+    auto_start.bridge.start_core = Mock(side_effect=start)
+    status = Mock(wraps=auto_start.bridge.runtime_status)
+    auto_start.bridge.runtime_status = status
+    worker = threading.Thread(target=auto_start.auto_start_core)
+    worker.start()
+    try:
+        assert entered.wait(3)
+        auto_start.auto_start_core()
+        status.assert_called_once()
+        auto_start.bridge.start_core.assert_called_once()
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert not worker.is_alive()
+    auto_start.auto_start_core()
+    assert len(auto_start.test_state["actions"]) == 1
+    assert auto_start.error is None
 
 
 @pytest.mark.parametrize(
     "mode,workspace", [(None, None), ("agent", None), (None, "valid")]
 )
+@pytest.mark.parametrize("lifecycle", ["Stopped", "Stale", "Starting", "Stopping"])
 def test_auto_start_incomplete_context_skips(
-    desktop, tmp_path, mode, workspace, caplog
+    desktop, tmp_path, mode, workspace, lifecycle, caplog
 ):
     desktop.preferences.current = replace(
         desktop.preferences.current,
@@ -671,6 +823,7 @@ def test_auto_start_incomplete_context_skips(
         startup_mode=mode,
         startup_workspace=str(tmp_path) if workspace else None,
     )
+    desktop.test_state["snapshot"] = {"lifecycle": lifecycle, "core": None}
     desktop.auto_start_core()
     assert not desktop.test_state["actions"]
     assert "no confirmed mode/workspace" in caplog.text
@@ -686,6 +839,162 @@ def test_auto_start_stopped_valid_context_starts_once(desktop, tmp_path):
     desktop.auto_start_core()
     desktop.auto_start_core()
     assert desktop.test_state["actions"] == [("start", "hub", str(tmp_path))]
+
+
+def test_auto_start_uses_management_serialization_for_manual_actions(
+    auto_start, isolated_user_data, monkeypatch
+):
+    from chat2local.management.adapter import CoreAdapter
+    from chat2local.management.runtime import RuntimeClient
+
+    client = RuntimeClient(isolated_user_data)
+    auto_start.bridge._adapter = CoreAdapter(client)
+    entered, release = threading.Event(), threading.Event()
+    starts = []
+
+    async def discover():
+        return {"lifecycle": "Stopped", "core": None}
+
+    async def start(mode, workspace):
+        starts.append((mode, workspace))
+        entered.set()
+        assert release.wait(5)
+        return {"lifecycle": "Running", "core": None}
+
+    monkeypatch.setattr(client, "discover", discover)
+    monkeypatch.setattr(client, "_start", start)
+    worker = threading.Thread(target=auto_start.auto_start_core)
+    worker.start()
+    try:
+        assert entered.wait(3)
+        assert auto_start.bridge.runtime_status()["result"]["lifecycle"] == "Starting"
+        results = [
+            auto_start.bridge.start_core(
+                "hub", auto_start.preferences.current.startup_workspace
+            ),
+            auto_start.bridge.stop_core(),
+            auto_start.bridge.restart_core(),
+        ]
+        assert all(not result["ok"] for result in results)
+        assert all(
+            "already in progress" in result["error"]["message"] for result in results
+        )
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert starts == [("hub", auto_start.preferences.current.startup_workspace)]
+    assert auto_start.error is None
+
+
+def test_login_auto_start_recovers_real_stale_descriptor_and_next_session(
+    modules, tmp_path, monkeypatch
+):
+    """Reboot leftovers -> real Core; a later login also undoes a manual Stop."""
+    import asyncio
+
+    from chat2local.management import runtime
+    from chat2local.management.adapter import CoreAdapter
+    from chat2local.management.runtime import RuntimeClient
+    from chat2local.runtime import config
+    from chat2local.runtime.instance import (
+        AlreadyRunningError,
+        InstanceLock,
+        RuntimeDescriptor,
+    )
+
+    home = tmp_path / "isolated home"
+    workspace = home / "workspace"
+    workspace.mkdir(parents=True)
+    directory = home / ".chat2local"
+    lock = InstanceLock(directory)
+    lock.acquire()
+    lock.release()  # A previous session leaves the lock file, but no ownership.
+    preferences = modules.preferences.PreferencesStore(
+        directory / "gui/preferences.json"
+    )
+    preferences.save(
+        replace(
+            preferences.current,
+            launch_at_login=True,
+            silent_login_start=True,
+            auto_start_core=True,
+            startup_mode="standalone",
+            startup_workspace=str(workspace.resolve()),
+        )
+    )
+    monkeypatch.setattr(config, "load_config", lambda: config.AppConfig())
+    env = {
+        **os.environ, "USERPROFILE": str(home), "HOME": str(home), "PYTHONUTF8": "1"
+    }
+    original = runtime.subprocess.Popen
+
+    def isolated_spawn(args, **options):
+        # A real detached Core, with temporary user data and an ephemeral HTTP port.
+        return original([*args, "--port", "0"], env=env, **options)
+
+    spawn = Mock(side_effect=isolated_spawn)
+    monkeypatch.setattr(runtime.subprocess, "Popen", spawn)
+    client = RuntimeClient(directory, control_timeout=0.1)
+
+    def login(runtime_client):
+        store = modules.preferences.PreferencesStore(preferences.path)
+        bridge = modules.bridge.GuiBridge(CoreAdapter(runtime_client), store)
+        shell = modules.app.DesktopShell(
+            startup=True, preferences=store, bridge=bridge
+        )
+        shell.tray = SimpleNamespace(available=True)
+        assert shell.hidden_start
+        return shell
+
+    # A valid old descriptor with a bound but non-listening control port is unreachable.
+    with socket.socket() as old_control:
+        old_control.bind(("127.0.0.1", 0))
+        stale = RuntimeDescriptor.new(
+            "standalone", "old", workspace, old_control.getsockname()[1]
+        )
+        stale.publish(directory)
+        shell = login(client)
+        statuses = Mock(wraps=shell.bridge.runtime_status)
+        shell.bridge.runtime_status = statuses
+        try:
+            assert asyncio.run(client.status())["lifecycle"] == "Stale"
+            shell.auto_start_core()
+            shell.auto_start_core()
+            assert statuses.call_count == 2  # Both real checks found stale metadata.
+            current = asyncio.run(client.discover())
+            assert current["lifecycle"] == "Running"
+            assert current["core"]["instance_id"] != stale.instance_id
+            assert current["core"]["workspace"] == str(workspace.resolve())
+            descriptor = json.loads(
+                (directory / "runtime.json").read_text(encoding="utf-8")
+            )
+            assert descriptor["instance_id"] == current["core"]["instance_id"]
+            assert descriptor["pid"] == current["core"]["pid"]
+            assert spawn.call_count == 1
+            assert shell.error is None
+            with pytest.raises(AlreadyRunningError):
+                InstanceLock(directory).acquire()
+
+            assert shell.bridge.stop_core()["result"]["lifecycle"] == "Stopped"
+            shell.auto_start_core()  # This session does not become a watchdog.
+            assert spawn.call_count == 1
+            assert preferences.path.exists() and (directory / "runtime.lock").exists()
+            assert not (directory / "runtime.json").exists()
+
+            client = RuntimeClient(directory, control_timeout=0.1)
+            next_login = login(client)
+            next_login.auto_start_core()
+            next_login.auto_start_core()
+            assert asyncio.run(client.discover())["lifecycle"] == "Running"
+            assert spawn.call_count == 2
+            assert next_login.error is None
+        finally:
+            if asyncio.run(client.discover())["lifecycle"] == "Running":
+                assert asyncio.run(client.action("stop"))["lifecycle"] == "Stopped"
+    assert not (directory / "runtime.json").exists()
+    lock.acquire()
+    lock.release()
 
 
 def test_manual_start_and_discovered_running_remember_confirmed_context(
@@ -1018,6 +1327,7 @@ def test_invalid_saved_context_fails_once_without_retry(desktop, tmp_path):
     )
     action = Mock(side_effect=ManagementError("Workspace is no longer allowed"))
     desktop.bridge._adapter.runtime.action = action
+    desktop.auto_start_core()
     desktop.auto_start_core()
     assert action.call_count == 1
     assert "no longer allowed" in desktop.error

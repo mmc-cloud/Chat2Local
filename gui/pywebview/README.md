@@ -105,10 +105,22 @@ Desktop shutdown stops the tray and joins the workers; it never stops Core.
 Only `--startup` plus `silent_login_start=true` plus a ready tray creates a hidden window.
 The Python shell sets `hidden` before native display, without waiting for React. If the tray
 fails, the window is visible and X safely exits; later tray failures restore the window too.
-Manual launch always shows the window. Core auto-start checks real management status once:
-only Stopped with a confirmed context starts. Running and transitional/error states are left
-alone. Core management revalidates workspace access and guards concurrent starts. Only a
-successful Start or discovered Running Core updates the saved mode/workspace, never UI inputs.
+Manual launch always shows the window. With `auto_start_core=true`, each GUI startup (including
+Windows sign-in) reconciles Core toward Running using the last confirmed mode/workspace.
+Running is already complete; Stopped starts once. Stale metadata is checked again after a short
+delay and, if still Stale or now Stopped, recovered through the existing management Start.
+Starting/Stopping are polled every 0.5 seconds within a 10-second settling window: Running
+completes reconciliation, Stopped/Stale permits recovery, and Error stops with a desktop error.
+Each IPC request and the single launch retain their existing management timeouts; they may
+extend the settling window. An unresolved transition reports a timeout rather than waiting
+forever. Missing confirmed context skips startup. Exit or disabling auto-start cancels further
+checks/actions; an already submitted management action retains its normal behavior.
+This is one bounded reconciliation per GUI session, not a watchdog or an automatic restart loop.
+Repeated/concurrent calls cannot repeat it. A manual Stop affects the current session only:
+the next GUI/login startup still restores Core unless `auto_start_core` is disabled.
+Core management revalidates workspace access and serializes lifecycle actions; `runtime.lock`
+remains the single-instance boundary. No PID killing or stale lock/descriptor deletion is added.
+Only a successful Start or discovered Running Core updates the saved mode/workspace, never UI inputs.
 
 Framework-independent clients live in `src/chat2local/management/` and reuse Core config,
 WorkspaceManager and runtime IPC. GUI never configures Core logging. Desktop diagnostics,

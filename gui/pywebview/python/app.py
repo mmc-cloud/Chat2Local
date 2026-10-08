@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from ipaddress import ip_address
@@ -24,6 +25,8 @@ from chat2local.management.runtime import ManagementError
 from chat2local.runtime import config as core_config
 
 logger = logging.getLogger("chat2local.desktop.app")
+AUTO_START_SETTLE_TIMEOUT = 10.0
+AUTO_START_POLL_INTERVAL = 0.5
 
 
 class DesktopShell:
@@ -40,6 +43,8 @@ class DesktopShell:
         self._navigation = None
         self._navigation_lock = threading.Lock()
         self._activation_requested = threading.Event()
+        self._auto_start_lock = threading.Lock()
+        self._auto_start_attempted = False
 
     @property
     def hidden_start(self):
@@ -176,32 +181,74 @@ class DesktopShell:
             self.open_window()
 
     def auto_start_core(self):
-        preferences = self.preferences.current
-        if not preferences.auto_start_core or self.exiting:
+        """Reconcile once per GUI startup; Core management still owns all actions."""
+        if not self.preferences.current.auto_start_core or self.exiting:
             return
-        status = self.bridge.runtime_status()
-        if not status["ok"]:
-            self.report_error(status["error"]["message"])
+        if not self._auto_start_lock.acquire(blocking=False):
             return
-        lifecycle = status["result"]["lifecycle"]
-        if lifecycle != "Stopped":
-            state = (
-                lifecycle
-                if lifecycle in ("Running", "Starting", "Stopping", "Error")
-                else "Unknown"
-            )
-            logger.info("Automatic Core start skipped: %s", state)
-            return
-        if not preferences.startup_mode or not preferences.startup_workspace:
-            logger.warning("Automatic Core start skipped: no confirmed mode/workspace")
-            return
-        if self.exiting:
-            return
-        result = self.bridge.start_core(
-            preferences.startup_mode, preferences.startup_workspace
-        )
-        if not result["ok"]:
-            self.report_error(result["error"]["message"])
+        try:
+            if self._auto_start_attempted:
+                return
+            self._auto_start_attempted = True
+            deadline = time.monotonic() + AUTO_START_SETTLE_TIMEOUT
+            previous = None
+            while not self.exiting and self.preferences.current.auto_start_core:
+                status = self.bridge.runtime_status()
+                if self.exiting or not self.preferences.current.auto_start_core:
+                    return
+                if not status["ok"]:
+                    logger.error("Automatic Core startup status check failed")
+                    self.report_error(status["error"]["message"])
+                    return
+                snapshot = status["result"]
+                lifecycle = snapshot["lifecycle"]
+                if lifecycle == "Running":
+                    logger.info("Automatic Core startup complete: Running")
+                    return
+                if lifecycle == "Error":
+                    logger.error("Automatic Core startup stopped: Error")
+                    self.report_error(
+                        snapshot.get("message") or "Core is in Error; see logs"
+                    )
+                    return
+                if lifecycle not in ("Stopped", "Stale", "Starting", "Stopping"):
+                    logger.error("Automatic Core startup stopped: Unknown")
+                    self.report_error("Unknown Core lifecycle; see desktop log")
+                    return
+                preferences = self.preferences.current
+                if not preferences.startup_mode or not preferences.startup_workspace:
+                    logger.warning(
+                        "Automatic Core start skipped: no confirmed mode/workspace"
+                    )
+                    return
+                # One spaced confirmation avoids treating temporary IPC unavailability
+                # as an absent Core. RuntimeClient and runtime.lock recheck ownership.
+                if lifecycle == "Stopped" or (
+                    lifecycle == "Stale" and previous == "Stale"
+                ):
+                    logger.info("Automatic Core startup restoring from %s", lifecycle)
+                    result = self.bridge.start_core(
+                        preferences.startup_mode, preferences.startup_workspace
+                    )
+                    if not result["ok"]:
+                        logger.error("Automatic Core startup failed")
+                        self.report_error(result["error"]["message"])
+                    else:
+                        logger.info("Automatic Core startup complete: Running")
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.warning("Automatic Core startup wait timed out: %s", lifecycle)
+                    self.report_error(
+                        f"Automatic Core startup timed out while waiting for {lifecycle}; "
+                        "see desktop log"
+                    )
+                    return
+                logger.info("Automatic Core startup waiting: %s", lifecycle)
+                previous = lifecycle
+                time.sleep(min(AUTO_START_POLL_INTERVAL, remaining))
+        finally:
+            self._auto_start_lock.release()
 
     def shutdown(self):
         self.exiting = True
