@@ -1,6 +1,6 @@
 [project]
 name = "chat2local"
-version = "0.1.1"
+version = "0.1.2"
 description = "A lightweight local agent that lets ChatGPT securely operate local files and processes through MCP."
 readme = "README.md"
 authors = [

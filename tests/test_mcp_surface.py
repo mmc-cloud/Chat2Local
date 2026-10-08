@@ -82,8 +82,8 @@ def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> No
     assert "AGENTS.md" in MCP_INSTRUCTIONS
     assert "handoff_list" in MCP_INSTRUCTIONS
     assert "cross-chat checkpoints, not progress logs" in MCP_INSTRUCTIONS
-    assert "If unsure whether a milestone" in MCP_INSTRUCTIONS
-    assert "defer saving" in MCP_INSTRUCTIONS
+    assert "If uncertain whether a milestone warrants saving" in MCP_INSTRUCTIONS
+    assert "defer" in MCP_INSTRUCTIONS
 
     local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
     router = DeviceRouter("hub", local, DeviceRegistry("hub"))
@@ -96,8 +96,8 @@ def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> No
 def test_handoff_save_description_discourages_progress_logging(server: MCPServer) -> None:
     tool = next(tool for tool in run(server.list_tools()) if tool.name == "handoff_save")
 
-    assert "not a routine progress logger" in tool.description
-    assert "If unsure, do not save yet" in tool.description
+    assert "not chat transcripts or routine progress logs" in tool.description
+    assert "defer if unsure" in tool.description
 
 
 @pytest.mark.parametrize(
@@ -404,11 +404,12 @@ def test_workspace_schema_and_description(server: MCPServer, name: str) -> None:
 
     assert workspace["default"] is None
     assert {entry["type"] for entry in workspace["anyOf"]} == {"string", "null"}
-    for phrase in (
-        "absolute workspace path", "startup default", "locally configured allowed_roots",
-        "only affects this Tool Call", "path itself is still bounded",
-    ):
-        assert phrase in tool.description
+    description = workspace["description"]
+    assert "Absolute workspace" in description
+    assert "startup default" in description
+    assert "allowed roots" in description
+    assert "this call" in description
+    assert "selected workspace" in tool.description
 
 
 @pytest.mark.parametrize("name, extra", [
