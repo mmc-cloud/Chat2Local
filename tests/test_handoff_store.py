@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import os
 import threading
 
 import pytest
@@ -177,7 +178,12 @@ def test_concurrent_save_has_exactly_one_winner(workspace):
     run(scenario())
 
 
-def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch):
+@pytest.mark.parametrize("personal", [False, True])
+@pytest.mark.parametrize("second_workstream", [
+    "design", pytest.param("DESIGN", marks=pytest.mark.skipif(os.name != "nt", reason="Windows case-insensitive paths")),
+])
+def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch, personal, second_workstream):
+    workspace = None if personal else workspace
     store = HandoffStore()
     run(store.save(workspace, "design", "Title", "Summary", "original", 0))
     entered, release = threading.Event(), threading.Event()
@@ -196,7 +202,7 @@ def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch)
                 while not entered.is_set():
                     await asyncio.sleep(0.01)
             first.cancel()
-            second = asyncio.create_task(store.save(workspace, "design", "Title B", "Summary B", "B", 1))
+            second = asyncio.create_task(store.save(workspace, second_workstream, "Title B", "Summary B", "B", 1))
             await asyncio.sleep(0.03)
             assert not first.done() and not second.done()
             release.set()

@@ -9,6 +9,7 @@ from chat2local.agent.client import AgentClient
 from chat2local.app import create_app
 from chat2local.dispatch.local import LocalToolDispatcher, ToolExecutionError
 from chat2local.handoff import store as store_module
+from chat2local.handoff.paths import personal_storage_directory
 from chat2local.hub.router import DeviceRouter
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.workspace import WorkspaceManager
@@ -94,6 +95,81 @@ def test_dispatcher_workspace_override_and_concurrency(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["standalone", "hub-local", "agent"])
+def test_real_mcp_personal_flow_and_device_local_storage(tmp_path, mode):
+    hub_root, agent_root = tmp_path / "hub", tmp_path / "agent"
+    hub_root.mkdir()
+    agent_root.mkdir()
+    hub_data, agent_data = tmp_path / "hub-data", tmp_path / "agent-data"
+    remote = mode == "agent"
+
+    async def scenario():
+        router = hub_runtime(hub_root) if mode != "standalone" else DeviceRouter(
+            "hub", LocalToolDispatcher(WorkspaceManager(hub_root), AppConfig()),
+        )
+        agent = LocalToolDispatcher(WorkspaceManager(agent_root), AppConfig())
+        router.local.handoff_store = store_module.HandoffStore(hub_data)
+        agent.handoff_store = store_module.HandoffStore(agent_data)
+        target_data = agent_data if remote else hub_data
+        async with running_server(create_app(router, hub_token=TOKEN if mode != "standalone" else None)) as (url, ws_url):
+            @asynccontextmanager
+            async def connected():
+                if remote:
+                    async with running_agent(AgentClient(ws_url, "desktop", TOKEN, agent)):
+                        await eventually(lambda: "desktop" in router.registry.sessions)
+                        yield
+                else:
+                    yield
+            async with connected(), mcp_client(url) as client:
+                async def call(name, **args):
+                    return await client.call_tool(name, {"scope": "personal", **args,
+                                                        "device": "desktop" if remote else None})
+                assert decode(await call("handoff_list")) == {"handoffs": []}
+                assert not target_data.exists()
+                args = dict(workstream="idea", title="研究", summary="初步计划", content="notes", expected_revision=0)
+                created = decode(await call("handoff_save", **args))
+                assert created["revision"] == 1
+                assert decode(await call("handoff_list")) == {"handoffs": [created]}
+                assert decode(await call("handoff_get", workstream="idea")) == {**created, "content": "notes"}
+                # Same ID in Workspace has its own body and revision.
+                project = decode(await call("handoff_save", **{**args, "scope": "workspace", "content": "project"}))
+                assert project["revision"] == 1
+                assert decode(await call("handoff_get", scope="workspace", workstream="idea"))["content"] == "project"
+                updated = decode(await call("handoff_save", **{**args, "content": "latest", "expected_revision": 1}))
+                assert updated["revision"] == 2
+                conflict = await call("handoff_save", **args)
+                assert conflict.is_error and "revision_conflict" in conflict.content[0].text
+                # Compare against the published schemas using actual results.
+                jsonschema = pytest.importorskip("jsonschema")
+                schemas = {tool.name: tool.output_schema for tool in (await client.list_tools()).tools}
+                for name, result in (
+                    ("handoff_save", updated),
+                    ("handoff_get", decode(await call("handoff_get", workstream="idea"))),
+                    ("handoff_list", decode(await call("handoff_list"))),
+                ):
+                    jsonschema.validate(result, schemas[name])
+                for name, extra in (("handoff_list", {}), ("handoff_get", {"workstream": "idea"}),
+                                    ("handoff_save", args)):
+                    for selected in (None, "", str(hub_root)):
+                        error = await call(name, **{**extra, "workspace": selected})
+                        assert error.is_error and "workspace must be omitted" in error.content[0].text
+                    for scope in (None, "unknown", 1, True):
+                        assert (await call(name, **{**extra, "scope": scope})).is_error
+                assert decode(await call("handoff_get", workstream="idea")) == {**updated, "content": "latest"}
+                assert (personal_storage_directory(target_data) / "idea.md").exists()
+                if remote:
+                    assert not hub_data.exists()
+                    assert decode(await client.call_tool("handoff_list", {"scope": "personal"})) == {"handoffs": []}
+                    assert not hub_data.exists()
+                    session = router.registry.get("desktop")
+                    await session.websocket.close(code=1001)
+                    await eventually(lambda: router.registry.sessions.get("desktop") is not None
+                                     and router.registry.sessions["desktop"] is not session)
+                    assert decode(await call("handoff_get", workstream="idea")) == {**updated, "content": "latest"}
+                assert list(hub_root.iterdir()) == [] and list(agent_root.iterdir()) == []
+    run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["standalone", "hub-local", "agent"])
 def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
     hub, agent_root, selected, outside = (tmp_path / name for name in ("hub", "agent", "selected", "outside"))
     for root in (hub, agent_root, selected, outside):
@@ -122,13 +198,15 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                 tools = {tool.name: tool.input_schema for tool in (await client.list_tools()).tools}
                 assert set(tools) == set(LOCAL_TOOLS) | {"list_devices"} and len(tools) == 10
                 for name, fields, required in (
-                    ("handoff_list", {"workspace", "device"}, []),
-                    ("handoff_get", {"workstream", "workspace", "device"}, ["workstream"]),
-                    ("handoff_save", {"workstream", "title", "summary", "content", "expected_revision", "workspace", "device"},
+                    ("handoff_list", {"workspace", "device", "scope"}, []),
+                    ("handoff_get", {"workstream", "workspace", "device", "scope"}, ["workstream"]),
+                    ("handoff_save", {"workstream", "title", "summary", "content", "expected_revision", "workspace", "device", "scope"},
                      ["workstream", "title", "summary", "content", "expected_revision"]),
                 ):
                     assert set(tools[name]["properties"]) == fields
                     assert tools[name].get("required", []) == required
+                    assert tools[name]["properties"]["scope"]["enum"] == ["workspace", "personal"]
+                    assert tools[name]["properties"]["scope"]["default"] == "workspace"
                 assert tools["handoff_get"]["properties"]["workstream"]["pattern"] == store_module.WORKSTREAM_PATTERN
                 assert tools["handoff_save"]["properties"]["expected_revision"]["minimum"] == 0
                 for field, maximum in (("title", 120), ("summary", 500)):

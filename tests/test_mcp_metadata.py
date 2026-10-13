@@ -116,3 +116,21 @@ def test_input_contract_still_exposes_original_defaults_and_return_conversion() 
     assert registered["handoff_save"].input_schema["required"] == [
         "workstream", "title", "summary", "content", "expected_revision",
     ]
+
+
+def test_handoff_scope_input_schemas_and_preserved_instructions() -> None:
+    from chat2local.mcp.instructions import MCP_INSTRUCTIONS
+
+    for tool in listed():
+        jsonschema.Draft202012Validator.check_schema(tool.input_schema)
+        if tool.name.startswith("handoff_"):
+            scope = tool.input_schema["properties"]["scope"]
+            assert scope["type"] == "string"
+            assert scope["enum"] == ["workspace", "personal"]
+            assert scope["default"] == "workspace"
+            assert "scope" not in tool.input_schema.get("required", [])
+        else:
+            assert "scope" not in tool.input_schema["properties"]
+    for rule in ('scope="workspace"', 'scope="personal"', "research topics", "early-stage ideas",
+                 "a short summary and a few notes", "revision_conflict", "user-data directory"):
+        assert rule in MCP_INSTRUCTIONS

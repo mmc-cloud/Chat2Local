@@ -23,8 +23,8 @@ Tool 保持薄层，复杂生命周期和底层机制放在对应 Runtime / Serv
 
 - 避免持久化可从真实系统重新获得的业务状态；Process 生命周期状态默认只保存在内存中。
 - Process Runtime、Handoff 和 Chat 会话状态保持独立。
-- Handoff scope = workspace，storage = Chat2Local user-data directory；复用 config 用户数据根目录，
-  各 workspace 独立存储。内部存储不要求位于 workspace 内，仍须防止 symlink / junction 别名。
+- Handoff scope = workspace / personal，storage = Chat2Local user-data directory；复用 config 用户数据根目录，
+  各 workspace 与 personal 独立存储。内部存储不要求位于 workspace 内，仍须防止 symlink / junction 别名。
 - Handoff 只保存最新跨 Chat 交接状态，不扩展为 Task Manager、会话记录器或聊天历史。
   Chat2Local 不包含 LLM，只做校验与持久化。
 

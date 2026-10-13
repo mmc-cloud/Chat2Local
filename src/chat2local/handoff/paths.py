@@ -1,4 +1,4 @@
-"""Readable workspace identities inside Chat2Local's internal user data."""
+"""Isolated Handoff scope directories inside Chat2Local's internal user data."""
 
 import hashlib
 import json
@@ -32,10 +32,20 @@ def workspace_key(canonical_path: str) -> str:
 def checked_path(directory: Path, name: str | None = None) -> Path:
     """Internal storage is outside the workspace, but must not follow aliases."""
     path = directory if name is None else directory / name
-    for candidate in (directory.parent, directory, path):
+    for candidate in (path, *path.parents):
         if candidate.is_symlink() or candidate.is_junction():
             raise InvalidHandoffError("handoff storage paths must not be symlinks or junctions")
     return path
+
+
+def personal_storage_directory(user_data: Path, *, create: bool = False) -> Path:
+    """A reserved name that no encoded absolute workspace path can produce."""
+    directory = checked_path(user_data / "handoffs" / "_personal")
+    if directory.exists() and not directory.is_dir():
+        raise InvalidHandoffError(f"handoff storage must be a directory: {directory}")
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def publish_bytes(path: Path, data: bytes) -> None:

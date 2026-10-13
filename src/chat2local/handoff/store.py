@@ -1,4 +1,4 @@
-"""Workspace-scoped latest-state persistence in Chat2Local user data."""
+"""Workspace and personal latest-state persistence in Chat2Local user data."""
 
 import asyncio
 from dataclasses import asdict
@@ -13,7 +13,7 @@ from chat2local.handoff.models import (
     HandoffMetadata, HandoffNotFoundError, HandoffRecord, InvalidHandoffError,
     InvalidWorkstreamError, RevisionConflictError,
 )
-from chat2local.handoff.paths import checked_path, storage_directory
+from chat2local.handoff.paths import checked_path, personal_storage_directory, storage_directory
 from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
 
@@ -71,23 +71,28 @@ def _read(path: Path, workstream: str) -> HandoffRecord:
 
 
 class HandoffStore:
-    """One store per dispatcher; no cached business state or shutdown lifecycle."""
+    """One store per dispatcher; workspace=None explicitly selects personal data.
+
+    No cached business state or shutdown lifecycle.
+    """
 
     def __init__(self, user_data: Path | None = None) -> None:
-        self._locks: dict[Path, asyncio.Lock] = {}
+        self._locks: dict[tuple[Path | None, str], asyncio.Lock] = {}
         self._user_data = user_data if user_data is not None else config.user_data_directory()
         # Serialize resolution across workstreams so no worker observes a newly
         # created directory before its workspace.json ownership is published.
         self._directory_lock = threading.Lock()
 
-    def _directory(self, workspace: WorkspaceManager, *, create: bool = False) -> Path:
+    def _directory(self, workspace: WorkspaceManager | None, *, create: bool = False) -> Path:
         with self._directory_lock:
+            if workspace is None:
+                return personal_storage_directory(self._user_data, create=create)
             return storage_directory(workspace.root, self._user_data, create=create)
 
-    async def list(self, workspace: WorkspaceManager) -> dict:
+    async def list(self, workspace: WorkspaceManager | None) -> dict:
         return await asyncio.to_thread(self._list, workspace)
 
-    def _list(self, workspace: WorkspaceManager) -> dict:
+    def _list(self, workspace: WorkspaceManager | None) -> dict:
         directory = self._directory(workspace)
         if not directory.exists():
             return {"handoffs": []}
@@ -110,16 +115,16 @@ class HandoffStore:
             )))
         return {"handoffs": records}
 
-    async def get(self, workspace: WorkspaceManager, workstream: str) -> dict:
+    async def get(self, workspace: WorkspaceManager | None, workstream: str) -> dict:
         validate_workstream(workstream)
         return await asyncio.to_thread(self._get, workspace, workstream)
 
-    def _get(self, workspace: WorkspaceManager, workstream: str) -> dict:
+    def _get(self, workspace: WorkspaceManager | None, workstream: str) -> dict:
         path = checked_path(self._directory(workspace), f"{workstream}.md")
         return asdict(_read(path, workstream))
 
     async def save(
-        self, workspace: WorkspaceManager, workstream: str, title: str, summary: str,
+        self, workspace: WorkspaceManager | None, workstream: str, title: str, summary: str,
         content: str, expected_revision: int,
     ) -> dict:
         validate_workstream(workstream)
@@ -129,7 +134,8 @@ class HandoffStore:
             raise ValueError("expected_revision must be a strict integer >= 0")
         if not isinstance(content, str):
             raise ValueError("content must be a string")
-        lock = self._locks.setdefault(workspace.root / f"{workstream}.md", asyncio.Lock())
+        identity = (workspace.root if workspace is not None else None, os.path.normcase(workstream))
+        lock = self._locks.setdefault(identity, asyncio.Lock())
         async with lock:
             worker = asyncio.create_task(asyncio.to_thread(
                 self._save, workspace, workstream, title, summary, content, expected_revision,
@@ -151,7 +157,7 @@ class HandoffStore:
                 raise
 
     def _save(
-        self, workspace: WorkspaceManager, workstream: str, title: str, summary: str,
+        self, workspace: WorkspaceManager | None, workstream: str, title: str, summary: str,
         content: str, expected_revision: int,
     ) -> dict:
         directory = self._directory(workspace)

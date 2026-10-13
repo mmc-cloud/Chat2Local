@@ -108,9 +108,9 @@ def test_handoff_save_description_discourages_progress_logging(server: MCPServer
         ("exec_command", {"command", "cwd", "workspace", "device"}),
         ("interact_process", {"process_id", "input", "device"}),
         ("kill_process", {"process_id", "device"}),
-        ("handoff_list", {"workspace", "device"}),
-        ("handoff_get", {"workstream", "workspace", "device"}),
-        ("handoff_save", {"workstream", "title", "summary", "content", "expected_revision", "workspace", "device"}),
+        ("handoff_list", {"workspace", "device", "scope"}),
+        ("handoff_get", {"workstream", "workspace", "device", "scope"}),
+        ("handoff_save", {"workstream", "title", "summary", "content", "expected_revision", "workspace", "device", "scope"}),
         (
             "search",
             {

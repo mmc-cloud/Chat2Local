@@ -12,10 +12,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 import socket
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, StrictInt, StrictStr
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from chat2local.mcp.metadata import TOOL_METADATA, annotations_for
@@ -97,6 +98,16 @@ def get_router() -> DeviceRouter:
     if _router is None:
         _router = DeviceRouter(socket.gethostname(), LocalToolDispatcher(get_workspace(), get_config()))
     return _router
+
+
+def _handoff_scope_arguments(scope: str, workspace: str | None, ctx: Context | None) -> dict[str, Any]:
+    """Preserve explicit workspace=null so personal scope rejects it too."""
+    arguments: dict[str, Any] = {"scope": scope}
+    params = ctx.request_context.params if ctx is not None else None
+    supplied = (params or {}).get("arguments") or {}
+    if workspace is not None or "workspace" in supplied:
+        arguments["workspace"] = workspace
+    return arguments
 
 
 def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
@@ -212,10 +223,12 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
     async def handoff_list_tool(
         workspace: Annotated[str | None, Field(description=TOOL_METADATA["handoff_list"]["params"]["workspace"])] = None,
         device: Annotated[str | None, Field(description=TOOL_METADATA["handoff_list"]["params"]["device"])] = None,
+        scope: Annotated[Literal["workspace", "personal"], Field(description=TOOL_METADATA["handoff_list"]["params"]["scope"])] = "workspace",
+        ctx: Context = None,
     ) -> dict[str, Any]:
         try:
             return await (router or get_router()).execute("handoff_list", {
-                "workspace": workspace,
+                **_handoff_scope_arguments(scope, workspace, ctx),
             }, device)
         except (WorkspaceError, ToolExecutionError, DeviceError) as error:
             raise ToolError(str(error)) from error
@@ -227,10 +240,12 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         workstream: Annotated[Workstream, Field(description=TOOL_METADATA["handoff_get"]["params"]["workstream"])],
         workspace: Annotated[str | None, Field(description=TOOL_METADATA["handoff_get"]["params"]["workspace"])] = None,
         device: Annotated[str | None, Field(description=TOOL_METADATA["handoff_get"]["params"]["device"])] = None,
+        scope: Annotated[Literal["workspace", "personal"], Field(description=TOOL_METADATA["handoff_get"]["params"]["scope"])] = "workspace",
+        ctx: Context = None,
     ) -> dict[str, Any]:
         try:
             return await (router or get_router()).execute("handoff_get", {
-                "workstream": workstream, "workspace": workspace,
+                "workstream": workstream, **_handoff_scope_arguments(scope, workspace, ctx),
             }, device)
         except (WorkspaceError, ToolExecutionError, DeviceError) as error:
             raise ToolError(str(error)) from error
@@ -246,11 +261,13 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         expected_revision: Annotated[ExpectedRevision, Field(description=TOOL_METADATA["handoff_save"]["params"]["expected_revision"])],
         workspace: Annotated[str | None, Field(description=TOOL_METADATA["handoff_save"]["params"]["workspace"])] = None,
         device: Annotated[str | None, Field(description=TOOL_METADATA["handoff_save"]["params"]["device"])] = None,
+        scope: Annotated[Literal["workspace", "personal"], Field(description=TOOL_METADATA["handoff_save"]["params"]["scope"])] = "workspace",
+        ctx: Context = None,
     ) -> dict[str, Any]:
         try:
             return await (router or get_router()).execute("handoff_save", {
                 "workstream": workstream, "title": title, "summary": summary, "content": content,
-                "expected_revision": expected_revision, "workspace": workspace,
+                "expected_revision": expected_revision, **_handoff_scope_arguments(scope, workspace, ctx),
             }, device)
         except (WorkspaceError, ToolExecutionError, DeviceError) as error:
             raise ToolError(str(error)) from error

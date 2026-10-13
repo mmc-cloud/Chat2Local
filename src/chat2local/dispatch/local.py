@@ -3,9 +3,9 @@
 from collections.abc import Awaitable, Callable
 import logging
 import time
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from chat2local.handoff.store import (
     HandoffStore, SUMMARY_MAX_LENGTH, TITLE_MAX_LENGTH,
@@ -76,10 +76,16 @@ class KillProcessArguments(_Arguments):
 
 
 class HandoffListArguments(_WorkspaceArguments):
-    pass
+    scope: Literal["workspace", "personal"] = "workspace"
+
+    @model_validator(mode="after")
+    def valid_scope(self) -> "HandoffListArguments":
+        if self.scope == "personal" and "workspace" in self.model_fields_set:
+            raise ValueError("workspace must be omitted when scope='personal'")
+        return self
 
 
-class HandoffGetArguments(_WorkspaceArguments):
+class HandoffGetArguments(HandoffListArguments):
     workstream: str
 
     @field_validator("workstream")
@@ -165,18 +171,21 @@ class LocalToolDispatcher:
     def _workspace(self, selected: str | None) -> WorkspaceManager:
         return self.workspace if selected is None else self.workspace.select_workspace(selected)
 
+    def _handoff_workspace(self, args: HandoffListArguments) -> WorkspaceManager | None:
+        return None if args.scope == "personal" else self._workspace(args.workspace)
+
     async def _handoff_list(self, arguments: dict[str, Any]) -> dict[str, Any]:
         args = HandoffListArguments.model_validate(arguments)
-        return await self.handoff_store.list(self._workspace(args.workspace))
+        return await self.handoff_store.list(self._handoff_workspace(args))
 
     async def _handoff_get(self, arguments: dict[str, Any]) -> dict[str, Any]:
         args = HandoffGetArguments.model_validate(arguments)
-        return await self.handoff_store.get(self._workspace(args.workspace), args.workstream)
+        return await self.handoff_store.get(self._handoff_workspace(args), args.workstream)
 
     async def _handoff_save(self, arguments: dict[str, Any]) -> dict[str, Any]:
         args = HandoffSaveArguments.model_validate(arguments)
         return await self.handoff_store.save(
-            self._workspace(args.workspace), args.workstream, args.title, args.summary,
+            self._handoff_workspace(args), args.workstream, args.title, args.summary,
             args.content, args.expected_revision,
         )
 

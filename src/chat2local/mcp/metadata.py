@@ -183,20 +183,24 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                                   'openWorldHint': False}},
  'handoff_list': {'title': 'List Handoffs',
                   'description': 'List the latest metadata of resumable Handoff workstreams belonging '
-                                 'to the selected project workspace on the selected device. Use title '
+                                 'to the selected workspace or personal scope on the selected device. Use title '
                                  'and summary to identify a matching workstream before reading its full '
                                  'body with handoff_get. Records are sorted and do not include content. '
                                  'If storage has not been created, return an empty list without '
                                  'creating it; malformed records raise invalid_handoff rather than '
                                  'being silently skipped.\n'
                                  '\n'
-                                 'Handoffs are grouped by workspace but physically stored under the '
-                                 "selected device's ~/.chat2local/handoffs/<workspace-key>/ user-data "
-                                 'directory, not in the source workspace; separate devices do not '
+                                 'Both scopes are physically stored under the selected device\'s '
+                                 '~/.chat2local/handoffs/ user-data directory: <workspace-key>/ for '
+                                 'workspace and _personal/ for personal. Separate devices do not '
                                  'automatically synchronize.',
                   'params': {'workspace': 'Absolute project workspace on the selected device; omit for '
                                           'its startup default. Must be within allowed roots. It '
-                                          'determines Handoff scope, not the physical storage path.',
+                                          'selects the project identity, not the physical storage path. '
+                                          'Omit when scope is personal.',
+                             'scope': 'workspace (default) for a specific project; personal for topics '
+                                      'without a project. personal needs no workspace; supplying a '
+                                      'workspace with personal is an argument error.',
                              'device': "Device holding these Handoffs; omit to use the MCP server's "
                                        'local device. Handoffs on separate devices are not '
                                        'automatically synchronized.'},
@@ -205,7 +209,7 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                                   'openWorldHint': False}},
  'handoff_get': {'title': 'Read Handoff',
                  'description': 'Read the latest metadata and continuation body of a known Handoff '
-                                "workstream in the selected device's workspace scope; use handoff_list "
+                                "workstream in the selected device's workspace or personal scope; use handoff_list "
                                 'to locate workstreams first. The returned content excludes the '
                                 'server-managed file header. Missing records raise handoff_not_found '
                                 'and invalid records raise invalid_handoff instead of returning '
@@ -215,7 +219,11 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                                           'letter or digit.',
                             'workspace': 'Absolute project workspace on the selected device; omit for '
                                          'its startup default and stay inside allowed roots. This '
-                                         'selects Handoff scope, not its physical storage path.',
+                                         'selects the project identity, not its physical storage path. '
+                                         'Omit when scope is personal.',
+                            'scope': 'workspace (default) for a specific project; personal for topics '
+                                     'without a project. personal needs no workspace; supplying a '
+                                     'workspace with personal is an argument error.',
                             'device': 'Device on which this Handoff is stored; omit for the MCP '
                                       "server's local device. Remote Handoffs live on their respective "
                                       'agents.'},
@@ -224,7 +232,9 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                                  'openWorldHint': False}},
  'handoff_save': {'title': 'Save Handoff',
                   'description': 'Create or atomically replace the latest cross-chat continuation '
-                                 'checkpoint for one workstream. Handoffs are not chat transcripts or '
+                                 'checkpoint for one workstream in the selected device\'s workspace '
+                                 'or personal scope. Both scopes use device-local user data. '
+                                 'Handoffs are not chat transcripts or '
                                  'routine progress logs: save when switching chats, pausing work for '
                                  'later, explicitly requested by the user, or crossing a meaningful '
                                  'phase boundary; defer if unsure. The calling model supplies the '
@@ -257,7 +267,11 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                                                   'without writing.',
                              'workspace': 'Absolute project workspace on the selected device, within '
                                           'its allowed roots. Omit for its startup default. Handoffs '
-                                          "are stored in device user data under this workspace's scope.",
+                                          "are stored in device user data under this workspace's scope. "
+                                          'Omit when scope is personal.',
+                             'scope': 'workspace (default) for a specific project; personal for topics '
+                                      'without a project. personal needs no workspace; supplying a '
+                                      'workspace with personal is an argument error.',
                              'device': 'Device on which to save this Handoff; omit to use the MCP '
                                        "server's local device. No automatic cross-device "
                                        'synchronization.'},

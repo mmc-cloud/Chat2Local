@@ -27,7 +27,7 @@ Chat2Local 是一个面向单用户、自托管场景的轻量 MCP Agent。它�
 - 运行测试、构建、脚本或其他 Shell 命令
 - 查看长时间运行进程的输出，并继续与进程交互
 - 在多台电脑或服务器之间选择目标设备执行操作
-- 通过 Handoff 保存当前工作线，让新的 Chat 继续之前的项目上下文
+- 通过 Handoff 保存项目工作线或个人研究、计划和想法，让新的 Chat 继续之前的上下文
 
 Chat2Local 主要围绕 **ChatGPT + MCP** 的实际工作流开发和测试。其他支持 MCP 的客户端也可以连接，但目前不是主要测试目标。
 
@@ -187,6 +187,15 @@ kill_process · list_devices · handoff_list · handoff_get · handoff_save
 ```
 
 远程调用可以通过 `device` 指定目标设备；省略时使用当前 MCP Server 所在设备。
+
+三个 Handoff Tool 均接受可选的 `scope`：默认 `"workspace"` 按项目工作区保存，兼容旧调用；
+没有具体项目归属的研究、计划或初步想法使用 `"personal"`，无需 Workspace，也不能显式传入
+`workspace`（包括 `null`）。两种作用域允许相同的 Workstream ID，记录彼此独立。
+
+记录均使用 Markdown，保存在选定设备的用户数据目录中：Workspace 使用
+`~/.chat2local/handoffs/<workspace-key>/`，Personal 使用 `~/.chat2local/handoffs/_personal/`。
+现有文件无需迁移，各设备之间不自动同步。先用 `handoff_list` 查看标题和摘要，再按需
+`handoff_get` 读取正文；`handoff_save` 用 `expected_revision=0` 新建，更新使用最新 revision。
 
 ## 配置
 

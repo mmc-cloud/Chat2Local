@@ -27,7 +27,7 @@ You can ask ChatGPT to:
 - Run tests, builds, scripts, and other Shell commands
 - Read output from long-running processes and continue interacting with them
 - Select target devices across multiple computers or servers
-- Save the latest state of a workstream with Handoff so a new Chat can continue from it
+- Save project workstreams or personal research, plans, and ideas with Handoff so a new Chat can continue from them
 
 Chat2Local is developed and tested primarily around practical **ChatGPT + MCP** workflows. Other MCP-compatible clients may also connect, but they are not currently the main test target.
 
@@ -185,6 +185,17 @@ kill_process · list_devices · handoff_list · handoff_get · handoff_save
 ```
 
 Remote calls can specify a target device through `device`. If omitted, the MCP Server's local device is used.
+
+All three Handoff tools accept an optional `scope`. The default, `"workspace"`, groups records by
+project workspace and preserves existing calls. Use `"personal"` for research, plans, or early ideas
+without a specific project. Personal calls need no workspace and reject an explicitly supplied
+`workspace` (including `null`). Identical Workstream IDs in different scopes identify independent records.
+
+Both scopes persist Markdown in the selected device's user-data directory: Workspace records use
+`~/.chat2local/handoffs/<workspace-key>/`; Personal records use `~/.chat2local/handoffs/_personal/`.
+Existing files need no migration, and devices do not synchronize automatically. Start with
+`handoff_list` for titles and summaries, then use `handoff_get` for the body as needed. Create with
+`handoff_save` and `expected_revision=0`; update using the latest revision.
 
 ## Configuration
 
