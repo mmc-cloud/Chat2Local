@@ -1,7 +1,4 @@
-"""`read` Tool tests.
-
-Design: docs/design-v0.1.md §4.1 File System → read.
-"""
+"""`read` Tool tests."""
 
 from __future__ import annotations
 

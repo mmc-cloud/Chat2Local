@@ -19,7 +19,7 @@ wheels/
 !.env.example
 
 # Local documentation
-/docs/
+/docs/local/
 
 # GUI frontend artifacts
 node_modules/

@@ -15,6 +15,12 @@ from unittest.mock import Mock
 import pytest
 
 
+class ClosingEvent(list):
+    def __iadd__(self, handler):
+        self.append(handler)
+        return self
+
+
 @pytest.fixture
 def modules(monkeypatch):
     monkeypatch.syspath_prepend(
@@ -62,6 +68,8 @@ def desktop(modules, tmp_path):
     )
     shell = modules.app.DesktopShell(preferences=preferences, bridge=bridge)
     shell.window = Mock()
+    shell.window.native = SimpleNamespace(FormClosing=ClosingEvent())
+    shell.window.events = SimpleNamespace(closing=ClosingEvent())
     shell.tray = SimpleNamespace(available=True, shutdown=Mock())
     shell.test_state = state
     return shell
@@ -600,6 +608,179 @@ def test_explicit_exit_overrides_hide_preference(desktop):
     desktop.shutdown()
     desktop.tray.shutdown.assert_called_once()
     assert not desktop.test_state["actions"]
+
+
+@pytest.fixture
+def windows_closing(modules, desktop, monkeypatch):
+    # Keep these unit tests usable without pythonnet or a Windows desktop.
+    reasons = SimpleNamespace(WindowsShutDown="WindowsShutDown")
+    monkeypatch.setitem(
+        sys.modules, "System.Windows.Forms", SimpleNamespace(CloseReason=reasons)
+    )
+    monkeypatch.setattr(modules.app, "sys", SimpleNamespace(platform="win32"))
+
+    public_closing = ClosingEvent()
+
+    def pywebview_closing(sender, args):
+        # pywebview 6.2.1 runs first and forwards no native event arguments.
+        if any(handler() is False for handler in public_closing):
+            args.Cancel = True
+
+    native_closing = ClosingEvent([pywebview_closing])
+    desktop.window.events = SimpleNamespace(closing=public_closing)
+    desktop.window.native = SimpleNamespace(FormClosing=native_closing)
+    desktop.before_show()
+    assert not public_closing
+    assert native_closing == [pywebview_closing, desktop.on_windows_closing]
+
+    def close(reason):
+        args = SimpleNamespace(CloseReason=reason, Cancel=False)
+        for handler in native_closing:
+            handler(desktop.window.native, args)
+        return args
+
+    return close
+
+
+@pytest.mark.parametrize(
+    "behavior,available", [("tray", True), ("tray", False), ("exit", True)]
+)
+@pytest.mark.parametrize("hidden", [False, True])
+def test_windows_session_query_preserves_desktop(
+    desktop, windows_closing, behavior, available, hidden
+):
+    desktop.preferences.current = replace(
+        desktop.preferences.current, close_behavior=behavior
+    )
+    desktop.tray.available = available
+    desktop.window.hidden = hidden
+    assert not windows_closing("WindowsShutDown").Cancel
+    assert not desktop.exiting
+    assert desktop.window.hidden is hidden
+    desktop.window.hide.assert_not_called()
+    desktop.window.destroy.assert_not_called()
+    desktop.tray.shutdown.assert_not_called()
+    assert not desktop.test_state["actions"]
+
+
+def test_windows_cancelled_shutdown_keeps_activation_and_tray_close(
+    desktop, windows_closing
+):
+    # WinForms does not close the form or raise FormClosed on WM_ENDSESSION(FALSE).
+    # No shell shutdown flag may survive the query, including repeated attempts.
+    for _ in range(2):
+        assert not windows_closing("WindowsShutDown").Cancel
+        assert desktop.request_activation()
+        desktop.activate_pending()
+        assert not desktop._activation_requested.is_set()
+        assert not desktop.exiting
+        assert windows_closing("UserClosing").Cancel
+        assert not desktop.exiting
+    assert desktop.window.restore.call_count == 2
+    assert desktop.window.hide.call_count == 2
+    desktop.window.destroy.assert_not_called()
+    desktop.tray.shutdown.assert_not_called()
+    assert not desktop.test_state["actions"]
+
+
+@pytest.mark.parametrize(
+    "reason", ["UserClosing", "TaskManagerClosing", "ApplicationExitCall"]
+)
+@pytest.mark.parametrize(
+    "behavior,available,cancel",
+    [("tray", True, True), ("tray", False, False), ("exit", True, False)],
+)
+def test_windows_normal_close_keeps_existing_behavior(
+    desktop, windows_closing, reason, behavior, available, cancel
+):
+    desktop.preferences.current = replace(
+        desktop.preferences.current, close_behavior=behavior
+    )
+    desktop.tray.available = available
+    assert windows_closing(reason).Cancel is cancel
+    assert bool(desktop.window.hide.call_count) is cancel
+    assert desktop.exiting is (not cancel)
+    assert not desktop.test_state["actions"]
+
+
+def test_windows_explicit_exit_overrides_tray(desktop, windows_closing):
+    desktop.exit()
+    assert not windows_closing("UserClosing").Cancel
+    assert desktop.exiting
+    desktop.window.destroy.assert_called_once()
+    desktop.window.hide.assert_not_called()
+
+
+def test_windows_hide_failure_allows_exit(desktop, windows_closing):
+    desktop.window.hide.side_effect = OSError("hide failed")
+    assert not windows_closing("UserClosing").Cancel
+    assert desktop.exiting
+    desktop.window.hide.assert_called_once()
+
+
+def test_non_windows_before_show_keeps_public_close_event(modules, desktop, monkeypatch):
+    monkeypatch.setattr(modules.app, "sys", SimpleNamespace(platform="linux"))
+    desktop.window.native = None
+    desktop.before_show()
+    assert desktop.window.events.closing == [desktop.on_closing]
+    assert desktop.window.events.closing[0]() is False
+    desktop.window.hide.assert_called_once()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows backend integration")
+@pytest.mark.parametrize("session_flags", [0, 0x80000000], ids=["shutdown-restart", "logoff"])
+def test_winforms_session_messages_allow_cancel_and_commit(desktop, session_flags):
+    import ctypes
+
+    winforms = pytest.importorskip("webview.platforms.winforms")
+    events = import_module("webview.event")
+    form = winforms.WinForms.Form()
+    desktop.window.native = form
+    public_closing = events.Event(desktop.window, True)
+    desktop.window.events.closing = public_closing
+    backend = SimpleNamespace(
+        closing=public_closing, pywebview_window=SimpleNamespace(confirm_close=False)
+    )
+
+    def pywebview_closing(sender, args):
+        winforms.BrowserView.BrowserForm.on_closing(backend, sender, args)
+
+    closed = []
+
+    def on_closed(sender, args):
+        closed.append(args.CloseReason)
+
+    form.FormClosing += pywebview_closing
+    form.FormClosed += on_closed
+    desktop.before_show()
+    send = ctypes.WinDLL("user32").SendMessageW
+    send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+    send.restype = ctypes.c_ssize_t
+    hwnd = form.Handle.ToInt64()
+    try:
+        # Messages go only to our never-shown test form, not the OS session.
+        for _ in range(2):
+            assert send(hwnd, 0x11, 0, session_flags) == 1  # WM_QUERYENDSESSION
+            assert not desktop.exiting and not closed
+            desktop.window.hide.assert_not_called()
+            desktop.tray.shutdown.assert_not_called()
+            send(hwnd, 0x16, 0, session_flags)  # WM_ENDSESSION(FALSE)
+            assert not form.IsDisposed and not closed
+            assert desktop.request_activation()
+            desktop.activate_pending()
+        # X / Alt+F4 both use SC_CLOSE. Still hide to tray after cancellation.
+        send(hwnd, 0x112, 0xF060, 0)  # WM_SYSCOMMAND / SC_CLOSE
+        desktop.window.hide.assert_called_once()
+        assert not desktop.exiting and not form.IsDisposed
+        assert send(hwnd, 0x11, 0, session_flags) == 1
+        send(hwnd, 0x16, 1, session_flags)  # WM_ENDSESSION(TRUE)
+        assert form.IsDisposed
+        assert closed == [winforms.WinForms.CloseReason.WindowsShutDown]
+        desktop.shutdown()
+        desktop.tray.shutdown.assert_called_once()
+        assert not desktop.test_state["actions"]
+    finally:
+        form.Dispose()
 
 
 @pytest.mark.parametrize(

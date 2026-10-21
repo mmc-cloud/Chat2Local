@@ -1,7 +1,5 @@
 """Chat2Local entry point: bind the runtime, then start the MCP server.
 
-Design: docs/design-v0.1.md §4 Layer 1 — Local Tools.
-
 Startup order matters: the workspace and the runtime config are resolved before
 Uvicorn serves anything, so a bad workspace or config file fails loudly on
 the command line instead of turning every later Tool call into an error.

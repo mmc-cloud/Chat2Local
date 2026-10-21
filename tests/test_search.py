@@ -1,7 +1,5 @@
 """`search` Tool tests.
 
-Design: docs/design-v0.1.md §4.1 File System → search.
-
 The two backends are covered separately: the Python fallback at the top, then
 the ripgrep JSON protocol, then the behaviour both must share.
 """

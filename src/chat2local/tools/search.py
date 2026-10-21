@@ -1,7 +1,5 @@
 """`search` Tool: search file names or file contents inside the workspace.
 
-Design: docs/design-v0.1.md §4.1 File System → search.
-
 ripgrep is preferred when available; otherwise a Python fallback walks the
 workspace with the same default excludes. Timeout and ``max_results`` are
 normal truncation, not Tool errors.

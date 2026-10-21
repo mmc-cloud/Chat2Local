@@ -122,6 +122,23 @@ class DesktopShell:
     def before_show(self):
         # Recheck in the native lifecycle in case the tray died after initialization.
         self.window.hidden = self.hidden_start
+        if sys.platform == "win32":
+            # pywebview 6.2.1's public closing event drops FormClosingEventArgs.
+            # The native form exists here, including for a silent tray startup.
+            self.window.native.FormClosing += self.on_windows_closing
+        else:
+            self.window.events.closing += self.on_closing
+
+    def on_windows_closing(self, sender, args):
+        from System.Windows.Forms import CloseReason
+
+        if args.CloseReason == CloseReason.WindowsShutDown:
+            # WM_QUERYENDSESSION is only a query: another app can still cancel.
+            # Leave Desktop/tray state intact; WinForms closes the form only on
+            # WM_ENDSESSION(TRUE), after which main() performs normal cleanup.
+            return
+        if self.on_closing() is False:
+            args.Cancel = True
 
     def on_closing(self):
         if (
@@ -366,7 +383,6 @@ def main() -> None:
                         hidden=desktop.hidden_start,
                     )
                     desktop.window.events.before_show += desktop.before_show
-                    desktop.window.events.closing += desktop.on_closing
                     webview.start(
                         desktop.tray.start_worker,
                         gui="edgechromium" if sys.platform == "win32" else None,

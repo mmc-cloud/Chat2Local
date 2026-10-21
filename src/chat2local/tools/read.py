@@ -1,7 +1,5 @@
 """`read` Tool: read text files and single-level directory listings.
 
-Design: docs/design-v0.1.md §4.1 File System → read.
-
 The Tool stays thin: every path goes through ``WorkspaceManager``, reading is
 streaming and bounded by ``max_lines`` / ``max_bytes``, and truncation is
 reported as a normal result instead of an error.
