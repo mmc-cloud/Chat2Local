@@ -1,0 +1,800 @@
+{
+  "browser.tabs.create": {
+    "description": "Create a Chrome tab with an HTTP or HTTPS URL.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "Absolute HTTP or HTTPS URL without credentials, spaces or control characters.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "^https?://[^\\s\\\\]+$",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "CreateTabArguments",
+      "type": "object"
+    }
+  },
+  "browser.tabs.list": {
+    "description": "List Chrome tabs; optional exact ID/URL/title filters use AND. Results are bounded.",
+    "input_schema": {
+      "$defs": {
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TabSelector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "ListTabsArguments",
+      "type": "object"
+    }
+  },
+  "browser.tabs.resolve": {
+    "description": "Resolve exactly one existing Chrome tab; ambiguous matches return candidates, never the first tab.",
+    "input_schema": {
+      "$defs": {
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "$ref": "#/$defs/TabSelector"
+        }
+      },
+      "required": [
+        "tab"
+      ],
+      "title": "ResolveTabArguments",
+      "type": "object"
+    }
+  },
+  "browser.page.inspect": {
+    "description": "Inspect bounded semantic control summaries in an authorized top-level page; no field values are returned.",
+    "input_schema": {
+      "$defs": {
+        "ElementTarget": {
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Role"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Name"
+            },
+            "aria_label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Aria Label"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "placeholder": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Placeholder"
+            },
+            "href": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact resolved absolute link URL returned by inspect; relative href strings are not resolved.",
+              "title": "Href"
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Text"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Id"
+            }
+          },
+          "title": "ElementTarget",
+          "type": "object"
+        },
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "$ref": "#/$defs/TabSelector"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ElementTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "wait_ms": {
+          "default": 0,
+          "description": "Bounded wait for an element; never retries actions.",
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Wait Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tab"
+      ],
+      "title": "InspectArguments",
+      "type": "object"
+    }
+  },
+  "browser.page.click": {
+    "description": "Click one unique semantic target on an authorized page. Synthetic click does not guarantee navigation or business success.",
+    "input_schema": {
+      "$defs": {
+        "ElementTarget": {
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Role"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Name"
+            },
+            "aria_label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Aria Label"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "placeholder": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Placeholder"
+            },
+            "href": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact resolved absolute link URL returned by inspect; relative href strings are not resolved.",
+              "title": "Href"
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Text"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Id"
+            }
+          },
+          "title": "ElementTarget",
+          "type": "object"
+        },
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "$ref": "#/$defs/TabSelector"
+        },
+        "target": {
+          "$ref": "#/$defs/ElementTarget"
+        },
+        "wait_ms": {
+          "default": 0,
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Wait Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tab",
+        "target"
+      ],
+      "title": "ClickArguments",
+      "type": "object"
+    }
+  },
+  "browser.page.fill": {
+    "description": "Replace text in one input/textarea using native setters and input/change events. Does not submit forms.",
+    "input_schema": {
+      "$defs": {
+        "ElementTarget": {
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Role"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Name"
+            },
+            "aria_label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Aria Label"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "placeholder": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Placeholder"
+            },
+            "href": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact resolved absolute link URL returned by inspect; relative href strings are not resolved.",
+              "title": "Href"
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Text"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Id"
+            }
+          },
+          "title": "ElementTarget",
+          "type": "object"
+        },
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "$ref": "#/$defs/TabSelector"
+        },
+        "target": {
+          "$ref": "#/$defs/ElementTarget"
+        },
+        "wait_ms": {
+          "default": 0,
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Wait Ms",
+          "type": "integer"
+        },
+        "value": {
+          "description": "Replacement text. Password and read-only fields are rejected.",
+          "maxLength": 8192,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tab",
+        "target",
+        "value"
+      ],
+      "title": "FillArguments",
+      "type": "object"
+    }
+  }
+}

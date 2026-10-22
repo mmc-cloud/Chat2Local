@@ -15,6 +15,7 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from chat2local.runtime.config import BrowserConfig
+from chat2local.browser.errors import CAPABILITY_NAMES, EXTENSION_ERROR_MESSAGES, extension_failure, failure
 
 logger = logging.getLogger(__name__)
 # Never let transport DEBUG dump authentication frames, including with --debug.
@@ -23,19 +24,6 @@ transport_logger.setLevel(logging.WARNING)
 CAPABILITY = "browser.tabs.create"
 REQUEST_TIMEOUT = 15.0  # Below the existing 30-second Hub request deadline.
 MAX_IN_FLIGHT = 16
-# Preserve only protocol-defined codes; never expose extension-supplied messages.
-EXTENSION_ERROR_MESSAGES = {
-    "unknown_capability": "Browser extension does not support the requested capability",
-    "invalid_arguments": "Browser extension rejected the operation arguments",
-    "request_expired": "Browser request expired before execution",
-    "browser_operation_failed": "Chrome could not complete the operation",
-}
-
-
-def failure(code: str, message: str) -> dict[str, Any]:
-    return {"ok": False, "error": {"code": code, "message": message}}
-
-
 class _Message(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     protocol_version: Literal[1]
@@ -44,7 +32,15 @@ class _Message(BaseModel):
 class ExtensionHello(_Message):
     type: Literal["hello"]
     token: str = Field(min_length=32, max_length=128, repr=False)
-    capabilities: list[Literal["browser.tabs.create"]] = Field(max_length=1)
+    capabilities: list[str] = Field(max_length=64)
+
+    @model_validator(mode="after")
+    def known_capabilities(self) -> Self:
+        if len(set(self.capabilities)) != len(self.capabilities) or any(
+            name not in CAPABILITY_NAMES for name in self.capabilities
+        ):
+            raise ValueError("Unsupported capability declaration")
+        return self
 
 
 class ExtensionResponse(_Message):
@@ -52,7 +48,7 @@ class ExtensionResponse(_Message):
     request_id: UUID
     ok: bool
     result: dict[str, Any] | None = None
-    error: dict[str, str] | None = None
+    error: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def outcome(self) -> Self:
@@ -75,8 +71,12 @@ class BrowserBridge:
 
     @property
     def available(self) -> bool:
+        """Compatibility shortcut for the Phase 1 tabs.create provider."""
+        return self.is_available(CAPABILITY)
+
+    def is_available(self, name: str) -> bool:
         return (self._connection is not None and self._connection.close_code is None
-                and CAPABILITY in self._supported)
+                and name in self._supported)
 
     async def start(self, *, hub_token: str | None = None) -> None:
         if not self.config.enabled or self.server is not None:
@@ -141,10 +141,7 @@ class BrowserBridge:
                     if response.ok:
                         result = {"ok": True, "result": response.result}
                     else:
-                        code = (response.error or {}).get("code", "")
-                        if code not in EXTENSION_ERROR_MESSAGES:
-                            code = "browser_operation_failed"
-                        result = failure(code, EXTENSION_ERROR_MESSAGES[code])
+                        result = extension_failure(response.error or {})
                     future.set_result(result)
         except (ValidationError, TimeoutError):
             await ws.close(1008, "Invalid browser protocol")
@@ -163,7 +160,7 @@ class BrowserBridge:
         import json
 
         ws = self._connection
-        if not self.available or ws is None:
+        if not self.is_available(name) or ws is None:
             return failure("capability_unavailable", "Browser extension is not connected or capability is unavailable")
         if len(self._pending) >= MAX_IN_FLIGHT:
             return failure("capability_busy", "Browser request limit reached")

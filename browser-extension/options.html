@@ -14,6 +14,16 @@
   </form>
   <p id="saved" role="status"></p>
   <p>连接状态：<span id="status"></span></p>
+  <h2>网页操作授权</h2>
+  <p>填写一个网站地址并点击授权。权限范围为该协议和主机的所有路径与端口；不包含其他子域名。</p>
+  <p>本机连接权限不会自动授权操作本机网页，也需要在这里确认。</p>
+  <form id="website-permission">
+    <label>网站地址 <input id="website-url" type="url" placeholder="https://example.com" required></label>
+    <button type="submit">授权此网站</button>
+  </form>
+  <p id="permission-status" role="status"></p>
+  <ul id="authorized-websites"></ul>
+  <script src="browser-operations.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

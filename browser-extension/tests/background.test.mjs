@@ -26,17 +26,18 @@ async function worker({ config = { enabled: true, port: 8766, token }, createTab
       session: { set: async (value) => { status.push(value.connectionStatus); } },
       onChanged: event("changed"),
     },
-    runtime: { onInstalled: event("installed"), onStartup: event("startup"), openOptionsPage: async () => {} },
+    runtime: { onInstalled: event("installed"), onStartup: event("startup"), onMessage: event("message"), openOptionsPage: async () => {} },
     alarms: { get: async () => undefined, create: async (...args) => { alarms.push(args); }, onAlarm: event("alarm") },
     action: { onClicked: event("clicked") },
     tabs: { create: async (args) => { tabs.push(args); return createTab ? createTab(args) : { id: 42, windowId: 7 }; } },
   };
-  const context = vm.createContext({ chrome, WebSocket, URL, Date,
+  const context = vm.createContext({ chrome, WebSocket, URL, Date, TextEncoder,
     setTimeout: (fn, delay) => { const id = ++sequence; timeouts.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timeouts.delete(id),
     setInterval: (fn, delay) => { const id = ++sequence; intervals.set(id, { fn, delay }); return id; },
     clearInterval: (id) => intervals.delete(id),
   });
+  context.importScripts = (file) => vm.runInContext(readFileSync(new URL("../" + file, import.meta.url), "utf8"), context);
   vm.runInContext(source, context);
   await flush();
   const open = () => { const ws = sockets.at(-1); ws.onopen(); return ws; };
@@ -53,7 +54,8 @@ function request(overrides = {}) {
 test("minimal manifest and private loopback connection, no page exposure", async () => {
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ["storage", "alarms"]);
+  assert.deepEqual(manifest.permissions, ["storage", "alarms", "tabs", "scripting"]);
+  assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
   assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"]);
   assert.equal(manifest.minimum_chrome_version, "120");
   for (const key of ["content_scripts", "externally_connectable", "web_accessible_resources"]) {
@@ -62,7 +64,9 @@ test("minimal manifest and private loopback connection, no page exposure", async
   const w = await worker();
   const ws = w.open();
   assert.equal(ws.url, "ws://127.0.0.1:8766/browser/ws");
-  assert.deepEqual(ws.sent[0], { type: "hello", protocol_version: 1, token, capabilities: [capability] });
+  assert.deepEqual(ws.sent[0].capabilities, [capability, "browser.tabs.list", "browser.tabs.resolve",
+    "browser.page.inspect", "browser.page.click", "browser.page.fill"]);
+  assert.equal(ws.sent[0].token, token);
   assert.equal(w.alarms[0][1].periodInMinutes, 0.5);
   await w.auth(ws);
   assert.equal(w.status.at(-1), "connected");
@@ -93,7 +97,7 @@ test("first request immediately after ack observes authenticated state", async (
 
 test("unknown operations, invalid URLs, extras and expired requests do not open tabs", async () => {
   const cases = [
-    { capability: "browser.page.click" }, { expires_at: Date.now() - 1 },
+    { capability: "browser.page.unknown" }, { expires_at: Date.now() - 1 },
     { arguments: {} }, { arguments: { url: 1 } }, { arguments: { url: "https://example.com", active: false } },
     ...["javascript:alert(1)", "file:///a", "chrome://settings", "https://", "https://example.com/\n",
       "https://user:pass@example.com", "https://example.com:0", "https://example.com/\\x"].map((url) => ({ arguments: { url } })),

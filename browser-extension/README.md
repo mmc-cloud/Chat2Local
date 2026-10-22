@@ -1,6 +1,7 @@
-# Chat2Local Browser Use V1
+# Chat2Local Browser Use
 
-可选、独立安装的 Chrome Manifest V3 扩展，当前只实现 `browser.tabs.create`。
+可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择，以及授权网页的 inspect/click/fill。
+第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。
 Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影响原有 10 个 Tool。
 
@@ -110,9 +111,9 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
 | `device_unavailable` | 设备离线、不支持新 Tool、Hub 请求超时等原设备路由错误 |
 | `capability_error` | 目标设备工具分发失败 |
 
-扩展返回的 `unknown_capability`、`invalid_arguments`、`request_expired`、`browser_operation_failed`
-经白名单校验后保留错误码；错误消息始终由 Bridge 使用固定文本生成，未知错误码降级为
-`browser_operation_failed`，不透传扩展原始消息或额外字段。
+扩展错误码在 Core 的 `browser/errors.py` 中集中维护，包含通用错误和第二阶段网页交互错误。
+经白名单校验后保留错误分类；错误消息始终由 Bridge 使用固定文本生成，未知错误码降级为
+`browser_operation_failed`，不透传扩展原始消息；歧义错误仅附带经过白名单清理的有限候选摘要。
 
 外层 MCP 入参格式错误（例如缺少 `capability` / `arguments`、将 arguments 传为数组）由 MCP SDK
 返回标准 Tool 参数错误；进入能力分发后的失败才使用上述业务结果结构。浏览器执行不使用文件 workspace 权限。
@@ -126,7 +127,8 @@ ChatGPT / MCP client
   → Hub DeviceSession → 原有 /device/ws → AgentClient
   → LocalToolDispatcher → CapabilityRegistry
   → BrowserBridge：ws://127.0.0.1:8766/browser/ws
-  → Chrome MV3 background.js → chrome.tabs.create
+  → Chrome MV3 background.js → browser-operations.js
+  → Chrome tabs API / 静态 content-script.js → 授权网页 DOM
   → 同一请求链返回结果
 ```
 
@@ -147,9 +149,9 @@ ChatGPT / MCP client
   另有每 30 秒的 Chrome alarm，在 worker 重启 / 停止计时器后恢复连接；休眠可能延迟触发。
 - Agent 的 Hub 连接重连保留浏览器 Runtime；Core / Agent 正常退出会关闭浏览器连接、listener 并释放等待者。
   运行时连接、能力可用性与待处理请求只保存在内存，不与 Handoff、Chat 或 Process 状态混存。
-- 日志不输出 token、认证帧或浏览器参数。无 content script、外部网页消息入口、`externally_connectable`、
-  广域 host 权限、远程脚本，也不提前申请 `tabs` / `activeTab` / 书签等权限。
-  仅声明 `storage`、`alarms` 和 `http://127.0.0.1/*` 本机 host 权限，配合 CSP 将实际网络连接限制为
+- 日志不输出 token、认证帧或浏览器参数。DOM 脚本仅按需注入，无外部网页消息入口、`externally_connectable`、
+  自动授予的广域 host 权限、远程脚本或书签权限。第二阶段新增 `tabs`、`scripting`，
+  网站权限通过选项页用户点击按站授予；仍保留 `storage`、`alarms` 和 `http://127.0.0.1/*` 本机 host 权限，CSP 将扩展自身网络连接限制为
   `ws://127.0.0.1:*`。本机 host 权限用于 Chromium 本地网络访问检查下的扩展接入；
   Chrome host match pattern 无法限定端口，因此端口由扩展设置控制。
 
@@ -162,14 +164,17 @@ Origin 与 token 保护来自普通网页的调用；同一 OS 用户下的恶�
 
 ```powershell
 uv run pytest -q
-node --test browser-extension/tests/background.test.mjs
+npm ci --prefix browser-extension
+npm test --prefix browser-extension
 ```
 
 Python 测试无需 Chrome，覆盖参数、能力目录、真实 loopback WebSocket、Origin / token 拒绝、重复连接、
 乱序响应、超时 / 取消、掉线重连、清理、可选监听失败、standalone / Hub 本机生命周期，
 以及 **HTTP MCP → Hub → 两个真实 Agent → 模拟扩展** 的设备隔离集成调用。
-Node 测试仅使用内置 `node:test` / `vm` 模拟 Chrome API 与 worker 环境，覆盖真实后台脚本的认证门禁、
+Node 测试使用内置 `node:test` / `vm` 模拟 Chrome API 与 worker 环境，覆盖真实后台脚本的认证门禁、
 标签页创建、无效命令、过期请求、同连接去重、API 错误、心跳、重连及 worker 恢复。
+另使用开发依赖 jsdom 运行实际打包的 DOM 脚本，并使用 React / Vue 组件检查受控输入模型更新；
+这些测试依赖不会成为生产扩展的安装或运行依赖。
 
 ## 手动验收与调试
 
@@ -192,12 +197,13 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-本阶段不含页面点击 / 填写 / inspect、元素定位、标签组或书签，GUI 和发布流程保持既有实现。
+第二阶段已提供页面 inspect / click / fill 与基础语义定位，详见 [Phase 2](PHASE2.md)。不包含标签组或书签，GUI 和发布流程保持既有实现。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
-没有端到端 exactly-once 或页面加载完成保证。暂未自动操作真实 Chrome，以上步骤需人工验收。
+没有端到端 exactly-once 或页面加载完成保证。第二阶段已通过真实 Chrome 的本机 MCP→Hub→Agent 验收，
+覆盖普通 HTML、React / Vue 输入与点击等主要链路；详细覆盖及剩余人工检查见 [PHASE2.md](PHASE2.md)。
 
-下一阶段在代码审查与真实 Chrome 验收后，再按独立 Capability schema 增量加入页面能力与更精细权限，
+下一阶段在代码审查与真实 Chrome 验收后，再按独立 Capability schema 增量加入更高级的页面能力，
 保留现有 Tool 和设备路由边界。
 
 实现依据：Chrome 官方 [WebSocket worker 生命周期说明](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)、

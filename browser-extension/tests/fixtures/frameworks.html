@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Chat2Local Controlled Inputs</title>
+<body><h1>Actual React 18 / Vue 3 controlled inputs</h1><div id="react"></div><div id="vue"></div>
+<script src="/assets/react.js"></script><script src="/assets/react-dom.js"></script><script src="/assets/vue.js"></script>
+<script>
+function Controlled() {
+  const [value, setValue] = React.useState('old React');
+  return React.createElement('div', null, React.createElement('label', { htmlFor: 'react-input' }, 'React query'),
+    React.createElement('input', { id: 'react-input', value, onChange: e => setValue(e.target.value) }),
+    React.createElement('output', { id: 'react-output', 'aria-label': 'React model' }, value));
+}
+ReactDOM.createRoot(document.getElementById('react')).render(React.createElement(Controlled));
+Vue.createApp({ data: () => ({value:'old Vue'}), template: '<label for="vue-input">Vue notes</label><textarea id="vue-input" v-model="value"></textarea><output id="vue-output" aria-label="Vue model">{{ value }}</output>' }).mount('#vue');
+</script></body></html>

@@ -308,7 +308,9 @@ TOOL_METADATA.update({
         "title": "Execute Capability",
         "description": "Execute an optional capability on the selected device. Discover its input schema and "
                        "availability first. Returns ok/result or ok=false with error.code and error.message. "
-                       "Browser V1 supports only browser.tabs.create with an absolute HTTP(S) URL. "
+                       "Browser capabilities include tab discovery and authorized semantic page inspect/click/fill. "
+                       "Use a native Chrome tab_id or exact URL/title conditions; ambiguous matches never select the first. "
+                       "Website access must be granted by a user in extension options. "
                        "Timeouts or disconnects may follow a completed action: verify tabs before retrying; "
                        "never blindly replay a browser action.",
         "params": {

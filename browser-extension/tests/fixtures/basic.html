@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Chat2Local Phase 2 Fixture</title>
+<body><h1>Local browser interaction fixture</h1>
+<label for="query">Search query</label><input id="query" placeholder="Find documents" value="old">
+<label for="notes">Notes</label><textarea id="notes" oninput="document.querySelector('#notes-result').textContent=this.value">old notes</textarea>
+<output id="notes-result">old notes</output>
+<button id="run" aria-label="Run search" onclick="document.querySelector('#result').textContent='Clicked: '+document.querySelector('#query').value">Run</button>
+<p id="result" role="status">Waiting</p><a href="#section">Jump to section</a><h2 id="section">Section</h2>
+<button>Duplicate</button><button>Duplicate</button>
+<input aria-label="Password" type="password"><input aria-label="Read only" readonly value="fixed">
+<button disabled>Disabled</button><button hidden>Hidden</button>
+<button onclick="setTimeout(()=>{const b=document.createElement('button');b.textContent='Delayed action';document.body.append(b)},300)">Add delayed button</button>
+</body></html>

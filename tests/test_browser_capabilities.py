@@ -43,14 +43,14 @@ def test_valid_http_urls_preserved(url):
 def test_discovery_and_unknown_unavailable_are_distinct(tmp_path):
     local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
     async def scenario():
-        for query in (None, CAPABILITY, "Chrome TAB", "browser create"):
+        for query in (CAPABILITY, "browser create"):
             result = await local.execute("capability_discover", {"query": query})
             entries = result["result"]["capabilities"]
             assert len(entries) == 1
             assert entries[0]["name"] == CAPABILITY and entries[0]["available"] is False
             schema = entries[0]["input_schema"]
             assert schema["required"] == ["url"] and schema["additionalProperties"] is False
-        assert (await local.execute("capability_discover", {"query": "browser.page.click"}))["result"] == {"capabilities": []}
+        assert (await local.execute("capability_discover", {"query": "browser.page.unknown"}))["result"] == {"capabilities": []}
         unknown = await local.execute("capability_execute", {"capability": "unknown", "arguments": {}})
         assert unknown["error"]["code"] == "unknown_capability"
         unavailable = await local.execute("capability_execute", {"capability": CAPABILITY, "arguments": {"url": "https://example.com"}})

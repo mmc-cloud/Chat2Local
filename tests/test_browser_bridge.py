@@ -182,7 +182,7 @@ def test_origin_rejected_before_authentication(tmp_path, origin):
 
 @pytest.mark.parametrize("hello", [
     {"type": "hello", "protocol_version": 1, "token": "wrong-" + "x" * 40, "capabilities": [CAPABILITY]},
-    {"type": "hello", "protocol_version": 1, "token": BROWSER_TOKEN, "capabilities": ["browser.page.click"]},
+    {"type": "hello", "protocol_version": 1, "token": BROWSER_TOKEN, "capabilities": ["browser.page.unknown"]},
     {"type": "request", "protocol_version": 1, "capability": CAPABILITY, "arguments": {"url": "https://example.com"}},
     {"type": "hello", "protocol_version": 2, "token": BROWSER_TOKEN, "capabilities": [CAPABILITY]},
     {"type": "hello", "protocol_version": 1, "token": "密" * 40, "capabilities": [CAPABILITY]},

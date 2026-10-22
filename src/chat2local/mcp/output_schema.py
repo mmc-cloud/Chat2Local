@@ -151,7 +151,9 @@ def patch_step() -> dict[str, Any]:
 
 def capability_schema(result: dict[str, Any]) -> dict[str, Any]:
     error = obj({"code": field("string", "Stable error code."),
-                 "message": field("string", "Readable error and recovery guidance.")}, required=["code", "message"])
+                 "message": field("string", "Readable error and recovery guidance."),
+                 "details": obj({"candidates": array({"type": "object"}, "At most five sanitized candidates.")},
+                                required=["candidates"])}, required=["code", "message"])
     return {"type": "object", "oneOf": [
         obj({"ok": {"const": True}, "result": result}, required=["ok", "result"]),
         obj({"ok": {"const": False}, "error": error}, required=["ok", "error"]),

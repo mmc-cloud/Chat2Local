@@ -1,5 +1,7 @@
 /* Only this extension's authenticated, loopback socket can dispatch operations. */
-const CAPABILITY = "browser.tabs.create";
+importScripts("browser-operations.js");
+const browserOperations = globalThis.Chat2LocalBrowser;
+browserOperations.installAuthorizationHandler();
 const RETRY_ALARM = "chat2local-reconnect";
 let socket = null;
 let connecting = false;
@@ -24,30 +26,12 @@ function retry() {
   retryDelay = Math.min(retryDelay * 2, 20000);
 }
 
-function validArguments(args) {
-  if (!args || typeof args !== "object" || Array.isArray(args)
-      || Object.keys(args).length !== 1 || typeof args.url !== "string"
-      || args.url.length > 8192 || !/^https?:\/\/[^\s\\]+$/.test(args.url)
-      || /[\u0000-\u001f\u007f-\u009f]/.test(args.url)) return false;
-  try {
-    const url = new URL(args.url);
-    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname)
-      && !url.username && !url.password && url.port !== "0";
-  } catch { return false; }
-}
-
 async function perform(request) {
-  const base = { type: "response", protocol_version: 1, request_id: request.request_id };
-  const fail = (code, message) => ({ ...base, ok: false, error: { code, message } });
-  if (request.capability !== CAPABILITY) return fail("unknown_capability", "Unsupported capability");
-  if (!validArguments(request.arguments)) return fail("invalid_arguments", "Invalid HTTP(S) URL arguments");
-  if (request.expires_at <= Date.now()) return fail("request_expired", "Request deadline elapsed");
-  try {
-    const tab = await chrome.tabs.create({ url: request.arguments.url });
-    return { ...base, ok: true, result: {
-      tab_id: tab.id, window_id: tab.windowId, url: request.arguments.url,
-    } };
-  } catch { return fail("browser_operation_failed", "Chrome could not create the tab"); }
+  let result = await browserOperations.execute(request);
+  if (new TextEncoder().encode(JSON.stringify(result)).length > 48 * 1024) {
+    result = { ok: false, error: { code: "result_too_large" } };
+  }
+  return { type: "response", protocol_version: 1, request_id: request.request_id, ...result };
 }
 
 async function connect() {
@@ -66,7 +50,7 @@ async function connect() {
     const responses = new Map();
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "hello", protocol_version: 1,
-        token: config.token, capabilities: [CAPABILITY] }));
+        token: config.token, capabilities: browserOperations.capabilities }));
     };
     const authTimer = setTimeout(() => { if (!authenticated) ws.close(); }, 7000);
     ws.onmessage = async (event) => {
@@ -135,7 +119,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (socket) socket.close();
   else void connect();
 });
-// No content scripts, page messaging, externally_connectable or remote scripts.
+// DOM code is injected on demand; no web-page messaging, externally_connectable or remote scripts.
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 void ensureAlarm();
 void connect();
