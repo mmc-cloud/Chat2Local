@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import sys
 from types import SimpleNamespace
+from unittest.mock import Mock
 from uuid import UUID
 
 import pytest
@@ -385,8 +386,99 @@ def pid_alive(pid):
     # On Linux a killed child may temporarily be a zombie awaiting reaping.
     status = Path(f"/proc/{pid}/stat")
     if sys.platform.startswith("linux") and status.exists():
-        return status.read_text().split(") ", 1)[1][0] != "Z"
+        try:
+            state = status.read_text()
+        except (FileNotFoundError, ProcessLookupError):
+            # The process can disappear between exists() and read_text().
+            return False
+        return state.split(") ", 1)[1][0] != "Z"
     return True
+
+
+@pytest.fixture
+def posix_pid_probe(monkeypatch):
+    """Exercise the PID helper on every host without touching real processes."""
+    status = SimpleNamespace(
+        exists=Mock(return_value=True),
+        read_text=Mock(return_value="123 (test process) S 1 2 3"),
+    )
+    probe = SimpleNamespace(
+        os=SimpleNamespace(name="posix", kill=Mock()),
+        sys=SimpleNamespace(platform="linux"),
+        path=Mock(return_value=status), status=status,
+    )
+    for name, value in (("os", probe.os), ("sys", probe.sys), ("Path", probe.path)):
+        monkeypatch.setitem(pid_alive.__globals__, name, value)
+    return probe
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(errno.ENOENT, "gone"), ProcessLookupError(errno.ESRCH, "gone")])
+def test_pid_alive_proc_disappears_after_exists(posix_pid_probe, error):
+    probe = posix_pid_probe
+    probe.status.read_text.side_effect = error
+    assert pid_alive(123) is False
+    probe.os.kill.assert_called_once_with(123, 0)
+    probe.path.assert_called_once_with("/proc/123/stat")
+    probe.status.exists.assert_called_once_with()
+    probe.status.read_text.assert_called_once_with()
+
+
+@pytest.mark.parametrize("state,alive", [("S", True), ("R", True), ("Z", False)])
+def test_pid_alive_proc_state(posix_pid_probe, state, alive):
+    posix_pid_probe.status.read_text.return_value = f"123 (test process) {state} 1 2 3"
+    assert pid_alive(123) is alive
+
+
+@pytest.mark.parametrize("error", [PermissionError(errno.EACCES, "denied"), OSError(errno.EIO, "io"), OSError(errno.EINVAL, "invalid")])
+def test_pid_alive_proc_unrelated_errors_propagate(posix_pid_probe, error):
+    posix_pid_probe.status.read_text.side_effect = error
+    with pytest.raises(type(error)) as caught:
+        pid_alive(123)
+    assert caught.value is error
+
+
+def test_pid_alive_missing_proc_keeps_kill_probe_result(posix_pid_probe):
+    posix_pid_probe.status.exists.return_value = False
+    assert pid_alive(123) is True
+    posix_pid_probe.status.read_text.assert_not_called()
+
+
+def test_pid_alive_kill_probe_missing_process(posix_pid_probe):
+    posix_pid_probe.os.kill.side_effect = ProcessLookupError(errno.ESRCH, "gone")
+    assert pid_alive(123) is False
+    posix_pid_probe.path.assert_not_called()
+
+
+def test_pid_alive_kill_probe_permission_error_propagates(posix_pid_probe):
+    error = PermissionError(errno.EPERM, "denied")
+    posix_pid_probe.os.kill.side_effect = error
+    with pytest.raises(PermissionError) as caught:
+        pid_alive(123)
+    assert caught.value is error
+
+
+def test_pid_alive_macos_uses_kill_probe_only(posix_pid_probe):
+    posix_pid_probe.sys.platform = "darwin"
+    assert pid_alive(123) is True
+    posix_pid_probe.os.kill.assert_called_once_with(123, 0)
+    posix_pid_probe.status.exists.assert_not_called()
+    posix_pid_probe.status.read_text.assert_not_called()
+
+
+@pytest.mark.parametrize("handle,wait_result,alive", [(12, 258, True), (12, 0, False), (None, 0, False)])
+def test_pid_alive_windows_handle_semantics(monkeypatch, handle, wait_result, alive):
+    kernel = SimpleNamespace(OpenProcess=Mock(return_value=handle),
+                             WaitForSingleObject=Mock(return_value=wait_result), CloseHandle=Mock())
+    monkeypatch.setitem(pid_alive.__globals__, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(ctypes, "WinDLL", Mock(return_value=kernel), raising=False)
+    assert pid_alive(123) is alive
+    kernel.OpenProcess.assert_called_once_with(0x100000, False, 123)
+    if handle:
+        kernel.WaitForSingleObject.assert_called_once_with(handle, 0)
+        kernel.CloseHandle.assert_called_once_with(handle)
+    else:
+        kernel.WaitForSingleObject.assert_not_called()
+        kernel.CloseHandle.assert_not_called()
 
 
 @pytest.mark.parametrize("operation", ["terminate", "force", "shutdown"])

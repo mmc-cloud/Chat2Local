@@ -173,7 +173,7 @@
     }
   },
   "browser.page.inspect": {
-    "description": "Inspect bounded semantic control summaries in an authorized top-level page; no field values are returned.",
+    "description": "Inspect bounded semantic control summaries, including visible and hidden elements, in an authorized top-level page; no field values are returned.",
     "input_schema": {
       "$defs": {
         "ElementTarget": {
@@ -389,7 +389,7 @@
     }
   },
   "browser.page.click": {
-    "description": "Click one unique semantic target on an authorized page. Synthetic click does not guarantee navigation or business success.",
+    "description": "Click the unique visible semantic target on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.",
     "input_schema": {
       "$defs": {
         "ElementTarget": {
@@ -590,7 +590,7 @@
     }
   },
   "browser.page.fill": {
-    "description": "Replace text in one input/textarea using native setters and input/change events. Does not submit forms.",
+    "description": "Replace text in the unique visible matching input/textarea using native setters and input/change events; hidden matches are ignored. Does not submit forms.",
     "input_schema": {
       "$defs": {
         "ElementTarget": {

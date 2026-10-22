@@ -38,8 +38,8 @@
 | `browser.tabs.list` | 可选 `tab`、`limit`（默认 20，最大 50） | 返回 tabs、total、truncated；是枚举操作，可返回多个匹配 |
 | `browser.tabs.resolve` | 必填 `tab` | 只允许唯一匹配；不匹配为 tab_not_found，多匹配为 ambiguous_tab |
 | `browser.page.inspect` | 必填 `tab`；可选 `target`、`limit`（默认/最大 20）、`wait_ms`（0–5000） | 返回少量控件摘要；指定 target 无匹配时 target_not_found |
-| `browser.page.click` | 必填 `tab`、`target`；可选 `wait_ms`（0–5000） | 唯一且允许交互才点击一次，返回 clicked |
-| `browser.page.fill` | click 的参数，加必填 `value`（允许空串，最大 8192 字符） | 替换内容并触发 input/change，不提交表单 |
+| `browser.page.click` | 必填 `tab`、`target`；可选 `wait_ms`（0–5000） | 在可见匹配中确定唯一目标且允许交互才点击一次，返回 clicked |
+| `browser.page.fill` | click 的参数，加必填 `value`（允许空串，最大 8192 字符） | 在可见匹配中确定唯一输入框，替换内容并触发 input/change，不提交表单 |
 
 `tab` 至少包含一个非空条件：`tab_id`、`url`、`title`。多个条件取交集；URL 和标题大小写敏感、精确匹配，
 URL 包含 query 和 fragment，不做模糊搜索或自动规范化。可从 list 返回值复制正确 URL。
@@ -93,8 +93,12 @@ HTML 中的相对路径（例如 `../help`）不会自动转换，也不会回�
   支持普通 button、a[href]、input、textarea、select、summary 和部分显式 role 控件；不宣称完整 WAI-ARIA 算法。
 - inspect 返回 role、name、id、href、aria_label、placeholder、visible、disabled、read_only、input_type，**不返回输入框值**。
   文本摘要最多 160 字符（URL 2048），长摘要可能无法直接作为完整精确定位条件，应使用已知的明确属性缩小范围。
-- click / fill 要求唯一匹配；隐藏元素也参与歧义判定，防止悄悄选择另一个同名控件。
-  操作前检查连接状态、可见性、禁用/aria-disabled/inert；focus 后再次确认唯一性及字段状态。
+- click / fill 复用 visible 判定，在可见匹配中要求唯一目标；隐藏的同名元素不参与歧义判定。
+  无匹配返回 target_not_found，全部隐藏返回 target_hidden，多个可见匹配返回 ambiguous_target。
+  disabled 不作为筛选条件；唯一可见目标禁用时返回 target_disabled，多个可见目标中有禁用控件仍判歧义。
+  操作前及 scrollIntoView、focus 后分别检查 URL、期限、原元素连接状态、匹配条件、可见唯一性及字段状态。
+  原目标删除、替换或不再匹配返回 stale_target，变隐藏返回 target_hidden；不自动改选另一个同名元素。
+  inspect 继续返回可见与隐藏元素，并保留每项 visible 字段。wait_ms 只等待匹配元素出现，不等待隐藏元素变为可见。
 - fill 支持 text/search/email/url/tel input 和 textarea，使用原生原型 value setter 绕过常见 React 值跟踪，
   触发冒泡 input/change 事件；已用实际 React 18、Vue 3 组件测试。
   密码框返回 protected_input，只读返回 target_readonly，其他 input 类型和 contenteditable 暂不支持。

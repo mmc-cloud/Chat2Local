@@ -72,8 +72,10 @@
       await new Promise((resolve) => setTimeout(resolve, Math.min(50, deadline - Date.now())));
     } while (true);
     if (!elements.length && (args.target || message.operation !== "inspect")) return fail("target_not_found");
-    if (message.operation !== "inspect" && elements.length !== 1) {
-      return fail("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
+    if (message.operation !== "inspect") {
+      elements = elements.filter(visible);
+      if (!elements.length) return fail("target_hidden");
+      if (elements.length !== 1) return fail("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
     }
     // Recheck permission after waiting; revocation must not leave a usable listener.
     const authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
@@ -93,8 +95,11 @@
       if (!validDocument(message)) return fail("page_changed");
       if (Date.now() >= message.expires_at) return fail("request_expired");
       const current = candidates(args.target);
-      if (!element.isConnected || current?.length !== 1 || current[0] !== element) return fail("stale_target");
+      if (current === null) return fail("page_too_large");
+      if (!element.isConnected || !current.includes(element)) return fail("stale_target");
       if (!visible(element)) return fail("target_hidden");
+      const visibleMatches = current.filter(visible);
+      if (visibleMatches.length !== 1) return fail("ambiguous_target", { candidates: visibleMatches.slice(0, 5).map(summary) });
       if (disabled(element)) return fail("target_disabled");
       if (message.operation === "fill") {
         if (element.localName === "input" && element.type === "password") return fail("protected_input");
@@ -110,6 +115,8 @@
       return fail("unsupported_element");
     }
     element.scrollIntoView?.({ block: "center", inline: "nearest" });
+    error = check();
+    if (error) return error;
     element.focus(); // Focus handlers can replace nodes in a controlled UI.
     error = check();
     if (error) return error;

@@ -103,9 +103,9 @@ class CapabilityRegistry:
             (CAPABILITY, "Create a Chrome tab with an HTTP or HTTPS URL.", CreateTabArguments),
             ("browser.tabs.list", "List Chrome tabs; optional exact ID/URL/title filters use AND. Results are bounded.", ListTabsArguments),
             ("browser.tabs.resolve", "Resolve exactly one existing Chrome tab; ambiguous matches return candidates, never the first tab.", ResolveTabArguments),
-            ("browser.page.inspect", "Inspect bounded semantic control summaries in an authorized top-level page; no field values are returned.", InspectArguments),
-            ("browser.page.click", "Click one unique semantic target on an authorized page. Synthetic click does not guarantee navigation or business success.", ClickArguments),
-            ("browser.page.fill", "Replace text in one input/textarea using native setters and input/change events. Does not submit forms.", FillArguments),
+            ("browser.page.inspect", "Inspect bounded semantic control summaries, including visible and hidden elements, in an authorized top-level page; no field values are returned.", InspectArguments),
+            ("browser.page.click", "Click the unique visible semantic target on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.", ClickArguments),
+            ("browser.page.fill", "Replace text in the unique visible matching input/textarea using native setters and input/change events; hidden matches are ignored. Does not submit forms.", FillArguments),
         ):
             self.register(Capability(name, description, model, browser.execute,
                                      lambda name=name: browser.is_available(name)))

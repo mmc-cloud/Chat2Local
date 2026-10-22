@@ -34,6 +34,123 @@ test("click unique buttons and links, reject ambiguity without side effects", as
   } finally { p.dom.window.close(); }
 });
 
+for (const operation of ["click", "fill"]) {
+  const control = operation === "click" ? '<button>Same</button>' : '<input aria-label="Same" value="old">';
+  for (const [hidden, code] of [
+    [[false, true], null], [[true, false], null],
+    [[false, false], "ambiguous_target"], [[true, true], "target_hidden"],
+  ]) test(`${operation} selects only a unique visible match: hidden=${hidden}`, async () => {
+    const p = page(control.repeat(2));
+    const elements = [...p.document.body.children];
+    const effects = [];
+    elements.forEach((element, index) => {
+      element.hidden = hidden[index];
+      element.addEventListener(operation === "click" ? "click" : "input", () => effects.push(index));
+    });
+    try {
+      const result = await p.call(operation, { target: { name: "Same" }, value: "new" });
+      if (code) {
+        assert.equal(result.error.code, code);
+        assert.deepEqual(effects, []);
+        if (code === "ambiguous_target") assert.ok(result.error.details.candidates.every((candidate) => candidate.visible));
+      } else {
+        const selected = hidden.indexOf(false);
+        assert.equal(result.result.status, operation === "click" ? "clicked" : "filled");
+        assert.deepEqual(effects, [selected]);
+        if (operation === "fill") {
+          assert.equal(elements[selected].value, "new");
+          assert.equal(elements[1 - selected].value, "old");
+        }
+      }
+    } finally { p.window.close(); }
+  });
+
+  for (const secondHidden of [true, false]) test(`${operation} never filters disabled matches out of ambiguity: hidden=${secondHidden}`, async () => {
+    const p = page(control.repeat(2));
+    const [first, second] = p.document.body.children;
+    first.disabled = true;
+    second.hidden = secondHidden;
+    let effects = 0;
+    p.document.addEventListener(operation === "click" ? "click" : "input", () => effects++);
+    try {
+      const result = await p.call(operation, { target: { name: "Same" }, value: "new" });
+      assert.equal(result.error.code, secondHidden ? "target_disabled" : "ambiguous_target");
+      assert.equal(effects, 0);
+      if (operation === "fill") assert.equal(second.value, "old");
+    } finally { p.window.close(); }
+  });
+
+  for (const phase of ["authorization", "scroll", "focus"]) {
+    for (const [change, code] of [
+      ["remove", "stale_target"], ["replace", "stale_target"], ["rename", "stale_target"],
+      ["hide", "target_hidden"], ["reveal_duplicate", "ambiguous_target"], ["disable", "target_disabled"],
+    ]) test(`${operation} revalidates original visible target after ${phase}: ${change}`, async () => {
+      let mutate = () => {};
+      const p = page(control.repeat(2), { authorize: async () => {
+        if (phase === "authorization") mutate();
+        return { ok: true };
+      } });
+      const [original, other] = p.document.body.children;
+      other.hidden = true;
+      let effects = 0, focused = false;
+      p.document.addEventListener(operation === "click" ? "click" : "input", () => effects++);
+      mutate = () => {
+        if (change === "remove") { original.remove(); other.hidden = false; }
+        if (change === "replace") original.replaceWith(original.cloneNode(true));
+        if (change === "rename") { original.setAttribute("aria-label", "Changed"); other.hidden = false; }
+        if (change === "hide") { original.hidden = true; other.hidden = false; }
+        if (change === "reveal_duplicate") other.hidden = false;
+        if (change === "disable") original.disabled = true;
+      };
+      original.scrollIntoView = () => { if (phase === "scroll") mutate(); };
+      original.addEventListener("focus", () => { focused = true; if (phase === "focus") mutate(); });
+      try {
+        const result = await p.call(operation, { target: { name: "Same" }, value: "new" });
+        assert.equal(result.error.code, code);
+        assert.equal(effects, 0);
+        if (phase === "scroll") assert.equal(focused, false);
+        if (operation === "fill") {
+          assert.equal(original.value, "old");
+          assert.equal(other.value, "old");
+        }
+      } finally { p.window.close(); }
+    });
+  }
+
+  for (const phase of ["scroll", "focus"]) {
+    for (const change of ["url", "expiry"]) test(`${operation} checks ${change} after ${phase}`, async () => {
+      const p = page(control);
+      const original = p.document.body.firstElementChild;
+      const expiresAt = Date.now() + 10000;
+      let effects = 0;
+      p.document.addEventListener(operation === "click" ? "click" : "input", () => effects++);
+      const mutate = () => {
+        if (change === "url") p.window.history.replaceState(null, "", "/changed");
+        else p.window.Date.now = () => expiresAt;
+      };
+      original.scrollIntoView = () => { if (phase === "scroll") mutate(); };
+      original.addEventListener("focus", () => { if (phase === "focus") mutate(); });
+      try {
+        const result = await p.call(operation, { target: { name: "Same" }, value: "new" }, { expires_at: expiresAt });
+        assert.equal(result.error.code, change === "url" ? "page_changed" : "request_expired");
+        assert.equal(effects, 0);
+      } finally { p.window.close(); }
+    });
+  }
+}
+
+test("inspect retains visible and hidden matches with their original summaries", async () => {
+  const p = page('<button id="visible">Same</button><button id="hidden" hidden>Same</button>');
+  try {
+    const response = await p.call("inspect", { target: { name: "Same" } });
+    assert.equal(response.result.total, 2);
+    assert.equal(response.result.truncated, false);
+    assert.deepEqual(Array.from(response.result.elements, ({ id, visible }) => ({ id, visible })), [
+      { id: "visible", visible: true }, { id: "hidden", visible: false },
+    ]);
+  } finally { p.window.close(); }
+});
+
 test("href uses the resolved absolute URL, including the document base URL", async () => {
   const p = page('<base href="https://docs.example/guide/"><a href="../help">Help</a>');
   try {
