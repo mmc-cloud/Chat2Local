@@ -74,7 +74,7 @@ def payload(result: Any) -> dict[str, Any]:
 def test_tools_are_registered_on_the_mcp_server(server: MCPServer) -> None:
     names = {tool.name for tool in run(server.list_tools())}
 
-    assert names == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices"}
+    assert names == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices", "capability_discover", "capability_execute"}
 
 
 def test_standalone_and_hub_servers_share_mcp_instructions(tmp_path: Path) -> None:

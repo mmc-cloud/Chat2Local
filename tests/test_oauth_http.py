@@ -59,7 +59,7 @@ def test_real_oauth_discovery_auth_and_mcp_tools(tmp_path, workos, signing_key, 
             async with httpx.AsyncClient(headers=headers, trust_env=False) as transport, streamable_http_client(url + "/mcp", http_client=transport) as streams:
                 async with ClientSession(streams[0], streams[1]) as client:
                     await client.initialize()
-                    assert len((await client.list_tools()).tools) == 10
+                    assert len((await client.list_tools()).tools) == 12
                     result = await client.call_tool("read", {"path": "file.txt"})
                     assert not result.is_error and json.loads(result.content[0].text)["text"] == "authenticated"
             async with httpx.AsyncClient(trust_env=False) as client:
@@ -113,6 +113,6 @@ def test_none_mode_preserves_http_behavior_without_jwks(tmp_path, workos, auth):
             async with httpx.AsyncClient(trust_env=False) as transport, streamable_http_client(url + "/mcp/", http_client=transport) as streams:
                 async with ClientSession(streams[0], streams[1]) as client:
                     await client.initialize()
-                    assert len((await client.list_tools()).tools) == 10
+                    assert len((await client.list_tools()).tools) == 12
     run(scenario())
     assert workos[1]["calls"] == []

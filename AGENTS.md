@@ -1,12 +1,13 @@
 ## 项目原则
 
-Chat2Local 是轻量本地 MCP Agent，设计文档位于 `docs/`。
+Chat2Local 是轻量本地 MCP Agent，内部设计文档位于 `docs/local/`（不纳入 Git 版本管理）；`docs/` 的其他内容可用于公开文档和 GitHub Pages。
 
 ## Tool 约束
 
 公共 Tool surface 固定为：
 `read`、`search`、`list_devices`、`apply_patch`、`exec_command`、
-`interact_process`、`kill_process`、`handoff_list`、`handoff_get`、`handoff_save`。
+`interact_process`、`kill_process`、`handoff_list`、`handoff_get`、`handoff_save`、
+`capability_discover`、`capability_execute`，共 12 个。
 除非任务明确要求重新设计，不新增、删除、拆分或合并 Tool。
 
 Tool 保持薄层，复杂生命周期和底层机制放在对应 Runtime / Service。

@@ -34,6 +34,14 @@ process:
 security:
   allowed_roots: [] # [] 表示只授权本次启动解析出的 default workspace。
 
+# 可选 Chrome 扩展，默认关闭；只监听 127.0.0.1，不随 Hub HTTP host 改变。
+# 按 browser-extension/README.md 配对后，取消注释并填写本机扩展 ID 和独立凭据文件。
+# browser:
+#   enabled: true
+#   port: 8766
+#   extension_id: abcdefghijklmnopabcdefghijklmnop # chrome://extensions 中的 ID
+#   token_file: ~/.chat2local/browser.token # 独立随机凭据，不能复用 Hub token
+
 # OAuth 仅保护 standalone/Hub 的 Streamable HTTP MCP；默认不启用，旧配置无需新增字段。
 auth:
   mode: none

@@ -13,6 +13,10 @@ Use read for a known file or directory path and search to locate file names or m
 
 A timed-out or disconnected remote call with side effects may already have executed on the target. Check the actual file, process, or Handoff state before attempting another operation; do not blindly replay it.
 
+Optional capabilities
+
+Use capability_discover on the intended device to obtain optional capability names, input JSON Schemas and current availability, then capability_execute with the same device. A known capability with available=false is temporarily unavailable; an unmatched query returns an empty list, and executing an unknown name returns unknown_capability. Browser V1 supports only browser.tabs.create with an absolute HTTP(S) URL. Browser actions affect Chrome outside the filesystem workspace. After a timeout or disconnect, verify actual tabs before retrying; an action may already have completed.
+
 Project guidance
 
 Before project-scoped work, read AGENTS.md from the target workspace when present and follow its project guidance. Keep durable, long-term project conventions there.

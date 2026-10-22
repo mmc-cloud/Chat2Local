@@ -41,12 +41,12 @@ def test_factory_registers_exactly_once_with_frozen_surface(tmp_path, monkeypatc
     assert registered == [(server, router)]
     assert len(constructed) == 1
     tools = run(server.list_tools())
-    assert len(tools) == 10
+    assert len(tools) == 12
     assert {tool.name for tool in tools} == {
         "read", "search", "list_devices", "apply_patch", "exec_command", "interact_process",
-        "kill_process", "handoff_list", "handoff_get", "handoff_save",
+        "kill_process", "handoff_list", "handoff_get", "handoff_save", "capability_discover", "capability_execute",
     }
-    assert len(router.local.tools) == 9
+    assert len(router.local.tools) == 11
     assert server.instructions == MCP_INSTRUCTIONS
     if auth is None or auth.mode == "none":
         assert "auth" not in constructed[0] and "token_verifier" not in constructed[0]
@@ -81,7 +81,7 @@ def test_app_delegates_construction_without_second_registration(tmp_path, monkey
     auth = AuthConfig(**OAUTH)
     application = create_app(router, auth=auth)
     assert calls == [(router, auth)]
-    assert len(run(application.state.mcp.list_tools())) == 10
+    assert len(run(application.state.mcp.list_tools())) == 12
     tree = ast.parse(inspect.getsource(app_module))
     assert not any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                    and node.func.id in ("MCPServer", "register", "register_tools") for node in ast.walk(tree))

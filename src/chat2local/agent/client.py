@@ -82,6 +82,7 @@ class AgentClient:
         logger.info("Agent starting as %s", self.device_id)
         main_failed = False
         try:
+            await self.local.browser.start(hub_token=self.token)
             await self._run()
         except BaseException as error:
             main_failed = True
@@ -90,7 +91,10 @@ class AgentClient:
             raise
         finally:
             try:
-                await self.local.process_manager.shutdown()
+                try:
+                    await self.local.browser.stop()
+                finally:
+                    await self.local.process_manager.shutdown()
             except BaseException:
                 logger.exception("Unexpected Agent shutdown failure")
                 if not main_failed:

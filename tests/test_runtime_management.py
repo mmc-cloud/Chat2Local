@@ -121,7 +121,7 @@ def test_single_core_keeps_tool_workspace_selection_and_boundary(tmp_path):
             url = f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
             async with mcp_client(url) as client:
                 tools = await client.list_tools()
-                assert len(tools.tools) == 10
+                assert len(tools.tools) == 12
                 first = await client.call_tool("read", {"path": "file.txt"})
                 second = await client.call_tool("read", {"path": "file.txt", "workspace": str(b.resolve())})
                 denied = await client.call_tool("read", {"path": "file.txt", "workspace": str(outside.resolve())})

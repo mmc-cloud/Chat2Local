@@ -150,6 +150,19 @@ def validation_message(error: ValidationError) -> str:
     )
 
 
+class BrowserConfig(_ConfigModel):
+    enabled: bool = Field(default=False, strict=True)
+    port: int = Field(default=8766, ge=1, le=65535, strict=True)
+    extension_id: str | None = Field(default=None, pattern=r"^[a-p]{32}$")
+    token_file: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def pairing_required(self) -> BrowserConfig:
+        if self.enabled and (self.extension_id is None or self.token_file is None):
+            raise ValueError("browser.extension_id and browser.token_file are required when enabled")
+        return self
+
+
 class AppConfig(_ConfigModel):
     read: ReadConfig = Field(default_factory=ReadConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
@@ -158,6 +171,7 @@ class AppConfig(_ConfigModel):
     hub: HubConfig = Field(default_factory=HubConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
 
 
 def read_persisted_config(path: Path | str | None = None) -> dict[str, Any]:

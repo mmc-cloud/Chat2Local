@@ -45,13 +45,17 @@ def create_app(
         local_router = router if router is not None else get_router()
         async with server.session_manager.run():
             try:
+                await local_router.local.browser.start(hub_token=hub_token)
                 yield
             finally:
                 try:
                     if local_router.registry is not None:
                         await local_router.registry.close()
                 finally:
-                    await local_router.local.process_manager.shutdown()
+                    try:
+                        await local_router.local.browser.stop()
+                    finally:
+                        await local_router.local.process_manager.shutdown()
 
     application = FastAPI(title="Chat2Local", version=version("chat2local"), lifespan=lifespan)
     application.state.router = router

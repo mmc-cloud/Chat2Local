@@ -1,4 +1,4 @@
-"""English client-facing metadata for the ten Chat2Local MCP tools.
+"""English client-facing metadata for the twelve Chat2Local MCP tools.
 
 This module describes the existing behavior. No business logic runs here.
 """
@@ -290,6 +290,36 @@ TOOL_METADATA: dict[str, dict[str, Any]] = {'read': {'title': 'Read File or Dire
                   'annotations': {'readOnlyHint': True,
                                   'destructiveHint': False,
                                   'openWorldHint': False}}}
+
+
+TOOL_METADATA.update({
+    "capability_discover": {
+        "title": "Discover Capabilities",
+        "description": "Query optional capabilities on one device by name or keywords. Returns descriptions, "
+                       "input JSON Schemas and live availability. Known disconnected capabilities remain listed "
+                       "with available=false; an unknown query returns an empty list. Omit query to list all.",
+        "params": {
+            "query": "Optional capability name or space-separated keywords (case-insensitive, all must match).",
+            "device": "Target device ID; omit for the MCP server's local device. Use list_devices to find IDs.",
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+    },
+    "capability_execute": {
+        "title": "Execute Capability",
+        "description": "Execute an optional capability on the selected device. Discover its input schema and "
+                       "availability first. Returns ok/result or ok=false with error.code and error.message. "
+                       "Browser V1 supports only browser.tabs.create with an absolute HTTP(S) URL. "
+                       "Timeouts or disconnects may follow a completed action: verify tabs before retrying; "
+                       "never blindly replay a browser action.",
+        "params": {
+            "capability": "Exact capability name obtained from capability_discover.",
+            "arguments": "Capability-specific object matching its discovered input JSON Schema.",
+            "device": "Target device ID; omit for the MCP server's local device. Keep the same device as discovery.",
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False,
+                        "openWorldHint": True},
+    },
+})
 
 
 def annotations_for(name: str) -> ToolAnnotations:

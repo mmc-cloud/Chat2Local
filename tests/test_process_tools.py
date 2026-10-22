@@ -26,7 +26,7 @@ OUTPUT_FIELDS = {
     "process_id", "state", "exit_code", "draining", "stdout", "stderr",
     "stdout_has_more", "stderr_has_more", "stdout_dropped", "stderr_dropped",
 }
-LOCAL_TOOLS = ("read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save")
+LOCAL_TOOLS = ("read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "capability_discover", "capability_execute")
 
 
 @asynccontextmanager

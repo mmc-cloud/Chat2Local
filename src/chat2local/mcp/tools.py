@@ -1,7 +1,5 @@
 """MCP Tool registration for the Local Tools surface.
 
-Design: docs/design-v0.1.md §4 Layer 1 — Local Tools.
-
 Tools stay thin: they route to a device's ``LocalToolDispatcher``, which owns
 its ``WorkspaceManager``, ``AppConfig`` and ``ProcessManager``. Limits such as
 ``max_lines`` / ``timeout`` are runtime configuration, never Tool parameters.
@@ -21,6 +19,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from chat2local.mcp.metadata import TOOL_METADATA, annotations_for
 from chat2local.mcp.output_schema import publish_output_schemas
+from chat2local.browser.bridge import failure
 
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
@@ -111,7 +110,7 @@ def _handoff_scope_arguments(scope: str, workspace: str | None, ctx: Context | N
 
 
 def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
-    """Register the ten public Tools on an MCP server."""
+    """Register the twelve public Tools on an MCP server."""
 
     @server.tool(name="read", title=TOOL_METADATA["read"]["title"],
                  description=TOOL_METADATA["read"]["description"],
@@ -281,5 +280,36 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         except WorkspaceError as error:
             raise ToolError(str(error)) from error
 
-    # Publish the existing result shapes without changing dict output conversion.
+    @server.tool(name="capability_discover", title=TOOL_METADATA["capability_discover"]["title"],
+                 description=TOOL_METADATA["capability_discover"]["description"],
+                 annotations=annotations_for("capability_discover"))
+    async def capability_discover_tool(
+        query: Annotated[StrictStr | None, Field(description=TOOL_METADATA["capability_discover"]["params"]["query"], max_length=256)] = None,
+        device: Annotated[str | None, Field(description=TOOL_METADATA["capability_discover"]["params"]["device"])] = None,
+    ) -> dict[str, Any]:
+        try:
+            return await (router or get_router()).execute("capability_discover", {"query": query}, device)
+        except DeviceError:
+            return failure("device_unavailable", "Selected device is unavailable; use list_devices")
+        except (WorkspaceError, ToolExecutionError):
+            return failure("capability_error", "Capability discovery failed on the selected device")
+
+    @server.tool(name="capability_execute", title=TOOL_METADATA["capability_execute"]["title"],
+                 description=TOOL_METADATA["capability_execute"]["description"],
+                 annotations=annotations_for("capability_execute"))
+    async def capability_execute_tool(
+        capability: Annotated[StrictStr, Field(description=TOOL_METADATA["capability_execute"]["params"]["capability"], min_length=1, max_length=128)],
+        arguments: Annotated[dict[str, Any], Field(description=TOOL_METADATA["capability_execute"]["params"]["arguments"])],
+        device: Annotated[str | None, Field(description=TOOL_METADATA["capability_execute"]["params"]["device"])] = None,
+    ) -> dict[str, Any]:
+        try:
+            return await (router or get_router()).execute("capability_execute", {
+                "capability": capability, "arguments": arguments,
+            }, device)
+        except DeviceError:
+            return failure("device_unavailable", "Selected device is unavailable or timed out; verify tabs before retrying")
+        except (WorkspaceError, ToolExecutionError):
+            return failure("capability_error", "Capability execution failed; verify tabs before retrying")
+
+    # Publish result shapes without changing dict output conversion.
     publish_output_schemas(server)

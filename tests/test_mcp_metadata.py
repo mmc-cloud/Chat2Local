@@ -24,7 +24,7 @@ def listed():
 def test_all_public_tools_have_english_metadata_and_parameter_descriptions() -> None:
     registered = {tool.name: tool for tool in listed()}
     assert set(registered) == set(TOOL_METADATA)
-    assert len(registered) == 10
+    assert len(registered) == 12
 
     for name, tool in registered.items():
         assert tool.title == TOOL_METADATA[name]["title"]

@@ -135,7 +135,7 @@ def test_hub_agent_mcp_read_search_and_local_permissions(tmp_path: Path) -> None
                         await client.initialize()
                         devices = decode(await client.call_tool("list_devices", {}))["devices"]
                         assert {entry["device_id"] for entry in devices} == {"hub", "desktop"}
-                        assert all(entry["online"] and entry["tools"] == ["read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save"] for entry in devices)
+                        assert all(entry["online"] and entry["tools"] == ["read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "capability_discover", "capability_execute"] for entry in devices)
                         assert {entry["kind"] for entry in devices} == {"local", "remote"}
                         for device in (None, "hub"):
                             result = decode(await client.call_tool("read", {"path": "file.txt", "device": device}))

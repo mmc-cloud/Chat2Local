@@ -66,7 +66,7 @@ def test_dispatcher_workspace_override_and_concurrency(tmp_path):
         path.mkdir()
     manager = WorkspaceManager(a, allowed_roots=[a, b])
     local = LocalToolDispatcher(manager, AppConfig())
-    assert local.tools == LOCAL_TOOLS and len(local.tools) == 9
+    assert local.tools == LOCAL_TOOLS and len(local.tools) == 11
     async def scenario():
         store = local.handoff_store
         args = {"title": "Title", "summary": "Summary", "workstream": "design", "content": "original", "expected_revision": 0, "workspace": str(b)}
@@ -196,7 +196,7 @@ def test_real_mcp_handoff_flow_schema_and_concurrent_conflict(tmp_path, mode):
                     yield
             async with connected(), mcp_client(url) as client:
                 tools = {tool.name: tool.input_schema for tool in (await client.list_tools()).tools}
-                assert set(tools) == set(LOCAL_TOOLS) | {"list_devices"} and len(tools) == 10
+                assert set(tools) == set(LOCAL_TOOLS) | {"list_devices"} and len(tools) == 12
                 for name, fields, required in (
                     ("handoff_list", {"workspace", "device", "scope"}, []),
                     ("handoff_get", {"workstream", "workspace", "device", "scope"}, ["workstream"]),

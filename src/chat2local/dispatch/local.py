@@ -7,6 +7,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from chat2local.browser.bridge import BrowserBridge, failure
+from chat2local.browser.capabilities import CapabilityRegistry
+
 from chat2local.handoff.store import (
     HandoffStore, SUMMARY_MAX_LENGTH, TITLE_MAX_LENGTH,
     validate_summary, validate_title, validate_workstream,
@@ -38,6 +41,15 @@ class _Arguments(BaseModel):
 
 class _WorkspaceArguments(_Arguments):
     workspace: str | None = None
+
+
+class CapabilityDiscoverArguments(_Arguments):
+    query: str | None = Field(default=None, max_length=256)
+
+
+class CapabilityExecuteArguments(_Arguments):
+    capability: str = Field(min_length=1, max_length=128)
+    arguments: dict[str, Any]
 
 
 class ReadArguments(_WorkspaceArguments):
@@ -118,6 +130,8 @@ class LocalToolDispatcher:
     ) -> None:
         self.workspace = workspace
         self.config = config
+        self.browser = BrowserBridge(config.browser)
+        self.capabilities = CapabilityRegistry(self.browser)
         self.handoff_store = HandoffStore()
         self.process_manager = process_manager if process_manager is not None else ProcessManager(config.process)
         self._handlers: dict[str, ToolHandler] = {}
@@ -130,6 +144,8 @@ class LocalToolDispatcher:
         self.register("handoff_list", self._handoff_list)
         self.register("handoff_get", self._handoff_get)
         self.register("handoff_save", self._handoff_save)
+        self.register("capability_discover", self._capability_discover)
+        self.register("capability_execute", self._capability_execute)
 
     @property
     def tools(self) -> tuple[str, ...]:
@@ -170,6 +186,20 @@ class LocalToolDispatcher:
 
     def _workspace(self, selected: str | None) -> WorkspaceManager:
         return self.workspace if selected is None else self.workspace.select_workspace(selected)
+
+    async def _capability_discover(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            args = CapabilityDiscoverArguments.model_validate(arguments)
+        except ValidationError:
+            return failure("invalid_arguments", "Expected an optional query string")
+        return self.capabilities.discover(args.query)
+
+    async def _capability_execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            args = CapabilityExecuteArguments.model_validate(arguments)
+        except ValidationError:
+            return failure("invalid_arguments", "Expected capability name and arguments object")
+        return await self.capabilities.execute(args.capability, args.arguments)
 
     def _handoff_workspace(self, args: HandoffListArguments) -> WorkspaceManager | None:
         return None if args.scope == "personal" else self._workspace(args.workspace)

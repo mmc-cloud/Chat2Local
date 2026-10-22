@@ -177,7 +177,11 @@ https://mcp.example.com/mcp
 
 ## MCP Tools
 
-Chat2Local 当前公开 10 个 MCP tools，覆盖文件读取与搜索、patch 修改、Shell / Process 操作、多设备选择和 Handoff。
+Chat2Local 当前公开 12 个 MCP tools，覆盖文件读取与搜索、patch 修改、Shell / Process 操作、多设备选择、Handoff 和可选扩展能力。
+
+`capability_discover` 查询指定设备的能力说明、参数 JSON Schema 和实时可用状态，`capability_execute` 执行能力。
+第一阶段提供 `browser.tabs.create`，通过独立安装的可选 Chrome 扩展创建标签页。默认不启动浏览器监听，
+扩展未连接不会影响原有工具。安装、独立认证配置、完整调用示例和手动验收见 [浏览器扩展说明](browser-extension/README.md)。
 
 当前公开的 Tool：
 

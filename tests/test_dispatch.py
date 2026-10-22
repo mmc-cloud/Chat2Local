@@ -79,10 +79,10 @@ def test_standalone_other_device_is_unavailable(tmp_path: Path, tool, arguments)
 def test_list_devices_standalone(tmp_path: Path) -> None:
     server = create_mcp_server(DeviceRouter("desktop", make_dispatcher(tmp_path)))
     assert payload(run(server.call_tool("list_devices", {}))) == {"devices": [{
-        "device_id": "desktop", "kind": "local", "online": True, "tools": ["read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save"],
+        "device_id": "desktop", "kind": "local", "online": True, "tools": ["read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "capability_discover", "capability_execute"],
     }]}
     tools = run(server.list_tools())
-    assert {tool.name for tool in tools} == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices"}
+    assert {tool.name for tool in tools} == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices", "capability_discover", "capability_execute"}
     listing = next(tool for tool in tools if tool.name == "list_devices")
     assert listing.input_schema["properties"] == {}
     for tool in tools:

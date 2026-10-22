@@ -149,6 +149,15 @@ def patch_step() -> dict[str, Any]:
     }, required=["action", "path"])
 
 
+def capability_schema(result: dict[str, Any]) -> dict[str, Any]:
+    error = obj({"code": field("string", "Stable error code."),
+                 "message": field("string", "Readable error and recovery guidance.")}, required=["code", "message"])
+    return {"type": "object", "oneOf": [
+        obj({"ok": {"const": True}, "result": result}, required=["ok", "result"]),
+        obj({"ok": {"const": False}, "error": error}, required=["ok", "error"]),
+    ]}
+
+
 def build_output_schemas() -> dict[str, dict[str, Any]]:
     common = process_fields()
     handoff = handoff_fields()
@@ -190,6 +199,14 @@ def build_output_schemas() -> dict[str, dict[str, Any]]:
         "handoff_get": obj({**handoff, "content": field("string", "Continuation body without front matter.")},
                            required=[*handoff, "content"]),
         "handoff_save": obj(handoff, required=list(handoff)),
+        "capability_discover": capability_schema(obj({"capabilities": array(obj({
+            "name": field("string", "Unique capability name."),
+            "description": field("string", "Capability purpose."),
+            "input_schema": field("object", "Capability-specific argument JSON Schema."),
+            "available": field("boolean", "Whether its provider is currently connected and supports it."),
+        }, required=["name", "description", "input_schema", "available"]), "Matching capabilities.")},
+            required=["capabilities"])),
+        "capability_execute": capability_schema({"type": "object"}),
     }
 
 

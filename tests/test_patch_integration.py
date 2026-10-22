@@ -30,7 +30,7 @@ def test_dispatcher_patch_validation_and_workspace_override(tmp_path):
         path.mkdir()
     manager = WorkspaceManager(a, allowed_roots=[tmp_path])
     dispatcher = LocalToolDispatcher(manager, AppConfig())
-    assert dispatcher.tools == ("read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save")
+    assert dispatcher.tools == ("read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "capability_discover", "capability_execute")
     body = patch("*** Add File: new.txt\n+new")
     result = run(dispatcher.execute("apply_patch", {"patch": body, "workspace": str(b)}))
     assert result["success"] and (b / "new.txt").exists() and not (a / "new.txt").exists()
@@ -92,7 +92,7 @@ def test_real_standalone_and_hub_agent_patch_tools(tmp_path: Path, remote, monke
 
     async def exercise(client):
         tools = (await client.list_tools()).tools
-        assert {tool.name for tool in tools} == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices"}
+        assert {tool.name for tool in tools} == {"read", "search", "apply_patch", "exec_command", "interact_process", "kill_process", "handoff_list", "handoff_get", "handoff_save", "list_devices", "capability_discover", "capability_execute"}
         schema = next(tool.input_schema for tool in tools if tool.name == "apply_patch")
         assert set(schema["properties"]) == {"patch", "workspace", "device"}
         assert schema["required"] == ["patch"]
