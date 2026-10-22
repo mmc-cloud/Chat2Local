@@ -6,6 +6,7 @@ import type {
   ConfigMap,
   LogCursor,
   DesktopChanges,
+  TokenPurpose,
 } from "@/types/pywebview";
 export type BridgeState = {
   status: "connecting" | "failed" | "connected";
@@ -66,6 +67,11 @@ async function invoke<T>(
   return response.result;
 }
 export const coreApi = {
+  browserStatus: () => invoke((api) => api.browser_status()),
+  credentialInfo: (purpose: TokenPurpose, path: string | null) => invoke((api) => api.credential_info(purpose, path)),
+  manageToken: (purpose: TokenPurpose, path: string | null, value: string | null = null, regenerate = false, confirmed = false) =>
+    invoke((api) => api.manage_token(purpose, path, value, regenerate, confirmed)),
+  copyToken: (purpose: TokenPurpose, path: string | null) => invoke((api) => api.copy_token(purpose, path)),
   status: () => invoke((api) => api.runtime_status()),
   start: (mode: string, workspace: string) =>
     invoke((api) => api.start_core(mode, workspace)),

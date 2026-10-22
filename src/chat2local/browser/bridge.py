@@ -68,6 +68,22 @@ class BrowserBridge:
         self._pending: dict[str, asyncio.Future] = {}
         self._token = ""
         self.request_timeout = REQUEST_TIMEOUT
+        self._start_failed = False
+        self._ready = False
+
+    def snapshot(self) -> dict[str, Any]:
+        """Local management only. Never publish token contents or token hashes."""
+        current = True
+        if self._token:
+            try:
+                with Path(self.config.token_file).expanduser().open(encoding="utf-8") as handle:
+                    current = hmac.compare_digest(handle.read(4096).strip().encode(), self._token.encode())
+            except (OSError, ValueError, UnicodeError):
+                current = False
+        connected = self._ready and self._connection is not None and self._connection.close_code is None
+        state = ("disabled" if not self.config.enabled else "failed" if self._start_failed
+                 else "connected" if connected else "listening" if self.server is not None else "starting")
+        return {"state": state, "config": self.config.model_dump(), "credential_current": current}
 
     @property
     def available(self) -> bool:
@@ -81,6 +97,7 @@ class BrowserBridge:
     async def start(self, *, hub_token: str | None = None) -> None:
         if not self.config.enabled or self.server is not None:
             return
+        self._start_failed = False
         try:
             # This is a private configuration credential, not a workspace file Tool.
             with Path(self.config.token_file).expanduser().open(encoding="utf-8") as handle:
@@ -99,6 +116,7 @@ class BrowserBridge:
             logger.info("Browser bridge listening on 127.0.0.1:%d", self.config.port)
         except (OSError, ValueError, RuntimeError):
             self._token = ""
+            self._start_failed = True
             # Optional listener failures must never stop Core/Hub/Agent.
             logger.warning("Browser bridge unavailable; check browser token file and loopback port")
 
@@ -130,6 +148,7 @@ class BrowserBridge:
             # handling keep the first command behind successful authentication.
             await ws.send('{"type":"hello_ack","protocol_version":1,"ok":true}')
             self._supported = set(hello.capabilities)
+            self._ready = True
             logger.info("Browser extension connected")
             async for raw in ws:
                 if raw == '{"type":"ping"}':
@@ -150,6 +169,7 @@ class BrowserBridge:
         finally:
             if self._connection is ws:
                 self._connection = None
+                self._ready = False
                 self._supported.clear()
                 for future in self._pending.values():
                     if not future.done():

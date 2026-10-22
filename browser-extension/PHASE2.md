@@ -8,6 +8,7 @@
 1. 更新 Core，在 `chrome://extensions` 点击已有扩展卡片的重新加载按钮，确认版本为 `0.2.0`，
    并确认新增的 `tabs` 和 `scripting` 权限。只刷新选项页不会重载后台脚本。
 2. 打开扩展选项，在“网页操作授权”填写一个 HTTP(S) 网站地址，点击“授权此网站”，手动确认 Chrome 提示。
+   也可以点击“授权所有网站”，一次授予普通 HTTP/HTTPS 网站访问权限。
    必须由真实用户点击触发 `chrome.permissions.request`；MCP 没有授权入口。
 3. 对目标设备调用 `capability_discover`，query 为 `browser`。
 4. 调用 `browser.tabs.list` 找原生 ID，再 inspect，然后 click / fill。始终保留同一个 `device`。
@@ -16,8 +17,14 @@
 选项页可撤销授权，Chrome 网站设置也可收回权限。执行时同时检查显式网站授权记录与 Chrome 当前权限，
 即使 `127.0.0.1` 已有桥接网络权限，也必须额外点击确认网页操作授权。
 
+全站模式由用户点击“授权所有网站”触发，申请 `http://*/*` 和 `https://*/*`，只有 Chrome 允许后才开启内部全站标记。
+执行时同时检查该标记和 Chrome 当前的两项广域权限；MCP 无法开启它。仍拒绝 Chrome 管理页、扩展页、商店等受限页面。
+全站模式下不提供单站排除，移除逐站名单条目不会排除该网站。
+“撤销全站授权”先关闭内部全站访问，再撤回 Chrome 广域权限；逐站记录保留，但 Chrome 可能同时撤回其覆盖的单站权限，
+需要时重新点击“授权此网站”。普通页面操作仍会在执行前复核授权，撤销不会自动重试已发出的动作。
+
 权限变化：新增 `tabs` 用于查询标题、URL、原生 ID；新增 `scripting` 用于按需注入打包脚本；
-`optional_host_permissions` 声明 `http://*/*`、`https://*/*` 供用户逐站授权，**不等于自动获得所有网站权限**。
+`optional_host_permissions` 声明 `http://*/*`、`https://*/*` 供用户按站或全站主动授权，**不等于自动获得所有网站权限**。
 已有 `storage`、`alarms` 和 loopback host 权限保留；没有 `debugger`、CDP、远程代码或外部网页消息入口。
 
 ## Capability 与 Schema

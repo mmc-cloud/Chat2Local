@@ -6,12 +6,13 @@ import { page } from "./dom-helper.mjs";
 const source = readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8");
 
 function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "https://test.example/" }],
-  consent = ["https://test.example/*"], granted = true, inject, send } = {}) {
+  consent = ["https://test.example/*"], granted = true, allWebsites = false, inject, send } = {}) {
   const calls = { injected: [], messages: [] };
   let listener;
+  const settings = { pageOrigins: consent, allWebsites };
   const chrome = {
     runtime: { id: "test-extension", onMessage: { addListener(fn) { listener = fn; } } },
-    storage: { local: { get: async () => ({ pageOrigins: consent }) } },
+    storage: { local: { get: async () => settings } },
     permissions: { contains: async () => granted },
     tabs: {
       query: async () => tabs.map((tab) => ({ ...tab })),
@@ -30,7 +31,7 @@ function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "https://te
   const authorize = (message, sender) => new Promise((resolve) => {
     if (!listener(message, sender, resolve)) resolve({ ok: false });
   });
-  return { api, call, chrome, calls, authorize, tabs, consent };
+  return { api, call, chrome, calls, authorize, tabs, consent, settings };
 }
 
 test("tabs list is bounded; selection uses native IDs and exact AND conditions", async () => {
@@ -65,6 +66,38 @@ test("DOM access requires explicit consent AND current Chrome permission, includ
     assert.equal((await f.call("browser.page.click", { tab: { tab_id: 1 }, target: { name: "Go" } })).error.code, "permission_denied");
     assert.equal(f.calls.injected.length, 0);
   }
+});
+
+test("all-site mode requires both the explicit flag and current broad Chrome grants", async () => {
+  const f = fixture({ consent: [], allWebsites: true });
+  assert.equal((await f.call("browser.page.inspect", { tab: { tab_id: 1 } })).ok, true);
+  f.settings.allWebsites = false;
+  assert.equal((await f.call("browser.page.inspect", { tab: { tab_id: 1 } })).error.code, "permission_denied");
+  f.settings.allWebsites = true;
+  f.chrome.permissions.contains = async () => false;
+  assert.equal((await f.call("browser.page.inspect", { tab: { tab_id: 1 } })).error.code, "permission_denied");
+  const restricted = fixture({ tabs: [{ id: 1, url: "chrome://settings" }], allWebsites: true });
+  assert.equal((await restricted.call("browser.page.inspect", { tab: { tab_id: 1 } })).error.code, "unsupported_page");
+  assert.equal(restricted.calls.injected.length, 0);
+});
+
+test("revoking all-site access during an element wait prevents the action before Chrome removal completes", async () => {
+  let f;
+  const p = page("", { authorize: (message) => f.authorize(message, {
+    id: "test-extension", frameId: 0, tab: { id: 1 }, url: "https://test.example/",
+  }) });
+  f = fixture({ consent: [], allWebsites: true, send: (_, message) => p.dispatch(message) });
+  let clicks = 0;
+  p.document.addEventListener("click", () => clicks++);
+  try {
+    const pending = f.call("browser.page.click", { tab: { tab_id: 1 }, target: { name: "Later" }, wait_ms: 200 });
+    p.window.setTimeout(() => {
+      f.settings.allWebsites = false; // Chrome still reports broad host permission.
+      p.document.body.innerHTML = "<button>Later</button>";
+    }, 15);
+    assert.equal((await pending).error.code, "permission_denied");
+    assert.equal(clicks, 0);
+  } finally { p.window.close(); }
 });
 
 test("background injects the packaged top-frame module and sends to its documentId; actual DOM executes", async () => {

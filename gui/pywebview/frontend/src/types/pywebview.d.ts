@@ -47,7 +47,16 @@ export interface DesktopSnapshot {
   launch_at_login_supported: boolean;
   tray_available: boolean;
 }
-export type ConfigValue = string | number | null | string[];
+export type ConfigValue = string | number | boolean | null | string[];
+export type TokenPurpose = "browser" | "hub" | "agent";
+export interface CredentialInfo {
+  path: string;
+  state: "ready" | "missing" | "invalid";
+  reused?: boolean;
+}
+export interface BrowserStatus {
+  state: "disabled" | "restart_required" | "listening" | "connected" | "failed" | "starting" | "core_stopped" | "configuration_error" | "unavailable";
+}
 export type ConfigMap = Record<string, Record<string, ConfigValue>>;
 export interface ConfigSnapshot {
   persisted: ConfigMap;
@@ -80,6 +89,10 @@ export interface LogBatch {
 export type Envelope<T> =
   { ok: true; result: T } | { ok: false; error: { message: string } };
 export interface CoreApi {
+  browser_status: () => Promise<Envelope<BrowserStatus>>;
+  credential_info: (purpose: TokenPurpose, path: string | null) => Promise<Envelope<CredentialInfo>>;
+  manage_token: (purpose: TokenPurpose, path: string | null, value: string | null, regenerate: boolean, confirmed: boolean) => Promise<Envelope<CredentialInfo>>;
+  copy_token: (purpose: TokenPurpose, path: string | null) => Promise<Envelope<{ copied: boolean }>>;
   read_desktop_preferences: () => Promise<Envelope<DesktopSnapshot>>;
   save_desktop_preferences: (
     changes: DesktopChanges,

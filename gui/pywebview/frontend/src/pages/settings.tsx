@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DesktopSettings } from "@/components/desktop-settings";
+import { TokenManager } from "@/components/token-manager";
+import { BrowserStatus } from "@/components/browser-status";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -17,7 +20,7 @@ import type { ConfigMap, ConfigSnapshot, ConfigValue } from "@/types/pywebview";
 interface Field {
   name: string;
   label: string;
-  kind: "text" | "number" | "select" | "roots" | "proxy";
+  kind: "text" | "number" | "select" | "roots" | "proxy" | "boolean";
   nullable?: boolean;
   options?: string[];
 }
@@ -28,6 +31,15 @@ interface Section {
 }
 // UI labels and controls, not validation rules. Core owns the schema and defaults.
 const sections: Section[] = [
+  {
+    name: "browser", description: "Optional Chrome connection. Available in every Core mode.",
+    fields: [
+      { name: "enabled", label: "Enable Browser Bridge", kind: "boolean" },
+      { name: "extension_id", label: "Chrome extension ID", kind: "text", nullable: true },
+      { name: "port", label: "Local Browser port", kind: "number" },
+      { name: "token_file", label: "Token file path", kind: "text", nullable: true },
+    ],
+  },
   {
     name: "read",
     description: "Bounded file previews.",
@@ -274,7 +286,9 @@ export function Settings({ currentMode }: { currentMode: string }) {
                 key={field.name}
               >
                 <label htmlFor={id}>{t(field.label)}</label>
-                {field.kind === "roots" ? (
+                {field.kind === "boolean" ? (
+                  <Switch id={id} checked={value === true} onCheckedChange={(checked) => set(checked)} />
+                ) : field.kind === "roots" ? (
                   <div className="roots-editor">
                     {(Array.isArray(value) ? value : []).map((path, index) => (
                       <div className="path-picker" key={index}>
@@ -441,6 +455,11 @@ export function Settings({ currentMode }: { currentMode: string }) {
               </div>
             );
           })}
+        {section.name === "browser" && <BrowserStatus />}
+        {(["browser", "hub", "agent"] as string[]).includes(section.name) && <TokenManager
+          purpose={section.name as "browser" | "hub" | "agent"}
+          path={typeof valueFor(section.name, "token_file") === "string" ? String(valueFor(section.name, "token_file")) : null}
+          onPath={(path) => update(section.name, "token_file", path)} />}
       </div>
     </section>
   );
@@ -514,6 +533,7 @@ export function Settings({ currentMode }: { currentMode: string }) {
               .filter(
                 (section) =>
                   section.name === currentMode ||
+                  section.name === "browser" ||
                   (currentMode === "hub" && section.name === "auth"),
               )
               .map(renderSection)}

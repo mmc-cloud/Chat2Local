@@ -3,6 +3,7 @@
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
     "browser.page.inspect", "browser.page.click", "browser.page.fill"];
   const targetKeys = ["role", "name", "aria_label", "label", "placeholder", "href", "text", "id"];
+  const allWebsiteOrigins = ["http://*/*", "https://*/*"];
   const fail = (code, details) => ({ ok: false, error: { code, ...(details ? { details } : {}) } });
   const record = (value) => value && typeof value === "object" && !Array.isArray(value);
   const keys = (value, allowed) => record(value) && Object.keys(value).every((key) => allowed.includes(key));
@@ -66,7 +67,8 @@
     if (!pattern) return false;
     // Explicit website opt-in is also required for loopback, whose bridge host
     // permission is already granted at install time for network connectivity.
-    const { pageOrigins = [] } = await chrome.storage.local.get("pageOrigins");
+    const { pageOrigins = [], allWebsites = false } = await chrome.storage.local.get(["pageOrigins", "allWebsites"]);
+    if (allWebsites === true && await chrome.permissions.contains({ origins: allWebsiteOrigins })) return true;
     return Array.isArray(pageOrigins) && pageOrigins.includes(pattern)
       && await chrome.permissions.contains({ origins: [pattern] });
   }
@@ -150,5 +152,5 @@
       return await pageOperation(request.capability, args, request.expires_at);
     } catch { return fail("browser_operation_failed"); }
   }
-  globalThis.Chat2LocalBrowser = { capabilities, execute, installAuthorizationHandler, pagePattern };
+  globalThis.Chat2LocalBrowser = { capabilities, execute, installAuthorizationHandler, pagePattern, allWebsiteOrigins };
 })();

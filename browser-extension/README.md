@@ -2,6 +2,7 @@
 
 可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择，以及授权网页的 inspect/click/fill。
 第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
+Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。
 Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影响原有 10 个 Tool。
 
@@ -151,7 +152,7 @@ ChatGPT / MCP client
   运行时连接、能力可用性与待处理请求只保存在内存，不与 Handoff、Chat 或 Process 状态混存。
 - 日志不输出 token、认证帧或浏览器参数。DOM 脚本仅按需注入，无外部网页消息入口、`externally_connectable`、
   自动授予的广域 host 权限、远程脚本或书签权限。第二阶段新增 `tabs`、`scripting`，
-  网站权限通过选项页用户点击按站授予；仍保留 `storage`、`alarms` 和 `http://127.0.0.1/*` 本机 host 权限，CSP 将扩展自身网络连接限制为
+  网站权限通过选项页用户点击按站或全站授予；仍保留 `storage`、`alarms` 和 `http://127.0.0.1/*` 本机 host 权限，CSP 将扩展自身网络连接限制为
   `ws://127.0.0.1:*`。本机 host 权限用于 Chromium 本地网络访问检查下的扩展接入；
   Chrome host match pattern 无法限定端口，因此端口由扩展设置控制。
 

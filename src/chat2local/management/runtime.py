@@ -356,3 +356,22 @@ class RuntimeClient:
             except ValidationError:
                 raise ManagementError("Invalid device snapshot") from None
         return {"devices": devices, "mode": snapshot["core"]["mode"]}
+
+    async def browser(self) -> dict | None:
+        snapshot = await self.discover()
+        if snapshot["lifecycle"] == "Stopped":
+            return None
+        if snapshot["lifecycle"] != "Running":
+            raise ManagementError("Runtime information is stale")
+        descriptor = self._descriptor()
+        if descriptor is None or descriptor.instance_id != snapshot["core"]["instance_id"]:
+            raise ManagementError("Runtime changed; refresh status")
+        result = await self.request(descriptor, "browser")
+        class BrowserStatus(_StrictModel):
+            state: Literal["disabled", "starting", "failed", "connected", "listening"]
+            config: config.BrowserConfig
+            credential_current: bool
+        try:
+            return BrowserStatus.model_validate(result).model_dump()
+        except ValidationError:
+            raise ManagementError("Invalid browser snapshot") from None

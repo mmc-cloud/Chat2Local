@@ -29,6 +29,9 @@ uv run --group pywebview-gui python gui/pywebview/python/app.py --dev-url http:/
 Only loopback dev URLs are accepted. An ordinary browser cannot access the Python bridge.
 Use Tray > Exit Chat2Local when finished; stop Vite separately with Ctrl+C.
 
+Browser configuration, credential generation/import/copy and manual acceptance are described in
+[GUI configuration and token management](CONFIGURATION.md). Browser settings are available in every mode.
+
 ## Pages
 
 The GUI defaults to Simplified Chinese. Settings > Display language switches between

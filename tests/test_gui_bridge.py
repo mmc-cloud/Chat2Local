@@ -52,6 +52,10 @@ def test_bridge_exposes_only_transport_methods(bridge_module):
             "read_desktop_preferences",
             "save_desktop_preferences",
             "take_desktop_navigation",
+            "browser_status",
+            "credential_info",
+            "manage_token",
+            "copy_token",
         ]
     )
 

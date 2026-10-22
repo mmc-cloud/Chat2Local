@@ -15,6 +15,11 @@
   <p id="saved" role="status"></p>
   <p>连接状态：<span id="status"></span></p>
   <h2>网页操作授权</h2>
+  <p>可选择授权全部普通 HTTP/HTTPS 网站。全站模式下，移除单站记录不会排除该网站。<br>
+    You can allow all ordinary HTTP/HTTPS websites. Removing an individual entry does not exclude it while all-site access is enabled.</p>
+  <button type="button" id="allow-all-websites">授权所有网站 / Allow all websites</button>
+  <button type="button" id="revoke-all-websites">撤销全站授权 / Revoke all-site access</button>
+  <p id="all-websites-status" role="status"></p>
   <p>填写一个网站地址并点击授权。权限范围为该协议和主机的所有路径与端口；不包含其他子域名。</p>
   <p>本机连接权限不会自动授权操作本机网页，也需要在这里确认。</p>
   <form id="website-permission">

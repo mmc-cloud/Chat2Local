@@ -5,6 +5,7 @@ import logging
 from importlib.metadata import PackageNotFoundError, version
 
 from desktop_logging import log_exception_safe
+from clipboard import copy_text
 from preferences import PreferencesStore
 from pydantic import ValidationError
 
@@ -126,3 +127,20 @@ class GuiBridge:
 
     def list_devices(self):
         return self._call(self._adapter.runtime.devices)
+
+    def browser_status(self):
+        return self._call(self._adapter.browser_status)
+
+    def credential_info(self, purpose: str, path: str | None = None):
+        return self._call(self._adapter.credential_info, purpose, path)
+
+    def manage_token(self, purpose: str, path: str | None = None, value: str | None = None,
+                     regenerate: bool = False, confirmed: bool = False):
+        return self._call(self._adapter.manage_token, purpose, path, value, regenerate, confirmed)
+
+    def copy_token(self, purpose: str, path: str | None = None):
+        return self._call(self._copy_token, purpose, path)
+
+    def _copy_token(self, purpose, path):
+        copy_text(self._adapter.token_for_copy(purpose, path), self._window)
+        return {"copied": True}

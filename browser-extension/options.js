@@ -43,10 +43,10 @@ async function showWebsites() {
     remove.type = "button";
     remove.textContent = "撤销授权";
     remove.addEventListener("click", async () => {
-      const current = await chrome.storage.local.get("pageOrigins");
+      const current = await chrome.storage.local.get(["pageOrigins", "allWebsites"]);
       await chrome.storage.local.set({ pageOrigins: (current.pageOrigins || []).filter((value) => value !== pattern) });
       // Keep the required loopback host permission used by the bridge.
-      if (pattern !== "http://127.0.0.1/*") await chrome.permissions.remove({ origins: [pattern] });
+      if (pattern !== "http://127.0.0.1/*" && current.allWebsites !== true) await chrome.permissions.remove({ origins: [pattern] });
       await showWebsites();
     });
     item.append(remove);
@@ -69,3 +69,29 @@ websiteForm.addEventListener("submit", (event) => {
   }).catch(() => { permissionStatus.textContent = "授权失败，请重新点击按钮。"; });
 });
 void showWebsites();
+
+const allStatus = document.querySelector("#all-websites-status");
+async function showAllWebsites() {
+  const { allWebsites = false } = await chrome.storage.local.get("allWebsites");
+  const granted = await chrome.permissions.contains({ origins: globalThis.Chat2LocalBrowser.allWebsiteOrigins });
+  allStatus.textContent = allWebsites === true && granted
+    ? "全站授权已开启 / All-site access is enabled"
+    : "全站授权未开启（按单站记录检查） / All-site access is off (individual grants apply)";
+}
+document.querySelector("#allow-all-websites").addEventListener("click", () => {
+  // Preserve the real user gesture; never request permission from an MCP command.
+  void chrome.permissions.request({ origins: globalThis.Chat2LocalBrowser.allWebsiteOrigins }).then(async (granted) => {
+    if (!granted) { allStatus.textContent = "未获得全站权限 / All-site permission was not granted"; return; }
+    await chrome.storage.local.set({ allWebsites: true });
+    await showAllWebsites();
+  }).catch(() => { allStatus.textContent = "全站授权失败，请重试 / Could not grant all-site access; try again"; });
+});
+document.querySelector("#revoke-all-websites").addEventListener("click", () => {
+  void (async () => {
+    await chrome.storage.local.set({ allWebsites: false });
+    const removed = await chrome.permissions.remove({ origins: globalThis.Chat2LocalBrowser.allWebsiteOrigins });
+    if (!removed) throw Error("Permission removal failed");
+    allStatus.textContent = "已撤销全站授权。单站记录保留，需要时重新点击授权。 / All-site access revoked. Individual entries remain; grant them again if needed.";
+  })().catch(() => { allStatus.textContent = "撤销未完成，请重试并检查 Chrome 网站权限 / Revocation incomplete; retry and check Chrome site access"; });
+});
+void showAllWebsites().catch(() => { allStatus.textContent = "无法读取网站权限 / Could not read website permissions"; });
