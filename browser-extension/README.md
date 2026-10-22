@@ -1,6 +1,6 @@
 # Chat2Local Browser Use
 
-可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择，以及授权网页的 inspect/click/fill。
+可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择，以及授权网页的 inspect/click/fill、局部 DOM 只读探查与 CSS 自定义控件定位。
 第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
 Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。

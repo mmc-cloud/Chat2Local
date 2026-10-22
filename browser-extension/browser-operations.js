@@ -1,8 +1,8 @@
-/* Packaged operations only. Neither source code nor selectors are evaluated. */
+/* Packaged operations only. CSS selectors select DOM nodes, never execute code. */
 (() => {
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
-    "browser.page.inspect", "browser.page.click", "browser.page.fill"];
-  const targetKeys = ["role", "name", "aria_label", "label", "placeholder", "href", "text", "id"];
+    "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"];
+  const targetKeys = ["role", "name", "aria_label", "label", "placeholder", "href", "text", "id", "css"];
   const allWebsiteOrigins = ["http://*/*", "https://*/*"];
   const fail = (code, details) => ({ ok: false, error: { code, ...(details ? { details } : {}) } });
   const record = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -23,13 +23,20 @@
   }
   function validTarget(target) {
     return keys(target, targetKeys) && Object.keys(target).length > 0
-      && Object.entries(target).every(([key, value]) => text(value, key === "href" ? 8192 : key === "role" ? 64 : 256));
+      && Object.entries(target).every(([key, value]) => text(value, key === "css" ? 1024 : key === "href" ? 8192 : key === "role" ? 64 : 256));
   }
   function validArguments(name, args) {
     if (name === "browser.tabs.create") return keys(args, ["url"]) && validUrl(args.url);
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
       && optional(args.tab, validTab) && optional(args.limit, (v) => integer(v, 1, 50));
     if (name === "browser.tabs.resolve") return keys(args, ["tab"]) && validTab(args.tab);
+    if (name === "browser.page.dom.inspect") return keys(args, ["tab", "css", "text", "tag", "scope", "limit", "depth", "wait_ms"])
+      && validTab(args.tab) && [args.css, args.text, args.tag].some((value) => value !== undefined)
+      && optional(args.css, (v) => text(v, 1024)) && optional(args.scope, (v) => text(v, 1024))
+      && optional(args.text, (v) => text(v, 256))
+      && optional(args.tag, (v) => text(v, 64) && /^[a-zA-Z][a-zA-Z0-9-]*$/.test(v))
+      && optional(args.limit, (v) => integer(v, 1, 10)) && optional(args.depth, (v) => integer(v, 0, 3))
+      && optional(args.wait_ms, (v) => integer(v, 0, 5000));
     const inspect = name === "browser.page.inspect", fill = name === "browser.page.fill";
     return keys(args, ["tab", "target", "wait_ms", ...(inspect ? ["limit"] : []), ...(fill ? ["value"] : [])])
       && validTab(args.tab) && (inspect ? optional(args.target, validTarget) : validTarget(args.target))
@@ -120,7 +127,7 @@
       if (current.url !== tab.url || current.pendingUrl || !matches(current, args.tab)) return fail("page_changed");
       if (Date.now() >= expiresAt) return fail("request_expired");
       const result = await chrome.tabs.sendMessage(tab.id, {
-        type: "chat2local.dom", operation: name.split(".").at(-1), arguments: args,
+        type: "chat2local.dom", operation: name === "browser.page.dom.inspect" ? "dom.inspect" : name.split(".").at(-1), arguments: args,
         expected_url: tab.url, expires_at: expiresAt,
       }, { documentId });
       if (!record(result) || typeof result.ok !== "boolean") return fail("injection_failed");

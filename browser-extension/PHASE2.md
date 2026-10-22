@@ -38,6 +38,7 @@
 | `browser.tabs.list` | 可选 `tab`、`limit`（默认 20，最大 50） | 返回 tabs、total、truncated；是枚举操作，可返回多个匹配 |
 | `browser.tabs.resolve` | 必填 `tab` | 只允许唯一匹配；不匹配为 tab_not_found，多匹配为 ambiguous_tab |
 | `browser.page.inspect` | 必填 `tab`；可选 `target`、`limit`（默认/最大 20）、`wait_ms`（0–5000） | 返回少量控件摘要；指定 target 无匹配时 target_not_found |
+| `browser.page.dom.inspect` | 必填 `tab`，以及至少一项 `css` / `text` / `tag`；可选 `scope`、`limit`（默认 5，最大 10）、`depth`（默认 1，最大 3）、`wait_ms`（0–5000） | 只读探查局部 HTML 结构，返回经过过滤的节点、父子摘要及 CSS 路径 |
 | `browser.page.click` | 必填 `tab`、`target`；可选 `wait_ms`（0–5000） | 在可见匹配中确定唯一目标且允许交互才点击一次，返回 clicked |
 | `browser.page.fill` | click 的参数，加必填 `value`（允许空串，最大 8192 字符） | 在可见匹配中确定唯一输入框，替换内容并触发 input/change，不提交表单 |
 
@@ -47,8 +48,16 @@ URL 包含 query 和 fragment，不做模糊搜索或自动规范化。可从 li
 ID 限定为非负 JavaScript 安全整数，字符串长度在 Python 和扩展端均按 Unicode 字符计数。
 从不默认选择当前激活标签页，也不默认选择第一个匹配。
 
-`target` 至少包含一个非空条件，可用字段：`role`、`name`、`aria_label`、`label`、`placeholder`、`href`、`text`、`id`。
-所有条件取交集。role / id / href 精确匹配，其余可见文本字段折叠连续空白后精确匹配；不执行 CSS、XPath、正则或 JavaScript。
+`target` 至少包含一个非空条件，可用字段：`role`、`name`、`aria_label`、`label`、`placeholder`、`href`、`text`、`id`、`css`。
+所有条件取交集。role / id / href 精确匹配，其余文本字段折叠连续空白后精确匹配。
+DOM 探查和 ElementTarget.text 复用同一有界文本提取器，排除隐藏及受保护的后代内容；不会将原始 textContent 中的
+隐藏标记、script/style、textarea 或 contenteditable 内容混入可见文案。文本仍是完整精确匹配，不做包含或前缀匹配。
+`css` 是最长 1024 字符的标准 CSS 选择器，只用于 DOM 查询，可与其他条件组合；无效语法返回 invalid_selector。
+不接受 XPath、正则表达式或 JavaScript 代码执行。省略 css/text 时沿用既有语义控件集合；
+显式提供 css 可以定位普通 div/span，单独提供 text 会进行有界的普通 HTML 文本发现。
+name 优先使用既有语义控件；没有匹配或只命中汇总文字的普通容器时，也会走有界文本发现，避免误点带 id 的外层容器。
+文本发现保留标准控件的语义身份（例如 button 内的 span 不作为另一个目标）；普通容器只保留最深层匹配，
+避免因为祖先汇总相同文本而误点父容器。不同分支的多个可见目标仍判歧义。
 `href` 使用浏览器结合文档地址和 `<base>` 解析后的绝对 URL；应复制 inspect 返回的 href，
 HTML 中的相对路径（例如 `../help`）不会自动转换，也不会回退匹配原始属性值。
 
@@ -77,6 +86,58 @@ HTML 中的相对路径（例如 `../help`）不会自动转换，也不会回�
 成功沿用 `{"ok":true,"result":{...}}`；失败沿用 `{"ok":false,"error":{"code":"...","message":"..."}}`。
 歧义错误可以额外带 `error.details.candidates`，只包含最多 5 条白名单摘要，不透传任意异常消息。
 
+## 局部 DOM 探查与自定义控件
+
+`page.inspect` 保留原有摘要结构；新增的 `page.dom.inspect` 独立提供结构探查，仍通过同一对 MCP Tool 调用。
+不需要提前知道网站的专用选择器，例如先用文本发现自定义控件：
+
+```json
+{"device":"laptop","capability":"browser.page.dom.inspect","arguments":{"tab":{"tab_id":123},"text":"发送","limit":5,"depth":1}}
+```
+
+再使用已观察到的结构缩小范围（以下类名只是普通测试页面示例，不是内置规则）：
+
+```json
+{"device":"laptop","capability":"browser.page.dom.inspect","arguments":{"tab":{"tab_id":123},"scope":".composer","css":".actions > div","tag":"div","depth":2}}
+```
+
+css、text、tag 条件取 AND；tag 是普通 HTML 标签名，大小写不敏感。scope 必须是唯一 CSS 匹配，
+只搜索它的后代，父摘要也不越出该根；不存在返回 scope_not_found，多匹配返回 ambiguous_scope。
+scope 本身可直接通过 css 查询。没有匹配返回 target_not_found；不返回整页 outerHTML。
+
+每项返回 tag、id、class、role、text、visible、disabled、attributes、children、parents、css、truncated。
+其中 css 是临时的原生 DOM 位置路径，可直接放入 ElementTarget.css；路径过长时返回 null。
+优先结合观察到的稳定类名、id 和文本形成更明确的 AND 定位，位置路径不保证跨请求期间的 DOM 稳定性。
+摘要文本会裁剪，不能总是将裁剪后的文字直接用作完整精确匹配条件。
+
+```json
+{"device":"laptop","capability":"browser.page.click","arguments":{"tab":{"tab_id":123},"target":{"css":".composer .actions > div","text":"发送"}}}
+```
+
+普通 HTMLElement 也允许合成 click，不要求 button/a/role。仍要求唯一可见且未禁用，并保留 URL、Tab、授权、
+期限及滚动/聚焦后的原元素身份检查。识别 :disabled、aria-disabled、inert，以及精确的通用类 disabled / is-disabled
+（包含祖先）；不根据任意带有 disabled 字样的类名猜测状态。不会临时添加 tabindex 使普通控件可聚焦。
+click 返回 clicked 仅表示 DOM 调用完成，不代表消息发送等业务成功。可随后再用 dom.inspect 只读观察输出或状态变化；
+本轮不自动发送真实消息、不执行 BOSS 专用流程，也不增加业务状态断言或导航等待。
+
+只读探查的边界：
+
+- 仅访问已授权的顶层 DOM；不读 Cookie API，不执行网页 JS，不穿透 iframe、Shadow DOM。
+- 属性使用白名单，最多 6 项、每值 80 字符；排除 value、data-*、on*、style、href/src、content 等可能带凭据或脚本的属性。
+- input、textarea、select/option、contenteditable、script/style/template 等内容不读取；由 id/name/autocomplete 标记为密码、Token、Cookie 等的节点内容也隐藏。
+  隐藏节点不返回文本，其后代文本不会汇总进父节点；不返回输入当前值、默认值或原始 HTML。
+- 结构 id/class、文本与允许属性还会过滤常见 Bearer/JWT、长不透明串及显式凭据键值。此过滤不是任意业务文本的秘密检测器；已授权页面的普通可见文案仍属于探查内容。
+- 每次最多输出 40 个结构节点，父级最多 2 层，子级最多 5 项，子树深度最高 3；文本/id/class 最长 160 字符，tag/role 最长 64。
+  使用约 32 KiB 的共享序列化预算，保留 total 匹配数。truncated 只表示资源限制导致实际丢失内容：
+  返回项超过 limit、节点/文本/属性/字节预算不足，或请求深度内的子节点超过 5 项。
+  depth: 0、到达请求深度、父摘要不展开子树，以及隐私过滤/脱敏属于主动投影，本身不标记截断。
+  节点 truncated 包含其已返回子树与父摘要中的实际截断；顶层 truncated 汇总这些标记，并额外反映未返回的匹配项。
+- CSS 查询匹配最多 10000 项；文本发现最多扫描 10000 个元素并共享 40000 次文本节点读取预算，超限返回 page_too_large，避免漏掉重复目标后执行操作。
+  单个文本候选最多读 200 个后代/2048 个原始字符；完整性不足时不把截断前缀当作完整文本。
+  若已读前缀仍可能满足条件，则返回 page_too_large，避免忽略潜在重复目标后错误判断唯一性；
+  已读文本已足够排除精确匹配时可以排除该候选。不要用文本搜索大段容器正文。
+  大页面优先用 scope/CSS 缩小范围；不会在语义检查默认路径中无差别返回全部元素。
+
 ## DOM 执行与定位
 
 链路：MCP → 既有 DeviceRouter / Hub / Agent → CapabilityRegistry → BrowserBridge →
@@ -90,7 +151,10 @@ HTML 中的相对路径（例如 `../help`）不会自动转换，也不会回�
   等待完成后，内容脚本还向 Background 复核当前授权与完整选择条件；条件失效返回 page_changed，不发送或执行操作，不改选其他标签页。
   页面 URL 变化、导航待完成、文档丢失或元素替换均返回明确错误，操作不自动重试。
 - name 优先取 aria-labelledby 引用文本、aria-label、关联 label，再取常见按钮文本、alt、title、placeholder。
-  支持普通 button、a[href]、input、textarea、select、summary 和部分显式 role 控件；不宣称完整 WAI-ARIA 算法。
+  引用节点、label 和后备正文也复用上述过滤器，防止输入内容经父节点或名称引用泄露。
+  不读取任何 input.value（包括按钮类 input）或 textarea 的当前值/默认正文；无显式名称的按钮类 input 可用 id/css 定位，
+  或使用页面已有的 aria-label/关联 label。普通 button 的正文名称继续支持。
+  默认语义检查支持普通 button、a[href]、input、textarea、select、summary 和部分显式 role 控件；不宣称完整 WAI-ARIA 算法。
 - inspect 返回 role、name、id、href、aria_label、placeholder、visible、disabled、read_only、input_type，**不返回输入框值**。
   文本摘要最多 160 字符（URL 2048），长摘要可能无法直接作为完整精确定位条件，应使用已知的明确属性缩小范围。
 - click / fill 复用 visible 判定，在可见匹配中要求唯一目标；隐藏的同名元素不参与歧义判定。
@@ -108,7 +172,7 @@ HTML 中的相对路径（例如 `../help`）不会自动转换，也不会回�
 
 错误码集中维护于 `src/chat2local/browser/errors.py`。常见错误包括 tab_not_found、ambiguous_tab、permission_denied、
 unsupported_page、page_changed、injection_failed、target_not_found、ambiguous_target、target_hidden、target_disabled、
-target_readonly、protected_input、unsupported_element、stale_target、page_too_large、result_too_large。
+target_readonly、protected_input、unsupported_element、stale_target、page_too_large、result_too_large、invalid_selector、scope_not_found、ambiguous_scope。
 未知扩展错误仍降级为 browser_operation_failed，凭据、用户输入和页面数据不写入日志。
 
 WebSocket 协议保持 version 1，认证、请求 ID、并发、重连、超时和释放机制不变。
@@ -120,13 +184,14 @@ WebSocket 协议保持 version 1，认证、请求 ID、并发、重连、超时
 在仓库根目录执行：
 
 ```powershell
-uv run pytest -q
+uv run pytest -q tests/test_browser_capabilities.py tests/test_browser_phase2.py tests/test_browser_contract.py tests/test_browser_bridge.py tests/test_browser_integration.py
 npm ci --prefix browser-extension
 npm test --prefix browser-extension
 ```
 
 npm 依赖仅用于开发测试和本地验收页：jsdom 提供 DOM 环境，React/Vue 用于真实受控组件。
 不加入生产扩展运行时或 Python/EXE 安装依赖，没有修改 GUI、CI 或发布流程。
+当前 Windows 日常电脑不运行完整 Python 回归或进程压力测试；跨平台完整回归交由 GitHub Actions。
 Node 的 DOM 测试运行实际打包内容脚本；jsdom 没有布局引擎，因此仅用适配器补充元素矩形，
 可见性、语义定位、事件和 DOM 修改逻辑使用真实代码。最终布局和 Chrome 注入仍需下面的真实浏览器验收。
 
@@ -134,6 +199,16 @@ Node 的 DOM 测试运行实际打包内容脚本；jsdom 没有布局引擎，�
 从当前模型 Schema 推导必填/额外字段、类型、数值与长度边界、Unicode 等参数用例，核对 Python→扩展的实际线协议。
 可单独运行 `uv run pytest -q tests/test_browser_contract.py`。未安装 Node.js 时跨语言检查明确跳过，文档一致性检查照常执行。
 新增 Capability 或字段时必须补充覆盖样例，变更模型后须重新从 Registry 导出 capability-schemas.json，否则测试失败。
+
+DOM 探查与自定义控件初次验证：JavaScript `129 passed`；上列五个 Python 浏览器专项文件 `107 passed`。
+覆盖输入值/Cookie API 不读取、属性与文本过滤、结构预算、文本祖先去重、原目标重新校验、旧功能回归，
+以及新增能力经过 HTTP MCP→Hub→Agent→模拟扩展的设备隔离链路；公开 MCP Tool 仍为 12 个。
+测试使用模拟 Chrome 和本地 jsdom HTML，没有操作真实 BOSS 发送控件、重启正式 Core 或重新加载用户扩展。
+本轮真实 Chrome 验收留待审查后决定，下面保留既有基线的人工步骤与历史记录。
+
+提交前文本与隐私审查修复另增 19 项确定性回归测试：覆盖语义名称及 label 引用不泄露受保护内容、
+过滤文本用于精确定位、动态 DOM 重新校验、不完整读取不误判唯一性，以及实际截断与主动投影的区别。
+该轮 JavaScript `148 passed`、上列五个 Python 浏览器专项文件 `107 passed`，JavaScript 语法与 `git diff --check` 通过。
 
 ## 真实 Chrome 本机验收
 
@@ -183,7 +258,7 @@ uv run python browser-extension/tests/manual_check.py
 ### 已执行的本机验收
 
 2026-10-22 首次完整验收的自动化结果：Python 全量 `1623 passed, 30 skipped`；浏览器 Python 专项 `105 passed`；
-JavaScript `34 passed`。Schema 文档与当前 Registry 的六个模型一致，`git diff --check` 通过。
+JavaScript `34 passed`。Schema 文档与当时 Registry 的六个模型一致，`git diff --check` 通过（本轮新增后为七个）。
 
 随后审查修复了注入、异步权限检查和动态元素等待期间的完整 TabSelector 复核，补充跨语言参数一致性检查，
 并对齐 Unicode 长度、安全整数 ID 及不可打印 URL 字符规则。该轮 Python 专项 `107 passed`、JavaScript `38 passed`，

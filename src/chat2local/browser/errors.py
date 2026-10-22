@@ -4,7 +4,7 @@ from typing import Any
 
 CAPABILITY_NAMES = (
     "browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
-    "browser.page.inspect", "browser.page.click", "browser.page.fill",
+    "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
 )
 
 EXTENSION_ERROR_MESSAGES = {
@@ -19,6 +19,9 @@ EXTENSION_ERROR_MESSAGES = {
     "page_changed": "The tab navigated or its document changed; inspect again before retrying",
     "injection_failed": "Could not reach the page; check website permissions and page state",
     "target_not_found": "No element matches all target conditions",
+    "invalid_selector": "Invalid CSS selector; use CSS syntax supported by Chrome",
+    "scope_not_found": "No element matches the DOM inspection scope",
+    "ambiguous_scope": "Multiple elements match the DOM inspection scope; narrow the CSS scope",
     "ambiguous_target": "Multiple elements match; refine the target using candidate information",
     "target_hidden": "The selected element is hidden",
     "target_disabled": "The selected element is disabled or inert",

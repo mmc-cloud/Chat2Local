@@ -4,6 +4,7 @@ const source = readFileSync(new URL("../content-script.js", import.meta.url), "u
 export function page(html, { url = "https://test.example/", authorize = async () => ({ ok: true }) } = {}) {
   const dom = new JSDOM(html, { url, runScripts: "outside-only", pretendToBeVisual: true });
   const { window } = dom;
+  window.TextEncoder = TextEncoder;
   let listener;
   window.chrome = { runtime: { id: "test-extension", sendMessage: authorize,
     onMessage: { addListener(fn) { listener = fn; } } } };

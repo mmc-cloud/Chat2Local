@@ -55,6 +55,8 @@ class ResolveTabArguments(_Arguments):
 
 
 class ElementTarget(_Arguments):
+    css: str | None = Field(default=None, min_length=1, max_length=1024,
+                            description="CSS selector ANDed with all semantic conditions; syntax is checked in the page.")
     role: str | None = Field(default=None, min_length=1, max_length=64)
     name: str | None = Field(default=None, min_length=1, max_length=256)
     aria_label: str | None = Field(default=None, min_length=1, max_length=256)
@@ -83,6 +85,24 @@ class ClickArguments(ResolveTabArguments):
     wait_ms: int = Field(default=0, ge=0, le=5000)
 
 
+class DomInspectArguments(ResolveTabArguments):
+    css: str | None = Field(default=None, min_length=1, max_length=1024)
+    text: str | None = Field(default=None, min_length=1, max_length=256,
+                             description="Exact normalized text; text-only discovery excludes redundant ancestor containers.")
+    tag: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-zA-Z][a-zA-Z0-9-]*$")
+    scope: str | None = Field(default=None, min_length=1, max_length=1024,
+                              description="CSS selector resolving to exactly one local root; searches its descendants only.")
+    limit: int = Field(default=5, ge=1, le=10)
+    depth: int = Field(default=1, ge=0, le=3)
+    wait_ms: int = Field(default=0, ge=0, le=5000)
+
+    @model_validator(mode="after")
+    def constrained(self) -> "DomInspectArguments":
+        if all(value is None for value in (self.css, self.text, self.tag)):
+            raise ValueError("At least one css, text or tag condition is required")
+        return self
+
+
 class FillArguments(ClickArguments):
     value: str = Field(max_length=8192, description="Replacement text. Password and read-only fields are rejected.")
 
@@ -104,7 +124,8 @@ class CapabilityRegistry:
             ("browser.tabs.list", "List Chrome tabs; optional exact ID/URL/title filters use AND. Results are bounded.", ListTabsArguments),
             ("browser.tabs.resolve", "Resolve exactly one existing Chrome tab; ambiguous matches return candidates, never the first tab.", ResolveTabArguments),
             ("browser.page.inspect", "Inspect bounded semantic control summaries, including visible and hidden elements, in an authorized top-level page; no field values are returned.", InspectArguments),
-            ("browser.page.click", "Click the unique visible semantic target on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.", ClickArguments),
+            ("browser.page.dom.inspect", "Read bounded local DOM structure using CSS/text/tag and optional CSS scope. Filters sensitive attributes and input contents; never executes page code.", DomInspectArguments),
+            ("browser.page.click", "Click the unique visible HTML target using CSS and/or semantic conditions on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.", ClickArguments),
             ("browser.page.fill", "Replace text in the unique visible matching input/textarea using native setters and input/change events; hidden matches are ignored. Does not submit forms.", FillArguments),
         ):
             self.register(Capability(name, description, model, browser.execute,

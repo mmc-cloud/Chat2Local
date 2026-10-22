@@ -57,12 +57,14 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
     if node is None:
         pytest.skip("Node.js is needed for the cross-language browser contract check")
     tab = {"tab_id": 1, "url": "https://example.com/", "title": "Example"}
-    target = {key: "Example" for key in ("role", "name", "aria_label", "label", "placeholder", "href", "text", "id")}
+    target = {key: "Example" for key in ("role", "name", "aria_label", "label", "placeholder", "href", "text", "id", "css")}
     samples = {
         "browser.tabs.create": {"url": "https://example.com/"},
         "browser.tabs.list": {"tab": tab, "limit": 20},
         "browser.tabs.resolve": {"tab": tab},
         "browser.page.inspect": {"tab": tab, "target": target, "limit": 20, "wait_ms": 0},
+        "browser.page.dom.inspect": {"tab": tab, "css": "span", "text": "Example", "tag": "span", "scope": "#dialog",
+                                     "limit": 5, "depth": 1, "wait_ms": 0},
         "browser.page.click": {"tab": tab, "target": target, "wait_ms": 0},
         "browser.page.fill": {"tab": tab, "target": target, "wait_ms": 0, "value": "text"},
     }

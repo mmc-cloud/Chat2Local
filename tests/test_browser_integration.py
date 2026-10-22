@@ -39,7 +39,8 @@ def test_mcp_hub_agent_browser_device_isolation_and_disconnect(tmp_path):
                     discovered = decode(await client.call_tool("capability_discover", {"device": device}))
                     assert discovered["result"]["capabilities"][0]["available"] is False
                     assert decode(await client.call_tool("read", {"device": device, "path": "file.txt"}))["text"] == device
-                sockets = [await stack.enter_async_context(extension(local.browser)) for local in agents]
+                sockets = [await stack.enter_async_context(extension(local.browser, capabilities=[CAPABILITY, "browser.page.dom.inspect"]))
+                           for local in agents]
                 for index, device in enumerate(("laptop", "desktop")):
                     discovered = decode(await client.call_tool("capability_discover", {"device": device, "query": "Chrome"}))
                     assert discovered["result"]["capabilities"][0]["available"] is True
@@ -52,6 +53,22 @@ def test_mcp_hub_agent_browser_device_isolation_and_disconnect(tmp_path):
                     assert not agents[1 - index].browser._pending  # Other device received no request.
                     await sockets[index].send(response(request, result={"tab_id": index + 1}))
                     assert decode(await pending) == {"ok": True, "result": {"tab_id": index + 1}}
+                    dom_discovered = decode(await client.call_tool("capability_discover", {
+                        "device": device, "query": "browser.page.dom.inspect",
+                    }))["result"]["capabilities"]
+                    assert len(dom_discovered) == 1 and dom_discovered[0]["available"] is True
+                    pending = asyncio.create_task(client.call_tool("capability_execute", {
+                        "device": device, "capability": "browser.page.dom.inspect",
+                        "arguments": {"tab": {"tab_id": index + 1}, "css": ".actions > div", "scope": "#dialog"},
+                    }))
+                    request = json.loads(await asyncio.wait_for(sockets[index].recv(), 3))
+                    assert request["capability"] == "browser.page.dom.inspect"
+                    assert request["arguments"]["css"] == ".actions > div"
+                    assert request["arguments"]["depth"] == 1 and request["arguments"]["limit"] == 5
+                    assert not agents[1 - index].browser._pending
+                    snapshot = {"elements": [{"tag": "div", "text": "Send"}], "total": 1, "truncated": False}
+                    await sockets[index].send(response(request, result=snapshot))
+                    assert decode(await pending) == {"ok": True, "result": snapshot}
                 for code in ("request_expired", "browser_operation_failed"):
                     pending = asyncio.create_task(client.call_tool("capability_execute", {
                         "device": "laptop", "capability": CAPABILITY, "arguments": {"url": "https://example.com"},

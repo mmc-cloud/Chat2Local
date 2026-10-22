@@ -51,6 +51,14 @@ def test_independent_availability_and_mixed_out_of_order_responses(tmp_path):
     ("browser.page.click", {"tab": {"tab_id": 1}, "target": {"name": "Go"}, "wait_ms": 5001}),
     ("browser.page.fill", {"tab": {"tab_id": 1}, "target": {"name": "Query"}, "value": 1}),
     ("browser.page.fill", {"tab": {"tab_id": 1}, "target": {"name": "Query"}, "value": "a" * 8193}),
+    ("browser.page.click", {"tab": {"tab_id": 1}, "target": {"css": "x" * 1025}}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "scope": "#dialog"}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": ""}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": "div", "depth": 4}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": "div", "limit": 11}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "tag": "div > span"}),
+    ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": "div", "javascript": "alert(1)"}),
 ])
 def test_strict_per_capability_schemas(tmp_path, name, args):
     from chat2local.browser.bridge import BrowserBridge
@@ -68,7 +76,8 @@ def test_bounded_sanitized_error_candidates_match_public_schema():
     assert 'window_id' not in result['error']['details']['candidates'][0]
     assert 'SECRET' not in json.dumps(result)
     jsonschema.validate(result, OUTPUT_SCHEMAS['capability_execute'])
-    for code in ('permission_denied', 'page_changed', 'protected_input', 'stale_target'):
+    for code in ('permission_denied', 'page_changed', 'protected_input', 'stale_target',
+                 'invalid_selector', 'scope_not_found', 'ambiguous_scope'):
         assert extension_failure({"code": code, "message": "SECRET"})['error']['code'] == code
     assert extension_failure({"code": ["bad"]})['error']['code'] == 'browser_operation_failed'
 

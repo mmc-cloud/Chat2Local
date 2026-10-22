@@ -65,6 +65,8 @@ test("DOM access requires explicit consent AND current Chrome permission, includ
     const f = fixture(options);
     assert.equal((await f.call("browser.page.click", { tab: { tab_id: 1 }, target: { name: "Go" } })).error.code, "permission_denied");
     assert.equal(f.calls.injected.length, 0);
+    assert.equal((await f.call("browser.page.dom.inspect", { tab: { tab_id: 1 }, css: "div" })).error.code, "permission_denied");
+    assert.equal(f.calls.injected.length, 0);
   }
 });
 
@@ -119,6 +121,12 @@ test("background injects the packaged top-frame module and sends to its document
     assert.deepEqual(Array.from(f.calls.injected[0].target.frameIds), [0]);
     assert.equal(f.calls.injected[0].world, "ISOLATED");
     assert.equal(f.calls.messages[0][2].documentId, "doc-1");
+    p.document.body.insertAdjacentHTML("beforeend", '<div class="custom">Send</div>');
+    const dom = await f.call("browser.page.dom.inspect", { tab: { title: "Test" }, css: "div.custom" });
+    assert.equal(dom.result.elements[0].tag, "div");
+    assert.equal(dom.result.elements[0].text, "Send");
+    assert.equal(f.calls.messages.at(-1)[1].operation, "dom.inspect");
+    assert.equal((await f.call("browser.page.click", { tab: { tab_id: 1 }, target: { css: dom.result.elements[0].css } })).result.status, "clicked");
   } finally { p.dom.window.close(); }
 });
 
@@ -141,7 +149,7 @@ test("navigation, injection failure, tab close, revocation and expired injection
 });
 
 test("all page operations recheck the full tab selector after injection", async () => {
-  for (const capability of ["browser.page.inspect", "browser.page.click", "browser.page.fill"]) {
+  for (const capability of ["browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"]) {
     for (const tab of [{ title: "Test" }, { tab_id: 1, title: "Test" },
       { url: "https://test.example/", title: "Test" }]) {
       let f;
@@ -149,7 +157,8 @@ test("all page operations recheck the full tab selector after injection", async 
         f.tabs[0].title = "Changed";
         return [{ frameId: 0, documentId: "doc-1" }];
       } });
-      const args = { tab, target: { name: "Go" }, ...(capability.endsWith("fill") ? { value: "text" } : {}) };
+      const args = { tab, ...(capability === "browser.page.dom.inspect" ? { css: "div" } : { target: { name: "Go" } }),
+        ...(capability.endsWith("fill") ? { value: "text" } : {}) };
       assert.equal((await f.call(capability, args)).error?.code, "page_changed", `${capability} ${JSON.stringify(tab)}`);
       assert.equal(f.calls.messages.length, 0);
     }

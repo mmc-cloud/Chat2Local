@@ -179,6 +179,21 @@
         "ElementTarget": {
           "additionalProperties": false,
           "properties": {
+            "css": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "CSS selector ANDed with all semantic conditions; syntax is checked in the page.",
+              "title": "Css"
+            },
             "role": {
               "anyOf": [
                 {
@@ -388,13 +403,178 @@
       "type": "object"
     }
   },
+  "browser.page.dom.inspect": {
+    "description": "Read bounded local DOM structure using CSS/text/tag and optional CSS scope. Filters sensitive attributes and input contents; never executes page code.",
+    "input_schema": {
+      "$defs": {
+        "TabSelector": {
+          "additionalProperties": false,
+          "properties": {
+            "tab_id": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+              "title": "Tab Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 8192,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact current URL, including query/fragment.",
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+              "title": "Title"
+            }
+          },
+          "title": "TabSelector",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "$ref": "#/$defs/TabSelector"
+        },
+        "css": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Css"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact normalized text; text-only discovery excludes redundant ancestor containers.",
+          "title": "Text"
+        },
+        "tag": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[a-zA-Z][a-zA-Z0-9-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tag"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CSS selector resolving to exactly one local root; searches its descendants only.",
+          "title": "Scope"
+        },
+        "limit": {
+          "default": 5,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "depth": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "wait_ms": {
+          "default": 0,
+          "maximum": 5000,
+          "minimum": 0,
+          "title": "Wait Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tab"
+      ],
+      "title": "DomInspectArguments",
+      "type": "object"
+    }
+  },
   "browser.page.click": {
-    "description": "Click the unique visible semantic target on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.",
+    "description": "Click the unique visible HTML target using CSS and/or semantic conditions on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.",
     "input_schema": {
       "$defs": {
         "ElementTarget": {
           "additionalProperties": false,
           "properties": {
+            "css": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "CSS selector ANDed with all semantic conditions; syntax is checked in the page.",
+              "title": "Css"
+            },
             "role": {
               "anyOf": [
                 {
@@ -596,6 +776,21 @@
         "ElementTarget": {
           "additionalProperties": false,
           "properties": {
+            "css": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "CSS selector ANDed with all semantic conditions; syntax is checked in the page.",
+              "title": "Css"
+            },
             "role": {
               "anyOf": [
                 {
