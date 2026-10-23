@@ -194,14 +194,17 @@ for (const change of ["attribute", "hidden-node", "identical-replacement"]) {
       assert.equal(content(after.first.page), content(before.first.page));
       assert.equal(content(after.first.overview), content(before.first.overview));
       assert.equal(after.first.total_blocks, before.first.total_blocks);
-      assert.notEqual(after.blocks[0].ref, oldRef);
+      if (change === "identical-replacement") assert.notEqual(after.blocks[0].ref, oldRef);
+      else assert.equal(after.blocks[0].ref, oldRef, "same-node refs survive unrelated and attribute changes");
       assert.equal(after.first.next_cursor, before.first.next_cursor, "ref renewal must not change the content cursor");
       const continued = await readAll(await p.read({ max_chars: 1000, cursor: before.first.next_cursor }));
       assert.equal(continued.first.offset, before.first.blocks.length);
       assert.equal(content([...before.first.blocks, ...continued.blocks]), content(before.blocks), "continuation must not skip or repeat content");
       assert.deepEqual(continued.blocks, after.blocks.slice(before.first.blocks.length), "continuation must return the current refs");
-      assert.equal((await p.f.call("browser.page.click", { tab: { tab_id: 1 }, target: { ref: oldRef } })).error.code, "stale_target");
-      assert.equal(clicks, 0);
+      if (change === "identical-replacement") {
+        assert.equal((await p.f.call("browser.page.click", { tab: { tab_id: 1 }, target: { ref: oldRef } })).error.code, "stale_target");
+        assert.equal(clicks, 0);
+      }
       assert.equal((await p.f.call("browser.page.click", { tab: { tab_id: 1 }, target: { ref: after.blocks[0].ref } })).ok, true);
       assert.equal(clicks, 1);
     } finally { p.window.close(); }

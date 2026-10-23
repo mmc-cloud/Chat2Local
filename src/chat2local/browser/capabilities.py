@@ -75,7 +75,7 @@ class ReadPageArguments(ResolveTabArguments):
 class ElementTarget(_Arguments):
     model_config = ConfigDict(json_schema_extra=_one_condition("ref", "css", "role", "name", "aria_label", "label", "placeholder", "href", "text", "id"))
     ref: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^el_[A-Za-z0-9_-]+$",
-                            description="Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.")
+                            description="Opaque weak node identity returned by read/inspect/dom.inspect/candidates in one document and URL. Prefer target={ref: returned_ref}. Unrelated DOM/text/attribute updates preserve it; removal (even detach/reinsert), replacement, navigation or eviction invalidates it. Current explicit conditions are ANDed again before each action and after preparation; never retargets another node. Re-observe on stale_target.")
     css: str | None = Field(default=None, min_length=1, max_length=1024,
                             description="CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.")
     role: str | None = Field(default=None, min_length=1, max_length=64, description="Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.")
@@ -176,7 +176,7 @@ class ScrollArguments(ResolveTabArguments):
 class PressKeyArguments(ClickArguments):
     key: str = Field(min_length=1, max_length=13,
                      pattern=r"^(Enter|Tab|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown|Backspace|Delete|Space|[a-zA-Z0-9])$",
-                     description="One named key or ASCII letter/digit. Space maps to event.key=' '. Dispatches only keydown/keyup to the focused target; no text insertion, Tab traversal, form submission or browser shortcut emulation.")
+                      description="One named key or ASCII letter/digit. Space maps to event.key=' '. Keydown goes to the prepared target; keyup follows current focus in the same authorized document, falling back to body/root when focus is lost. Read-only fields allowed; passwords refused. No text insertion, Tab traversal, form submission or browser shortcut emulation.")
     modifiers: list[Literal["Alt", "Control", "Meta", "Shift"]] = Field(default_factory=list, max_length=4,
                      json_schema_extra={"uniqueItems": True}, description="Unique modifier flags on both events; does not press modifier keys or invoke native OS/browser shortcuts. Event handlers may have side effects.")
 
@@ -251,22 +251,22 @@ RESULT_CONTRACTS = {
 }
 
 for _operation, _status, _meaning, _extra in (
-    ("double_click", "double_clicked", "Two synthetic mousedown/mouseup/click sequences (detail 1/2), then dblclick (detail 2); may have click side effects.",
+    ("double_click", "double_clicked", "Two synthetic pointerdown/mousedown/pointerup/mouseup/click sequences, then dblclick. Mouse click counts 1/2; cancelled pointerdown suppresses compatibility mousedown/up only. Pins the node after input starts; text/locator updates do not interrupt, removal/hidden/disabled still stop. May have click side effects.",
      {"event_is_trusted": "false: synthetic mouse events; not physical double-click input.", "navigation_waited": "false: observe page state afterward."}),
-    ("hover", "hovered", "Synthetic pointerover/pointerenter/mouseover/mouseenter/pointermove/mousemove on the target; does not move a real pointer or send leave events.",
+    ("hover", "hovered", "One synthetic entry from outside the document (relatedTarget=null): pointerover on target, pointerenter once per ancestor outer-to-inner, mouseover on target, mouseenter once per ancestor, then pointermove/mousemove on target. Enter events do not bubble. No persistent pointer state, real pointer movement or leave events.",
      {"event_is_trusted": "false: synthetic pointer/mouse events.", "css_hover_guaranteed": "false: does not establish CSS :hover or native pointer hit testing."}),
     ("focus", "focused", "Native focus called without adding tabindex; activeElement verified at return.", {}),
     ("select", "selected", "Native option selection replaced; bubbling input/change emitted once only if changed.",
      {"changed": "boolean: selection differed before events.", "selected_count": "integer: selected native option count verified after events; no option text/values returned."}),
     ("set_checked", "checked", "Desired native checkbox/radio state verified after at most one HTMLElement.click().",
      {"changed": "boolean: click was needed; matching state is a no-op.", "checked": "boolean: verified requested state; no toggle on repeated matching calls.", "event_is_trusted": "false: click is synthetic; page handlers may prevent/revert it (state_not_reached)."}),
-    ("press_key", "key_pressed", "One synthetic keydown/keyup pair sent to the focused target; no default action emulation.",
-     {"event_is_trusted": "false: not trusted keyboard input.", "default_prevented": "object: keydown/keyup cancellation booleans; no promise of native default actions even when false."}),
+    ("press_key", "key_pressed", "Complete synthetic pair: keydown on prepared target, authorized keyup on current focus in the same document, or body/root after focus loss. Normal hide/remove/focus changes do not fail the pair. Password recipients refused; readonly allowed. No default action emulation.",
+     {"event_is_trusted": "false: not trusted keyboard input.", "keyup_target": "object: sanitized pre-keyup recipient summary/ref; can differ from the original target. Keyup handlers may subsequently change/remove it.", "default_prevented": "object: keydown/keyup cancellation booleans; no promise of native default actions even when false."}),
 ):
     RESULT_CONTRACTS[f"browser.page.{_operation}"] = {
         "tab": "object: selected native tab and sanitized display metadata.",
         "status": f"'{_status}': {_meaning}",
-        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "target": "object: sanitized pre-action node summary/ref. Ref survives unrelated/text/attribute changes, but removal/navigation/eviction invalidates it; re-observe business state.",
         **_extra,
     }
 RESULT_CONTRACTS["browser.page.scroll"] = {
@@ -288,10 +288,11 @@ RESULT_CONTRACTS["browser.page.wait_for"] = {
 
 USAGE_CONVENTIONS = {
     "envelope": "execute returns {ok:true,result:{...}} or {ok:false,error:{code,message,details?}}. result_contract describes fields inside result; errors use shared error_guidance.",
-    "references": "Copy an observed ref into target={ref:...}. Refs are weak, document-local and bounded to 10000; any DOM mutation, navigation or cache eviction may invalidate them. Re-observe on stale_target. Never fall back to a positional path automatically.",
+    "references": "Copy an observed ref into target={ref:...}. Refs pin weak node identity in one document/URL (max 10000); removal including detach/reinsert, replacement, navigation or eviction invalidates them. Unrelated DOM and in-place text/attribute updates do not. Every request/preparation revalidates explicit ANDed locator conditions and operation-specific visibility/disabled/type protections; input sequences then pin that node. Never fall back to positional CSS.",
     "display": "All returned text/URLs are sanitized display data, possibly clipped. Keep original exact href/CSS semantics only for independently known inputs; use native tab_id and fresh element ref to act from observations.",
     "retry": "read/inspect/wait_for are read-only. Tab creation and all DOM actions may have side effects, including preparation (scroll/focus) and partially dispatched event sequences. Errors/timeouts/disconnections do not prove no action occurred. Observe actual state before retrying; never blindly repeat.",
-    "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass."
+    "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass.",
+    "keyboard_completion": "press_key succeeds only after both events and safety confirmations. Errors may include details.events_dispatched={keydown:boolean,keyup:boolean} when known; true/false means partial, true/true can still fail final authorization. Missing details after timeout/disconnection means unknown, not no events. Never replay automatically.",
 }
 
 @dataclass(frozen=True)
@@ -315,13 +316,13 @@ class CapabilityRegistry:
             ("browser.page.dom.inspect", "Read-only bounded local DOM/CSS investigation when semantic inspect cannot explain a custom element. Returns safe refs, filtered text/attributes and structure, not full page prose or proof of clickability. Top document only; no page code execution.", DomInspectArguments),
             ("browser.page.click", "Click the unique visible HTML target using CSS and/or semantic conditions on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.", ClickArguments),
             ("browser.page.fill", "Replace text in the unique visible matching input/textarea using native setters and input/change events; hidden matches are ignored. Does not submit forms.", FillArguments),
-            ("browser.page.double_click", "Dispatch two synthetic mouse click sequences and dblclick to one visible enabled target. May run single-click handlers twice; not trusted physical input. Observe state before retrying any uncertain outcome.", ClickArguments),
-            ("browser.page.hover", "Send synthetic pointer/mouse over, enter and move events to one visible enabled target. No real pointer movement, leave events or CSS :hover guarantee; handlers may change the page.", ClickArguments),
+            ("browser.page.double_click", "Dispatch two synthetic pointer/mouse click sequences and dblclick to one visible enabled target, pinning its node after input starts. May run single-click handlers twice; not trusted physical input. Observe state before retrying any uncertain outcome.", ClickArguments),
+            ("browser.page.hover", "Send one synthetic pointer/mouse entry from outside the document: over/move on target, non-bubbling enter once per ancestor. No persistent pointer state, real movement, leave events or CSS :hover guarantee; handlers may change the page.", ClickArguments),
             ("browser.page.focus", "Focus one visible enabled HTML target and verify activeElement. Does not add tabindex or force nonfocusable elements; focus handlers may have side effects.", ClickArguments),
             ("browser.page.select", "Replace the selection of one native select using exact value/label/index option conditions. Validate every option before changes; reject missing, ambiguous or disabled options. Not custom ARIA dropdowns.", SelectArguments),
             ("browser.page.set_checked", "Set an explicit native checkbox/radio state; matching calls are no-ops, otherwise click once and verify. Checked radios cannot be unchecked directly. Not custom ARIA checkbox widgets.", SetCheckedArguments),
-            ("browser.page.scroll", "Scroll an explicit page or unique visible enabled element by nonzero CSS pixel deltas, instantly. Never scrolls another container as fallback; reports observed movement, not lazy-load completion.", ScrollArguments),
-            ("browser.page.press_key", "Focus a unique visible enabled target, then dispatch synthetic keydown/keyup with optional modifier flags. No native typing, Tab traversal, Enter submission or browser shortcut guarantee. Password/read-only fields rejected; handlers may have side effects.", PressKeyArguments),
+            ("browser.page.scroll", "Scroll an explicit page or unique visible enabled element by nonzero CSS pixel deltas, instantly. Element overflow auto/scroll/overlay/hidden supported, clip refused on requested axes. Never scrolls another container as fallback; reports observed movement, not lazy-load completion.", ScrollArguments),
+            ("browser.page.press_key", "Focus a unique visible enabled target, dispatch synthetic keydown, then authorized keyup to current document focus (body/root after focus loss). Readonly allowed, passwords rejected. No native typing, Tab traversal, Enter submission or browser shortcut guarantee; handlers may have side effects.", PressKeyArguments),
             ("browser.page.wait_for", "Read-only bounded wait for a unique locator to be attached/detached/visible/hidden/enabled/disabled/actionable. actionable means visible enabled HTML, not business success or bypass of operation-specific protections. Hidden/detached allow absence, never stale refs. No click/scroll/focus/navigation; wait_timeout if unmet.", WaitForArguments),
         ):
             self.register(Capability(name, description, model, browser.execute,

@@ -9,7 +9,7 @@ const code = (result, expected) => assert.equal(result.error?.code, expected, JS
 test("double_click dispatches ordered mouse events, details and exactly two click activations", async () => {
   const p = page('<button id="x">Run</button><output id="out"></output>');
   const seen = [];
-  for (const type of ["mousedown", "mouseup", "click", "dblclick"]) p.document.querySelector("button").addEventListener(type, (event) => {
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "dblclick"]) p.document.querySelector("button").addEventListener(type, (event) => {
     seen.push([event.type, event.detail, event.isTrusted, event.button]);
     if (type === "click") p.document.querySelector("output").textContent += "click";
   });
@@ -19,9 +19,9 @@ test("double_click dispatches ordered mouse events, details and exactly two clic
     assert.equal(response.result.status, "double_clicked");
     assert.equal(response.result.event_is_trusted, false);
     assert.equal(response.result.navigation_waited, false);
-    assert.deepEqual(seen, [["mousedown", 1, false, 0], ["mouseup", 1, false, 0], ["click", 1, false, 0],
-      ["mousedown", 2, false, 0], ["mouseup", 2, false, 0], ["click", 2, false, 0], ["dblclick", 2, false, 0]]);
-    code(await call(p, "click", { target: { ref } }), "stale_target");
+    assert.deepEqual(seen, [["pointerdown", 0, false, 0], ["mousedown", 1, false, 0], ["pointerup", 0, false, 0], ["mouseup", 1, false, 0], ["click", 1, false, 0],
+      ["pointerdown", 0, false, 0], ["mousedown", 2, false, 0], ["pointerup", 0, false, 0], ["mouseup", 2, false, 0], ["click", 2, false, 0], ["dblclick", 2, false, 0]]);
+    assert.equal((await call(p, "click", { target: { ref } })).ok, true);
   } finally { p.window.close(); }
 });
 
@@ -81,7 +81,7 @@ for (const key of ["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft"
 }
 
 for (const [html, expected] of [['<input id="x" type="password">', "protected_input"],
-  ['<input id="x" readonly>', "target_readonly"], ['<div id="x">Plain</div>', "state_not_reached"]]) {
+  ['<div id="x">Plain</div>', "state_not_reached"]]) {
   test(`press_key refuses ${expected}`, async () => {
     const p = page(html);
     try { code(await call(p, "press_key", { key: "Enter" }), expected); }
@@ -312,7 +312,7 @@ for (const [operation, html, args] of actions) {
 }
 
 for (const operation of ["double_click", "hover", "press_key"]) {
-  for (const change of ["replace", "disable", "navigate", "expire"]) test(`${operation} stops a partial event sequence on ${change}`, async () => {
+  for (const change of operation === "press_key" ? ["navigate", "expire"] : ["replace", "disable", "navigate", "expire"]) test(`${operation} stops a partial event sequence on ${change}`, async () => {
     const p = page('<button id="x">Run</button>');
     let events = 0;
     const expiresAt = Date.now() + 10000;

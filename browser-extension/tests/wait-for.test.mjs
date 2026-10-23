@@ -76,13 +76,18 @@ for (const [state, html, change] of [
   ["visible", '<button id="x" hidden>Later</button>', (element) => { element.hidden = false; }],
   ["enabled", '<button id="x" disabled>Later</button>', (element) => { element.disabled = false; }],
   ["actionable", '<button id="x" hidden>Later</button>', (element) => { element.hidden = false; }],
-]) test(`ref becoming stale during a pending ${state} wait fails distinctly`, async () => {
+]) test(`ref tracks same-node state during a pending ${state} wait, but removal is stale`, async () => {
   const p = page(html);
   const ref = (await p.call("inspect", { target: { id: "x" } })).result.elements[0].ref;
   try {
     const pending = wait(p, state, { target: { ref } });
     p.window.setTimeout(() => change(p.document.querySelector("#x")), 10);
-    code(await pending, "stale_target");
+    const result = await pending;
+    if (state === "detached") code(result, "stale_target");
+    else {
+      assert.equal(result.result.status, "matched");
+      assert.equal(result.result.target.ref, ref);
+    }
   } finally { p.window.close(); }
 });
 
@@ -269,7 +274,7 @@ test("actionable never reads field values, acts, or bypasses password/read-only 
       const target = { id };
       assert.equal((await wait(p, "actionable", { target, timeout_ms: 0 })).result.status, "matched");
       code(await p.call("fill", { target, value: "not written" }), expected);
-      code(await p.call("press_key", { target, key: "Enter" }), expected);
+      if (id === "password") code(await p.call("press_key", { target, key: "Enter" }), expected);
     }
   } finally { p.window.close(); }
 });

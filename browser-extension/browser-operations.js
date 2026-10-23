@@ -211,10 +211,11 @@
       if (result.ok && !["browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"].includes(name)) {
         // Phase 3 results are observations, not a promise of business success.
         // Recheck consent/selection even after an action; failure here never replays it.
-        if (!await authorized(tab.url)) return fail("permission_denied");
+        const completed = name === "browser.page.press_key" ? { events_dispatched: { keydown: true, keyup: true } } : undefined;
+        if (!await authorized(tab.url)) return fail("permission_denied", completed);
         const finalTab = await chrome.tabs.get(tab.id);
-        if (finalTab.url !== tab.url || finalTab.pendingUrl || !matches(finalTab, args.tab)) return fail("page_changed");
-        if (Date.now() >= expiresAt) return fail("request_expired");
+        if (finalTab.url !== tab.url || finalTab.pendingUrl || !matches(finalTab, args.tab)) return fail("page_changed", completed);
+        if (Date.now() >= expiresAt) return fail("request_expired", completed);
         return { ok: true, result: { tab: summary(finalTab), ...result.result } };
       }
       return result.ok ? { ok: true, result: { tab: summary(current), ...result.result } } : result;

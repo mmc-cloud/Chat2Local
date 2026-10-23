@@ -41,6 +41,65 @@ def test_phase3_errors_keep_only_the_shared_safe_contract(code):
     assert "PRIVATE-VALUE" not in json.dumps(result)
 
 
+@pytest.mark.parametrize("dispatched", [
+    {"keydown": False, "keyup": False}, {"keydown": True, "keyup": False},
+    {"keydown": True, "keyup": True},
+])
+def test_keyboard_partial_dispatch_details_are_bounded_and_survive_transport(dispatched):
+    import jsonschema
+    from chat2local.mcp.output_schema import capability_schema
+    result = extension_failure({"code": "permission_denied", "details": {
+        "events_dispatched": dispatched, "target": "PRIVATE-VALUE", "key": "PRIVATE-VALUE"}})
+    assert result["error"]["details"] == {"events_dispatched": dispatched}
+    assert "PRIVATE-VALUE" not in json.dumps(result)
+    jsonschema.validate(result, capability_schema({"type": "object"}))
+
+
+@pytest.mark.parametrize("dispatched", [
+    None, [], {"keydown": True}, {"keydown": 1, "keyup": False},
+    {"keydown": False, "keyup": True}, {"keydown": True, "keyup": False, "private": "PRIVATE-VALUE"},
+])
+def test_malformed_keyboard_progress_is_not_forwarded(dispatched):
+    import jsonschema
+    from chat2local.mcp.output_schema import capability_schema
+    result = extension_failure({"code": "request_expired", "details": {"events_dispatched": dispatched}})
+    assert "details" not in result["error"]
+    assert not jsonschema.Draft202012Validator(capability_schema({"type": "object"})).is_valid({
+        "ok": False, "error": {"code": "request_expired", "message": "safe", "details": {"events_dispatched": dispatched}}})
+
+
+def test_keyboard_contract_explains_release_target_readonly_and_partial_completion(tmp_path):
+    from chat2local.browser.bridge import BrowserBridge
+    registry = CapabilityRegistry(BrowserBridge(browser_config(tmp_path)))
+    full = registry.discover("browser.page.press_key", detail="full")["result"]
+    capability = full["capabilities"][0]
+    assert "Readonly allowed" in capability["description"]
+    assert "keyup_target" in capability["result_contract"]
+    assert "events_dispatched" in full["conventions"]["keyboard_completion"]
+    assert "Unrelated DOM" in full["conventions"]["references"]
+
+
+@pytest.mark.parametrize("keyup", [False, True])
+def test_keyboard_dispatch_progress_survives_actual_bridge_without_replay(tmp_path, keyup):
+    async def scenario():
+        async with running_bridge(browser_config(tmp_path)) as bridge:
+            registry = CapabilityRegistry(bridge)
+            async with extension(bridge, capabilities=["browser.page.press_key"]) as ws:
+                pending = asyncio.create_task(registry.execute("browser.page.press_key", {
+                    "tab": {"tab_id": 1}, "target": {"ref": "el_current"}, "key": "Escape"}))
+                request = json.loads(await ws.recv())
+                progress = {"keydown": True, "keyup": keyup}
+                await ws.send(response(request, error={"code": "permission_denied", "message": "PRIVATE",
+                    "details": {"events_dispatched": progress, "private": "PRIVATE"}}))
+                result = await pending
+                assert result["error"]["details"] == {"events_dispatched": progress}
+                assert "PRIVATE" not in json.dumps(result)
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0.05):
+                        await ws.recv()
+    run(scenario())
+
+
 def test_disconnected_phase3_action_is_never_replayed_after_reconnect(tmp_path):
     async def scenario():
         async with running_bridge(browser_config(tmp_path)) as bridge:

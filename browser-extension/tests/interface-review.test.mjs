@@ -84,7 +84,7 @@ test("read -> exact ref click distinguishes identical link text with private que
   } finally { p.window.close(); }
 });
 
-for (const change of ["replace", "reorder", "remove", "attribute", "text", "unrelated"]) test(`old refs never retarget after DOM ${change}`, async () => {
+for (const change of ["replace", "reorder", "remove"]) test(`old refs never retarget after DOM ${change}`, async () => {
   const p = browserPage('<button>Same</button><button>Same</button><p>Other</p>');
   let clicks = 0;
   p.document.addEventListener("click", () => clicks++);
@@ -94,9 +94,6 @@ for (const change of ["replace", "reorder", "remove", "attribute", "text", "unre
     if (change === "replace") node.replaceWith(node.cloneNode(true));
     if (change === "reorder") p.document.body.append(node);
     if (change === "remove") node.remove();
-    if (change === "attribute") node.setAttribute("data-new", "state");
-    if (change === "text") node.firstChild.data = "Changed";
-    if (change === "unrelated") p.document.querySelector("p").textContent = "Other changed";
     assert.equal((await p.f.call("browser.page.click", { tab, target: { ref } })).error.code, "stale_target");
     assert.equal(clicks, 0);
     const current = await p.read();
@@ -139,7 +136,7 @@ for (const phase of ["scroll", "focus"]) test(`ref identity is checked again aft
   let clicks = 0;
   p.document.addEventListener("click", () => clicks++);
   if (phase === "scroll") node.scrollIntoView = () => node.replaceWith(node.cloneNode(true));
-  else node.addEventListener("focus", () => p.document.body.prepend(p.document.createElement("div")));
+  else node.addEventListener("focus", () => node.replaceWith(node.cloneNode(true)));
   try {
     const ref = (await p.read()).result.blocks.find((item) => item.type === "control").ref;
     assert.equal((await p.f.call("browser.page.click", { tab, target: { ref } })).error.code, "stale_target");

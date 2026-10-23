@@ -11,15 +11,30 @@
   const protectedTags = 'input,textarea,select,option,script,style,template,noscript,iframe,object,embed,[contenteditable]:not([contenteditable="false"])';
   const secretHint = /password|passwd|token|secret|cookie|authorization|api[-_]?key|csrf|session[-_]?id|one[-_]?time|cc-number/i;
   class QueryError extends Error { constructor(code, details) { super(code); this.code = code; this.details = details; } }
-  // Document-local weak references: any DOM mutation invalidates all issued refs.
+  // Document-local node identities, not snapshots of text or attributes.
   // No node attributes are added and no page content or strong node cache is kept.
   const refDocument = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
   let refSequence = 0, referenceUrl = location.href, references = new Map(), nodeReferences = new WeakMap();
   const invalidateReferences = () => { references.clear(); nodeReferences = new WeakMap(); };
-  const mutations = new MutationObserver(invalidateReferences);
-  mutations.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  function invalidateRemovedReferences(records) {
+    const removed = records.flatMap((record) => [...record.removedNodes]).filter((node) => node.nodeType === Node.ELEMENT_NODE);
+    if (!removed.length) return;
+    for (const [ref, record] of references) {
+      const element = record.node.deref();
+      // Removal invalidates even if the same subtree was reinserted before the
+      // observer ran. Unrelated removals/text replacement leave this node alone.
+      if (!element || element.ownerDocument !== document || !element.isConnected
+        || removed.some((root) => root === element || root.contains(element))) {
+        references.delete(ref);
+        if (element) nodeReferences.delete(element);
+      }
+    }
+  }
+  const mutations = new MutationObserver(invalidateRemovedReferences);
+  mutations.observe(document, { subtree: true, childList: true });
   function syncReferences() {
-    if (mutations.takeRecords().length || location.href !== referenceUrl) invalidateReferences();
+    invalidateRemovedReferences(mutations.takeRecords());
+    if (location.href !== referenceUrl) invalidateReferences();
     referenceUrl = location.href;
   }
   function reference(element) {
@@ -36,7 +51,7 @@
   function referenced(ref) {
     syncReferences();
     const record = references.get(ref), element = record?.node.deref();
-    if (!element?.isConnected || record.url !== location.href) throw new QueryError("stale_target");
+    if (!element?.isConnected || element.ownerDocument !== document || record.url !== location.href) throw new QueryError("stale_target");
     return element;
   }
   function query(root, css) {
@@ -449,16 +464,13 @@
   }
   function actionGuard(message, element) {
     const { arguments: args, operation } = message;
-    // Once our first event is sent, pin the resolved node. Own handlers may
-    // invalidate public refs; never re-resolve a stale ref or switch nodes.
-    // Before that point (including scroll/focus preparation), validate the ref.
-    const { ref, ...conditions } = args.target;
+    // Preparation revalidates the complete locator; after input begins, only
+    // the pinned identity and safety state matter, not the old text/CSS/name.
+    const pinnedRef = reference(element);
     return (eventsStarted = false) => {
       checkRequest(message);
-      if (!element.isConnected) throw new QueryError("stale_target");
-      const current = eventsStarted && ref
-        ? (matches(element, conditions, textBudget(message.expires_at)) ? [element] : [])
-        : candidates(args.target, message.expires_at);
+      if (referenced(pinnedRef) !== element) throw new QueryError("stale_target");
+      const current = eventsStarted ? [element] : candidates(args.target, message.expires_at);
       if (!current.includes(element)) throw new QueryError("stale_target");
       if (!visible(element)) throw new QueryError("target_hidden");
       const eligible = current.filter(visible);
@@ -467,7 +479,7 @@
       if (!(element instanceof HTMLElement)) throw new QueryError("unsupported_element");
       if (["fill", "press_key", "select", "set_checked"].includes(operation)) {
         if (element.localName === "input" && element.type === "password") throw new QueryError("protected_input");
-        if (element.readOnly || element.getAttribute("aria-readonly") === "true") throw new QueryError("target_readonly");
+        if (operation !== "press_key" && (element.readOnly || element.getAttribute("aria-readonly") === "true")) throw new QueryError("target_readonly");
       }
       if (operation === "fill" && !(element instanceof HTMLTextAreaElement) && !(element instanceof HTMLInputElement
         && ["text", "search", "email", "url", "tel"].includes(element.type))) throw new QueryError("unsupported_element");
@@ -511,22 +523,55 @@
     }
     check(true);
   }
-  function mouseEvents(element, operation) {
+  function mouseOptions(element) {
     const rect = element.getBoundingClientRect();
-    const options = { bubbles: true, cancelable: true, composed: true, view: window, button: 0,
-      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
-    if (operation === "double_click") return [1, 2].flatMap((detail) => [
-      new MouseEvent("mousedown", { ...options, buttons: 1, detail }),
-      new MouseEvent("mouseup", { ...options, buttons: 0, detail }),
-      new MouseEvent("click", { ...options, buttons: 0, detail }),
-    ]).concat(new MouseEvent("dblclick", { ...options, buttons: 0, detail: 2 }));
-    const pointer = (type, bubbles) => new PointerEvent(type, { ...options, bubbles, composed: bubbles,
-      cancelable: bubbles, pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 0 });
-    return [pointer("pointerover", true), pointer("pointerenter", false),
-      new MouseEvent("mouseover", options), new MouseEvent("mouseenter", { ...options, bubbles: false, composed: false, cancelable: false }),
-      pointer("pointermove", true), new MouseEvent("mousemove", options)];
+    return { bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
+      pointerId: 1, pointerType: "mouse", isPrimary: true, relatedTarget: null };
   }
-  function pressKey(element, args, check) {
+  function doubleClick(element, check) {
+    const options = mouseOptions(element);
+    const send = (type, init, pointer = false) => {
+      const event = new (pointer ? PointerEvent : MouseEvent)(type, { ...options, ...init });
+      dispatchSequence(element, [event], check);
+      return event;
+    };
+    for (const detail of [1, 2]) {
+      const down = send("pointerdown", { buttons: 1, pressure: 0.5 }, true);
+      // A cancelled primary pointerdown suppresses compatibility mouse down/up,
+      // but not click. No native capture, selection or user gesture is created.
+      if (!down.defaultPrevented) send("mousedown", { buttons: 1, detail });
+      send("pointerup", { buttons: 0, pressure: 0 }, true);
+      if (!down.defaultPrevented) send("mouseup", { buttons: 0, detail });
+      send("click", { buttons: 0, detail }, true);
+    }
+    send("dblclick", { buttons: 0, detail: 2 });
+  }
+  function hover(element, check) {
+    const options = { ...mouseOptions(element), buttons: 0 }, path = [];
+    for (let node = element; node; node = node.parentElement) path.unshift(node);
+    const send = (node, type, pointer, enter = false) => {
+      // Snapshot this entry path; a handler must not make us enter an unrelated
+      // ancestor after reparenting the target partway through the sequence.
+      check(true);
+      if (path.some((item, index) => item.ownerDocument !== document || !item.isConnected
+        || (index && item.parentElement !== path[index - 1]))) throw new QueryError("stale_target");
+      node.dispatchEvent(new (pointer ? PointerEvent : MouseEvent)(type, { ...options,
+        button: pointer ? -1 : 0,
+        ...(enter ? { bubbles: false, composed: false, cancelable: false } : {}) }));
+      check(true);
+    };
+    // Each call describes one entry from outside the document (relatedTarget
+    // null). Enter does not bubble: send exactly once per ancestor, outer first.
+    send(element, "pointerover", true);
+    for (const node of path) send(node, "pointerenter", true, true);
+    send(element, "mouseover", false);
+    for (const node of path) send(node, "mouseenter", false, true);
+    send(element, "pointermove", true);
+    send(element, "mousemove", false);
+  }
+  async function pressKey(message, element, check) {
+    const args = message.arguments;
     const key = args.key === "Space" ? " " : args.key;
     const code = /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : /^\d$/.test(key) ? `Digit${key}` : args.key;
     const modifiers = args.modifiers || [];
@@ -534,11 +579,34 @@
       altKey: modifiers.includes("Alt"), ctrlKey: modifiers.includes("Control"),
       metaKey: modifiers.includes("Meta"), shiftKey: modifiers.includes("Shift") };
     const events = [new KeyboardEvent("keydown", options), new KeyboardEvent("keyup", options)];
-    dispatchSequence(element, events, (started) => {
-      check(started);
+    const dispatched = { keydown: false, keyup: false };
+    try {
+      check();
       if (document.activeElement !== element) throw new QueryError("state_not_reached");
-    });
-    return { keydown: events[0].defaultPrevented, keyup: events[1].defaultPrevented };
+      element.dispatchEvent(events[0]);
+      dispatched.keydown = true;
+      // Key release follows the current focus in this authorized document. A
+      // handler may close/remove the old target or move focus normally.
+      checkRequest(message);
+      await authorize(message);
+      let release = document.activeElement;
+      if (!(release instanceof HTMLElement) || release.ownerDocument !== document || !release.isConnected
+        || !visible(release) || disabled(release)) release = document.body || document.documentElement;
+      if (!(release instanceof HTMLElement) || release.ownerDocument !== document || !release.isConnected
+        || !visible(release) || disabled(release)) throw new QueryError("state_not_reached");
+      if (release.localName === "input" && release.type === "password") throw new QueryError("protected_input");
+      const keyup_target = summary(release);
+      checkRequest(message);
+      release.dispatchEvent(events[1]);
+      dispatched.keyup = true;
+      checkRequest(message);
+      await authorize(message);
+      return { keyup_target, default_prevented: { keydown: events[0].defaultPrevented, keyup: events[1].defaultPrevented } };
+    } catch (error) {
+      const failure = error instanceof QueryError ? error : new QueryError("browser_operation_failed");
+      failure.details = { ...failure.details, events_dispatched: dispatched };
+      throw failure;
+    }
   }
   async function waitForState(message) {
     const { target, state = "visible", timeout_ms = 5000 } = message.arguments;
@@ -599,7 +667,7 @@
     check();
     const dx = args.delta_x || 0, dy = args.delta_y || 0;
     if (!page) {
-      const style = getComputedStyle(element), overflow = (value) => ["auto", "scroll", "overlay"].includes(value);
+      const style = getComputedStyle(element), overflow = (value) => ["auto", "scroll", "overlay", "hidden"].includes(value);
       if ((dx && (!overflow(style.overflowX) || element.scrollWidth <= element.clientWidth))
         || (dy && (!overflow(style.overflowY) || element.scrollHeight <= element.clientHeight))) throw new QueryError("target_not_scrollable");
     }
@@ -677,7 +745,8 @@
       return { ok: true, result: { status: "clicked", target, event_is_trusted: false, navigation_waited: false } };
     }
     if (["double_click", "hover"].includes(message.operation)) {
-      dispatchSequence(element, mouseEvents(element, message.operation), check);
+      if (message.operation === "double_click") doubleClick(element, check);
+      else hover(element, check);
       return { ok: true, result: { status: message.operation === "hover" ? "hovered" : "double_clicked", target,
         event_is_trusted: false, ...(message.operation === "hover" ? { css_hover_guaranteed: false } : { navigation_waited: false }) } };
     }
@@ -686,8 +755,8 @@
       return { ok: true, result: { status: "focused", target } };
     }
     if (message.operation === "press_key") {
-      const default_prevented = pressKey(element, args, check);
-      return { ok: true, result: { status: "key_pressed", target, event_is_trusted: false, default_prevented } };
+      const result = await pressKey(message, element, check);
+      return { ok: true, result: { status: "key_pressed", target, event_is_trusted: false, ...result } };
     }
     if (message.operation === "set_checked") {
       // Focus handlers may already have achieved the desired state.

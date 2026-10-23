@@ -55,9 +55,9 @@ ERROR_GUIDANCE = {
     "ambiguous_target": "Multiple eligible matches (wait_for includes hidden elements): refine conditions or use a fresh ref. Stop; preparation or an earlier event in a sequence may already have run.",
     "target_hidden": "Target is hidden: stop and observe; preparation or an earlier event in a sequence may already have run.",
     "target_disabled": "Target or ancestor is disabled/inert: stop. Do not bypass disabled state; preparation or an earlier event may already have run.",
-    "target_readonly": "Field is read-only: stop; fill/press_key or state-setting is refused. Re-observe if preparation already ran.",
+    "target_readonly": "Field is read-only: fill or state-setting is refused; press_key may dispatch supported events without editing the value. Re-observe if preparation already ran.",
     "protected_input": "Protected password input: stop; fill/press_key is refused.",
-    "stale_target": "Reference expired or target changed: obtain a fresh ref via read/inspect/dom.inspect. Never substitute positional CSS automatically.",
+    "stale_target": "Node removed/replaced, document/URL changed, reference evicted or preparation locator no longer matched: observe again. Unrelated DOM/text/attribute updates do not invalidate node identity. Never substitute positional CSS automatically.",
     "page_changed": "Navigation, readable content or tab selection changed: discard old cursor/ref and observe again; start read without cursor.",
     "permission_denied": "User must grant website access in extension options; MCP cannot grant it. Re-observe after authorization.",
     "unsupported_page": "Use an authorized HTTP(S) top-level page; browser internal pages and embedded documents are unsupported.",
@@ -95,6 +95,11 @@ def extension_failure(error: dict[str, Any]) -> dict[str, Any]:
     result = failure(code, EXTENSION_ERROR_MESSAGES[code])
     # Candidate summaries are intentional page metadata, never exception text.
     details = error.get("details")
+    dispatched = details.get("events_dispatched") if isinstance(details, dict) else None
+    if (isinstance(dispatched, dict) and set(dispatched) == {"keydown", "keyup"}
+            and all(type(value) is bool for value in dispatched.values())
+            and (not dispatched["keyup"] or dispatched["keydown"])):
+        result["error"]["details"] = {"events_dispatched": dict(dispatched)}
     candidates = details.get("candidates") if isinstance(details, dict) else None
     if code in ("ambiguous_tab", "ambiguous_target") and isinstance(candidates, list):
         text_fields = ({"title": 200, "url": 2048} if code == "ambiguous_tab" else
@@ -113,5 +118,5 @@ def extension_failure(error: dict[str, Any]) -> dict[str, Any]:
                 if type(candidate.get(key)) is bool:
                     item[key] = candidate[key]
             cleaned.append(item)
-        result["error"]["details"] = {"candidates": cleaned}
+        result["error"].setdefault("details", {})["candidates"] = cleaned
     return result

@@ -8,7 +8,8 @@
 第三阶段八项 DOM 交互的参数、事件限制、错误与测试记录见 [PHASE3.md](PHASE3.md)。
 能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
 读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
-任意 DOM 变更会使旧 ref 失效，返回 stale_target 后重新观察，不自动回退位置型 CSS。
+ref 固定同一文档/URL 中的节点身份，无关 DOM 和原节点文字/属性更新不会使它失效；节点移除（含移除后重插）、替换、导航或淘汰才失效。
+每次操作及滚动/聚焦准备后仍重新验证显式定位条件和控件状态。返回 stale_target 后重新观察，不自动回退位置型 CSS。
 分页内容版本排除临时 ref：可读内容未变时仍可续读，并返回当前 ref；真正内容变化或导航仍使旧游标失效。
 Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。

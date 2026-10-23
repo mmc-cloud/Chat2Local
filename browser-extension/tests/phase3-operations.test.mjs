@@ -59,6 +59,7 @@ for (const [operation, extra] of actions) {
     } });
     const result = await f.call(capability, { ...args, tab: { tab_id: 1, title: "Test" } }, expires);
     assert.equal(result.error?.code, { consent: "permission_denied", selector: "page_changed", expiry: "request_expired" }[change]);
+    if (operation === "press_key") assert.deepEqual(JSON.parse(JSON.stringify(result.error.details.events_dispatched)), { keydown: true, keyup: true });
     assert.equal(f.calls.messages.length, 1);
   });
 }

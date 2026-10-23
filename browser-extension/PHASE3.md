@@ -39,7 +39,7 @@ detail 仅允许 summary/full，显式 null、其他字符串或类型均拒绝�
   新操作成功返回前再复核授权、完整 TabSelector 与期限；失败不会重发。
 - `capabilities.py` 定义严格 Pydantic 参数与标准 JSON Schema、描述及返回契约；
   `errors.py` 维护能力白名单、固定错误消息与恢复指导。导出 Schema 和扩展校验器通过跨语言测试保持一致。
-- read/inspect/dom.inspect 的读取与隐私投影、分页内容版本和 ref 策略保持原义；click/fill 保持 Phase 2 的
+- read/inspect/dom.inspect 的读取与隐私投影、分页内容版本保持原义；第一组修复将 ref 改为节点生命周期，见下文。click/fill 保持 Phase 2 的
   唯一可见目标、scrollIntoView、focus 与执行行为。`fill(value="")` 继续用于清空文本框，不新增 clear。
 
 ## 新增 Capability
@@ -50,13 +50,13 @@ detail 仅允许 summary/full，显式 null、其他字符串或类型均拒绝�
 
 | 名称 | 新参数与默认值 | 行为与成功结果 |
 | --- | --- | --- |
-| `double_click` | `target`；`wait_ms=0`，0–5000 | 两轮 mousedown/mouseup/click，detail 分别为 1/2，再发 detail=2 的 dblclick；`status=double_clicked`，`event_is_trusted=false`、`navigation_waited=false`。单击处理器可能执行两次。 |
-| `hover` | 同上 | 依次派发 pointerover/pointerenter/mouseover/mouseenter/pointermove/mousemove；enter 不冒泡；不聚焦、不建立真实指针状态、不派发离开事件。`status=hovered`、`event_is_trusted=false`、`css_hover_guaranteed=false`。 |
+| `double_click` | `target`；`wait_ms=0`，0–5000 | 两轮 pointerdown/mousedown/pointerup/mouseup/click，再发 dblclick；鼠标按下/释放/点击 detail 为 1/2，dblclick 为 2。取消 pointerdown 时省略该轮兼容 mousedown/up，仍派发 pointerup/click。`status=double_clicked`，`event_is_trusted=false`、`navigation_waited=false`。单击处理器可能执行两次。 |
+| `hover` | 同上 | 一次从文档外进入：pointerover 发给目标；pointerenter 给祖先至目标逐层各一次；然后 mouseover、同样的 mouseenter 链、pointermove/mousemove。enter 不冒泡；不聚焦、不维护跨调用指针状态、不派发离开事件。`status=hovered`、`event_is_trusted=false`、`css_hover_guaranteed=false`。 |
 | `focus` | 同上 | 滚动到目标后原生 focus，并验证 activeElement；不添加 tabindex。不能实际聚焦时返回 state_not_reached；`status=focused`。 |
 | `select` | 同上，加必填 `options` 数组，最多 50 项 | 仅原生 select；完整替换选中项。每项可带 `value`、`label`、`index` 中至少一个，条件取 AND。单选必须一项；多选允许 `[]` 清空。改变后各发一次冒泡 input/change，未改变时不发；返回 `status=selected`、`changed`、`selected_count`。 |
 | `set_checked` | 同上，加必填严格布尔 `checked` | 仅原生 checkbox/radio。已匹配状态不滚动、不聚焦、不点击；否则准备后再判断，最多 click 一次并验证结果。返回 `status=checked`、`checked`、`changed`、`event_is_trusted=false`。 |
 | `scroll` | 必填 `container=page\|element`；`delta_x=0`、`delta_y=0`；可选 target、`wait_ms=0` | 明确容器上的相对 CSS 像素滚动；每轴范围 ±100000，不能同时为 0。element 必须有 target，page 不接受 target。返回 `status=scrolled`、container、target（页面为 null）、before/after 的 x/y 与 changed。 |
-| `press_key` | target、wait_ms，加必填 `key`；`modifiers=[]` | 先聚焦，再只发一次 keydown/keyup；返回 `status=key_pressed`、`event_is_trusted=false`、`default_prevented={keydown,keyup}`。不插入文本、不模拟 Tab 遍历、Enter 提交或浏览器默认快捷键。 |
+| `press_key` | target、wait_ms，加必填 `key`；`modifiers=[]` | 先聚焦并向原目标发 keydown，复核授权后向当前焦点发 keyup；失去焦点时使用 body/root。返回 `status=key_pressed`、原 target、`keyup_target`、`event_is_trusted=false`、`default_prevented={keydown,keyup}`。不插入文本、不模拟 Tab 遍历、Enter 提交或浏览器默认快捷键。 |
 | `wait_for` | target、`state=visible`、`timeout_ms=5000`，0–10000 | 只读等待状态；返回 `status=matched`、state、target（不存在时为 null）、elapsed_ms。0 立即检查。失败区分 wait_timeout、stale_target、page_changed、权限和请求期限错误。 |
 
 所有成功结果还含选中的 `tab` 及脱敏展示元信息；除 page scroll/不存在的等待目标外，均包含脱敏 target 摘要。
@@ -87,15 +87,26 @@ key 支持 Enter、Tab、Escape、ArrowUp/Down/Left/Right、Home、End、PageUp�
 modifiers 只能是 Alt、Control、Meta、Shift 的不重复数组，最多 4 项，在两个事件上设置对应布尔标志。
 键名和大小写由调用者显式给定，Shift 标志不自动转换字符。
 
-press_key 拒绝密码和只读字段；目标必须实际获得焦点。页面处理器仍可以根据事件产生副作用。
+press_key 拒绝密码字段，允许 readonly / aria-readonly 元素接收合成按键；fill 继续拒绝只读写入。
+keydown 前目标必须实际获得焦点。keydown 处理器关闭/移除弹层、禁用原目标或转移焦点属于正常状态变化，
+不会再要求旧目标保持可见/启用/焦点。keyup 跟随同一授权文档内的当前有效焦点；没有有效焦点时发给可用的 body/root，
+不主动聚焦后备目标、不按原 locator 寻找替身，也不向密码接收者派发。keyup_target 是发送前的脱敏接收者摘要。
+两次事件之间和 keyup 后复核授权、完整 TabSelector、页面及期限；导航/权限撤回/过期会终止并返回错误。
+已知进度以 error.details.events_dispatched 的两个布尔值报告：true/false 为只发出 keydown；true/true 表示已发出两次但最终安全复核失败。
+超时/断线时缺少进度表示未知，不能当作未执行。不会自动重试，也不在新页面补发 keyup。
 取消 keydown 仍会发送 keyup；两个取消结果分别返回，不能据此推断任何浏览器原生默认动作执行成功。
-hover 使用目标矩形中心坐标发送事件，不执行命中测试，也不会真实移动指针或可靠建立 CSS :hover。
+按键目标跟随焦点的依据见 [UI Events keyup](https://w3c.github.io/uievents/#event-type-keyup) 和
+[MDN keyup](https://developer.mozilla.org/en-US/docs/Web/API/Element/keyup_event)。
+hover 使用目标矩形中心坐标发送事件，relatedTarget=null，将每次调用定义为从文档外新进入。
+每个祖先只收到一次自身的非冒泡 enter（捕获监听器仍可观察后代事件）；无关兄弟不收到 enter。
+重复调用会重复表达一次进入，不维护真实指针位置、停留或离开状态；不会真实移动指针、命中测试或建立 CSS :hover。
 合成事件与真实输入的区别参考 [UI Events trusted events](https://www.w3.org/TR/uievents/#trusted-events)。
 
 ### 滚动容器和状态等待
 
 page 仅滚动 document.scrollingElement；element 仅滚动指定元素，不先 scrollIntoView/focus，也不改滚其祖先。
-元素必须在每个非零请求轴上具有 auto/scroll/overlay overflow 和足够的 scroll 尺寸，否则 target_not_scrollable。
+元素必须在每个非零请求轴上具有 auto/scroll/overlay/hidden overflow 和足够的 scroll 尺寸，否则 target_not_scrollable。
+hidden 允许程序滚动；clip 不允许，按浏览器计算后的每轴样式判断（混合轴 CSS 可能将 clip 计算为 hidden）。
 使用 [scrollBy 的 instant 行为](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollBy)；边界钳制和 CSS scroll snap
 可能使 after 与请求距离不同，changed=false 可以表示已经到边界。RTL 使用浏览器原生横轴坐标。
 不模拟 wheel，不等待懒加载、动画、网络响应或页面业务完成。
@@ -127,16 +138,19 @@ timeout_ms=0 只允许第一次同步状态检查取得匹配资格，该检查�
 超时后继续必要的安全复核：权限撤回、页面/选择条件变化、请求期限和 ref 失效仍分别返回
 permission_denied、page_changed、request_expired、stale_target；安全条件有效但未按时满足状态才返回 wait_timeout。
 不跨导航等待，也不会默认转向另一个文档。
-ref 在任意 DOM 变化后失效的保守策略不变：旧 ref 始终 stale_target，**不能作为元素消失/隐藏的证明**。
-等待动态状态优先使用明确的语义/CSS 条件；CSS 本身也不承诺跨请求身份。
+ref 保留原节点身份，原节点的 hidden/disabled 等状态变化现在可以被同一 ref 等待；节点移除/替换仍为 stale_target，
+**不能作为元素消失的证明**。等待可能重建节点的动态页面优先使用明确的语义/CSS 条件；CSS 本身不承诺跨请求身份。
 
 ## 操作安全和错误恢复
 
 准备阶段复用原有页面/期限、ref、原节点连接、匹配条件、可见唯一性、disabled/inert/禁用类及字段状态检查，
 在滚动与聚焦后再检查。hover 不聚焦；scroll 不执行隐式滚动准备；wait_for 完全不执行输入动作。
-事件开始后，在同一次同步事件序列内绑定已验证的原节点继续检查；自身事件造成的无关 DOM 更新可以使公共 ref 失效，
-但不会触发重新解析该 ref、位置 CSS 回退或切换节点。原节点替换/删除、条件失配、隐藏、禁用、URL 或期限变化会停止后续事件。
-当前序列结束后，后续请求仍必须使用重新观察的 ref。原有 click/fill 的返回与事件执行行为保持兼容。
+指针事件开始后固定已验证的原节点身份，不再重查旧文案或 CSS 条件；原节点替换/删除（包括移除后重插）、隐藏、禁用、URL 或期限变化会停止后续事件。
+hover 还会验证进入路径，避免中途重挂后向旧祖先补发 enter。键盘以当前文档焦点派发 keyup，采用上文单独的生命周期规则。
+ref 是节点身份而非旧属性快照：ref 单独使用时允许原节点属性变化；显式叠加条件在下一次请求及准备阶段仍取 AND 重新验证。
+MutationObserver 只处理 childList 中实际移除的元素/子树，不因文本节点删除、无关更新或属性更新清空全表；
+每次解析同步消费待处理记录，并验证 WeakRef、isConnected、ownerDocument 和 URL。节点不会被重新定位成另一个元素。
+原有 click/fill 的返回与事件执行行为保持兼容，填值、密码和只读保护不放宽；ref 现在允许无关 focus 状态更新。
 
 新错误包括 `option_not_found`、`ambiguous_option`、`option_disabled`、`unsupported_state`、`state_not_reached`、
 `target_not_scrollable`、`wait_timeout`。其余继续复用已有错误码和最多 5 条脱敏歧义候选，不透传异常文本或选项值。
@@ -203,7 +217,40 @@ capability_unavailable，自动重连后明确发起的新请求可重新注入�
 不在日常 Windows 电脑执行完整 Python 进程压力测试；跨平台完整回归交给 CI。
 未声称覆盖全部 React/Vue 版本、复杂组件库、浏览器原生 OS 快捷键、真实用户手势、IME、真实 pointer 命中、
 长时间休眠/系统重启及其他浏览器版本。iframe、Shadow DOM、富文本/自定义 ARIA 控件仍保持既有边界。
-后续可在独立阶段改进引用失效粒度、浏览器版本矩阵和复杂控件覆盖，本轮不扩展权限或输入后端。
+下述第一组修复已调整引用失效粒度；浏览器版本矩阵和复杂控件覆盖仍需继续完善，不扩展权限或输入后端。
+
+### 第一组问题修复：#1、#2、#3、#4、#5、#12
+
+| 问题 | 根因 | 本轮修复 |
+| --- | --- | --- |
+| #1 ref 过度失效 | MutationObserver 把所有 DOM 更新映射为全表失效 | 仅使移除节点/子树的 ref 失效，保留同一节点身份；解析时检查文档、URL、连接状态和待处理移除记录。操作前重新验证显式条件及状态。 |
+| #2 正常键盘交互中止 | keyup 前后复用旧目标可见性与焦点要求 | keydown 使用准备后的原目标，keyup 跟随当前同文档焦点；正常关闭/移除/禁用/焦点转移不再按旧目标报错。每次安全复核失败仍终止，不重试。 |
+| #3 readonly 限制过宽 | fill 与 press_key 共用只读拒绝规则 | press_key 允许 readonly/aria-readonly，保留密码保护；fill 和原生状态设置的只读保护保留。 |
+| #4 双击属性变化中止 | 后续事件重新使用初始文案/CSS 定位 | 输入开始后固定原节点，仅复核身份和安全状态；补全 pointerdown/up 与对应鼠标事件，处理 pointerdown 的兼容鼠标取消规则。 |
+| #5 父级 enter 缺失 | 非冒泡 enter 只派发给目标 | 对原进入路径从外到内逐层派发一次 pointerenter/mouseenter；不发给兄弟，不把 enter 设为冒泡，不维护长期指针状态。 |
+| #12 hidden 容器被拒绝 | 可程序滚动 overflow 白名单不包含 hidden | 每个非零请求轴允许 hidden，继续检查溢出尺寸；计算样式为 clip 时拒绝，不滚祖先、不聚焦。 |
+
+兼容性：12 个公共 Tool、16 个 Capability、参数名及默认值不变；没有权限、生产依赖、协议或输入后端变更。
+click/fill/read/inspect 的操作与隐私边界保留；分页内容版本仍排除 ref，属性/无关更新不再要求续读时更新 ref。
+press_key 成功结果新增 keyup_target；错误可附白名单 events_dispatched，Python 错误过滤与公共 MCP 返回 Schema 已同步。
+过去刻意依赖“无关更新必须 stale_target”的测试已改为验证同节点保持、真移除失效；ref 等待现在能观察同节点 hidden/disabled 改变。
+
+回归集中在 `tests/phase3-fixes.test.mjs`，并调整旧的 ref、分页、等待、事件及契约测试。
+覆盖全部目标操作的无关更新、ref+条件复核、移除/替换/重插/跨文档收养、隐藏/禁用、键盘焦点生命周期、
+权限/导航/过期/密码接收者中断、双击首击文案变化与危险变化、父级进入顺序/捕获/兄弟隔离、hidden/clip 滚动。
+Python 测试同时验证实际 Bridge 进度传输、不重放、非法进度字段过滤、MCP 错误输出 Schema 和发现/导出契约一致性。
+
+本轮结果：扩展全部 JavaScript **426 passed**；上述 Python Browser/MCP/Dispatcher/设备回归 **376 passed**，无失败或跳过。
+JS/Python 语法、Schema 一致性与 `git diff --check` 通过。未运行完整进程压力测试。
+另在独立 Chromium **148.0.7778.96** 中，用实际打包 Content Script 和原生 DOM 完成 **9 组检查**：
+ref 聚焦更新、键盘隐藏/移除/焦点转移/readonly、双击改文案、祖先 enter、hidden 与 clip 的实际滚动。
+该补充检查使用受控 runtime 授权桩验证 DOM 行为，不是新一轮真实 MV3→正式 Core 验收；不加载扩展、不操作个人网页。
+隔离浏览器已关闭，正式 Core/Hub/Chrome 扩展未重启、部署或重载。
+
+仍保留 DOM-only 限制：合成事件不保证可信输入、原生默认行为、CSS :hover、真实命中、文本选择或用户手势；
+hover 每次均表达从外部进入，不支持跨调用离开/停留状态。自定义控件、选项发现、三态/状态读取、滚动容器发现、
+actionable 命中检测等第二组问题未纳入；复杂组件库、其他浏览器版本及真实业务流程仍需后续受控验收。
+本轮改动仅留本地，待独立复审后统一更新，不执行 Commit/Push/Tag/Release。
 
 ## 复审后的统一部署
 

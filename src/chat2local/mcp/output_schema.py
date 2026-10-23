@@ -150,10 +150,16 @@ def patch_step() -> dict[str, Any]:
 
 
 def capability_schema(result: dict[str, Any]) -> dict[str, Any]:
+    progress = obj({"keydown": field("boolean", "Whether keydown was dispatched."),
+                    "keyup": field("boolean", "Whether keyup was dispatched.")}, required=["keydown", "keyup"])
+    progress["if"] = {"properties": {"keyup": {"const": True}}}
+    progress["then"] = {"properties": {"keydown": {"const": True}}}
+    details = obj({"candidates": array({"type": "object"}, "At most five sanitized candidates."),
+                   "events_dispatched": progress})
+    details["anyOf"] = [{"required": ["candidates"]}, {"required": ["events_dispatched"]}]
     error = obj({"code": field("string", "Stable error code."),
                  "message": field("string", "Readable error and recovery guidance."),
-                 "details": obj({"candidates": array({"type": "object"}, "At most five sanitized candidates.")},
-                                required=["candidates"])}, required=["code", "message"])
+                 "details": details}, required=["code", "message"])
     return {"type": "object", "oneOf": [
         obj({"ok": {"const": True}, "result": result}, required=["ok", "result"]),
         obj({"ok": {"const": False}, "error": error}, required=["ok", "error"]),
