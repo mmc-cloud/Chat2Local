@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -129,6 +129,70 @@ class FillArguments(ClickArguments):
     value: str = Field(max_length=8192, description="Entire replacement text, including empty string to clear; max 8192 characters. Only text/search/email/url/tel inputs and textarea; password, disabled and read-only fields rejected. No form submission.")
 
 
+class SelectOption(_Arguments):
+    model_config = ConfigDict(json_schema_extra=_one_condition("value", "label", "index"))
+    value: str | None = Field(default=None, max_length=256, description="Exact option value, including empty string. Conditions are ANDed; duplicate values require label or index to disambiguate.")
+    label: str | None = Field(default=None, max_length=256, description="Exact whitespace-normalized option label, including empty string; not a substring. No option values or labels are returned.")
+    index: int | None = Field(default=None, ge=0, le=9999, description="Zero-based index in the native select.options collection, including options inside optgroups.")
+
+    @model_validator(mode="after")
+    def constrained(self) -> "SelectOption":
+        if all(value is None for value in (self.value, self.label, self.index)):
+            raise ValueError("At least one option condition is required")
+        return self
+
+
+class SelectArguments(ClickArguments):
+    options: list[SelectOption] = Field(max_length=50, description="Exact replacement selection. Every selector must resolve uniquely to a distinct enabled option before any changes. Single-select requires one item; [] clears a multiple select. Native select only; input/change fire once when changed.")
+
+
+class SetCheckedArguments(ClickArguments):
+    checked: bool = Field(description="Desired native checkbox/radio state. Already matching state is a no-op; otherwise click once and verify. A checked radio cannot be unchecked directly (unsupported_state); select another radio in its group.")
+
+
+class ScrollArguments(ResolveTabArguments):
+    model_config = ConfigDict(json_schema_extra={"allOf": [
+        {"if": {"properties": {"container": {"const": "element"}}},
+         "then": _one_condition("target"),
+         "else": {"properties": {"target": {"type": "null"}}}},
+        {"anyOf": [{"required": [key], "properties": {key: {"not": {"const": 0}}}}
+                   for key in ("delta_x", "delta_y")]},
+    ]})
+    container: Literal["page", "element"] = Field(description="Explicit scroll container: page uses document.scrollingElement; element uses only target, never its ancestor or an implicit active container.")
+    target: ElementTarget | None = Field(default=None, description="Required only for container=element; must resolve to one visible enabled HTML scroll container with scrollable overflow on every requested axis.")
+    delta_x: int = Field(default=0, ge=-100000, le=100000, description="Relative horizontal CSS pixels; positive right, negative left (RTL follows native scroll coordinates). At least one delta must be nonzero.")
+    delta_y: int = Field(default=0, ge=-100000, le=100000, description="Relative vertical CSS pixels; positive down, negative up. Instant scroll clamped by the browser; no wheel simulation or lazy-load completion wait.")
+    wait_ms: int = Field(default=0, ge=0, le=5000, description=WAIT_DESCRIPTION)
+
+    @model_validator(mode="after")
+    def constrained(self) -> "ScrollArguments":
+        if (self.container == "element") != (self.target is not None):
+            raise ValueError("Only element scrolling requires a target")
+        if self.delta_x == 0 and self.delta_y == 0:
+            raise ValueError("At least one scroll delta must be nonzero")
+        return self
+
+
+class PressKeyArguments(ClickArguments):
+    key: str = Field(min_length=1, max_length=13,
+                     pattern=r"^(Enter|Tab|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown|Backspace|Delete|Space|[a-zA-Z0-9])$",
+                     description="One named key or ASCII letter/digit. Space maps to event.key=' '. Dispatches only keydown/keyup to the focused target; no text insertion, Tab traversal, form submission or browser shortcut emulation.")
+    modifiers: list[Literal["Alt", "Control", "Meta", "Shift"]] = Field(default_factory=list, max_length=4,
+                     json_schema_extra={"uniqueItems": True}, description="Unique modifier flags on both events; does not press modifier keys or invoke native OS/browser shortcuts. Event handlers may have side effects.")
+
+    @model_validator(mode="after")
+    def constrained(self) -> "PressKeyArguments":
+        if len(set(self.modifiers)) != len(self.modifiers):
+            raise ValueError("Duplicate modifiers")
+        return self
+
+
+class WaitForArguments(ResolveTabArguments):
+    target: ElementTarget = Field(description="Shared ANDed locator, unique across all matches including hidden elements. Use semantic/CSS conditions for dynamic DOM; an expired ref is always stale_target, never proof of absence.")
+    state: Literal["attached", "detached", "visible", "hidden", "enabled", "disabled", "actionable"] = Field(default="visible", description="attached: exists; detached: absent; visible: exists and visible; hidden: absent or hidden; enabled/disabled: exists with that shared disabled state, regardless of visibility. actionable: unique visible enabled HTML element, only basic DOM readiness; operation-specific password/read-only/type protections still apply. Multiple matches are ambiguous_target.")
+    timeout_ms: int = Field(default=5000, ge=0, le=10000, description="State must be observed strictly before the wait deadline; 0 permits only the initial synchronous check. Initial/final async permission and state revalidation remain required; their latency cannot qualify a late new match. Request expiry still overrides. Unsatisfied state returns wait_timeout; navigation, stale ref, invalid CSS and revoked permission remain distinct errors. Read-only; no actions replayed.")
+
+
 RESULT_CONTRACTS = {
     "browser.tabs.create": {
         "tab_id": "integer: native Chrome tab ID for subsequent calls.",
@@ -186,11 +250,48 @@ RESULT_CONTRACTS = {
     }
 }
 
+for _operation, _status, _meaning, _extra in (
+    ("double_click", "double_clicked", "Two synthetic mousedown/mouseup/click sequences (detail 1/2), then dblclick (detail 2); may have click side effects.",
+     {"event_is_trusted": "false: synthetic mouse events; not physical double-click input.", "navigation_waited": "false: observe page state afterward."}),
+    ("hover", "hovered", "Synthetic pointerover/pointerenter/mouseover/mouseenter/pointermove/mousemove on the target; does not move a real pointer or send leave events.",
+     {"event_is_trusted": "false: synthetic pointer/mouse events.", "css_hover_guaranteed": "false: does not establish CSS :hover or native pointer hit testing."}),
+    ("focus", "focused", "Native focus called without adding tabindex; activeElement verified at return.", {}),
+    ("select", "selected", "Native option selection replaced; bubbling input/change emitted once only if changed.",
+     {"changed": "boolean: selection differed before events.", "selected_count": "integer: selected native option count verified after events; no option text/values returned."}),
+    ("set_checked", "checked", "Desired native checkbox/radio state verified after at most one HTMLElement.click().",
+     {"changed": "boolean: click was needed; matching state is a no-op.", "checked": "boolean: verified requested state; no toggle on repeated matching calls.", "event_is_trusted": "false: click is synthetic; page handlers may prevent/revert it (state_not_reached)."}),
+    ("press_key", "key_pressed", "One synthetic keydown/keyup pair sent to the focused target; no default action emulation.",
+     {"event_is_trusted": "false: not trusted keyboard input.", "default_prevented": "object: keydown/keyup cancellation booleans; no promise of native default actions even when false."}),
+):
+    RESULT_CONTRACTS[f"browser.page.{_operation}"] = {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": f"'{_status}': {_meaning}",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        **_extra,
+    }
+RESULT_CONTRACTS["browser.page.scroll"] = {
+    "tab": "object: selected native tab and sanitized display metadata.",
+    "status": "'scrolled': one instant relative scroll requested on the explicit container; not lazy-load completion.",
+    "container": "'page'|'element': requested container; never falls back to an ancestor.",
+    "target": "object|null: sanitized pre-action element summary; null for page scrolling.",
+    "before": "object: x/y CSS pixel scroll position before request.",
+    "after": "object: observed x/y CSS pixel scroll position after request, subject to clamping/scroll snapping.",
+    "changed": "boolean: observed position moved; false can mean an edge or an unscrollable page.",
+}
+RESULT_CONTRACTS["browser.page.wait_for"] = {
+    "tab": "object: selected native tab and sanitized display metadata.",
+    "status": "'matched': state qualified before the wait deadline (only initial check for 0) and still held for the same target at final authorized observation; not a future guarantee.",
+    "state": "string: requested attached/detached/visible/hidden/enabled/disabled/actionable state. actionable is basic DOM readiness only, not operation-specific permission or business success.",
+    "target": "object|null: fresh sanitized summary/ref if present; null if absent. Expired refs never count as absence.",
+    "elapsed_ms": "integer: total elapsed time including async permission/state confirmation; may exceed timeout_ms for an already qualified match, but never the request deadline.",
+}
+
 USAGE_CONVENTIONS = {
     "envelope": "execute returns {ok:true,result:{...}} or {ok:false,error:{code,message,details?}}. result_contract describes fields inside result; errors use shared error_guidance.",
     "references": "Copy an observed ref into target={ref:...}. Refs are weak, document-local and bounded to 10000; any DOM mutation, navigation or cache eviction may invalidate them. Re-observe on stale_target. Never fall back to a positional path automatically.",
     "display": "All returned text/URLs are sanitized display data, possibly clipped. Keep original exact href/CSS semantics only for independently known inputs; use native tab_id and fresh element ref to act from observations.",
-    "retry": "read/inspect are read-only. create/click/fill may have side effects; timeouts/disconnections do not prove failure. Observe actual state before retrying; never blindly repeat."
+    "retry": "read/inspect/wait_for are read-only. Tab creation and all DOM actions may have side effects, including preparation (scroll/focus) and partially dispatched event sequences. Errors/timeouts/disconnections do not prove no action occurred. Observe actual state before retrying; never blindly repeat.",
+    "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass."
 }
 
 @dataclass(frozen=True)
@@ -214,6 +315,14 @@ class CapabilityRegistry:
             ("browser.page.dom.inspect", "Read-only bounded local DOM/CSS investigation when semantic inspect cannot explain a custom element. Returns safe refs, filtered text/attributes and structure, not full page prose or proof of clickability. Top document only; no page code execution.", DomInspectArguments),
             ("browser.page.click", "Click the unique visible HTML target using CSS and/or semantic conditions on an authorized page; hidden matches are ignored. Synthetic click does not guarantee navigation or business success.", ClickArguments),
             ("browser.page.fill", "Replace text in the unique visible matching input/textarea using native setters and input/change events; hidden matches are ignored. Does not submit forms.", FillArguments),
+            ("browser.page.double_click", "Dispatch two synthetic mouse click sequences and dblclick to one visible enabled target. May run single-click handlers twice; not trusted physical input. Observe state before retrying any uncertain outcome.", ClickArguments),
+            ("browser.page.hover", "Send synthetic pointer/mouse over, enter and move events to one visible enabled target. No real pointer movement, leave events or CSS :hover guarantee; handlers may change the page.", ClickArguments),
+            ("browser.page.focus", "Focus one visible enabled HTML target and verify activeElement. Does not add tabindex or force nonfocusable elements; focus handlers may have side effects.", ClickArguments),
+            ("browser.page.select", "Replace the selection of one native select using exact value/label/index option conditions. Validate every option before changes; reject missing, ambiguous or disabled options. Not custom ARIA dropdowns.", SelectArguments),
+            ("browser.page.set_checked", "Set an explicit native checkbox/radio state; matching calls are no-ops, otherwise click once and verify. Checked radios cannot be unchecked directly. Not custom ARIA checkbox widgets.", SetCheckedArguments),
+            ("browser.page.scroll", "Scroll an explicit page or unique visible enabled element by nonzero CSS pixel deltas, instantly. Never scrolls another container as fallback; reports observed movement, not lazy-load completion.", ScrollArguments),
+            ("browser.page.press_key", "Focus a unique visible enabled target, then dispatch synthetic keydown/keyup with optional modifier flags. No native typing, Tab traversal, Enter submission or browser shortcut guarantee. Password/read-only fields rejected; handlers may have side effects.", PressKeyArguments),
+            ("browser.page.wait_for", "Read-only bounded wait for a unique locator to be attached/detached/visible/hidden/enabled/disabled/actionable. actionable means visible enabled HTML, not business success or bypass of operation-specific protections. Hidden/detached allow absence, never stale refs. No click/scroll/focus/navigation; wait_timeout if unmet.", WaitForArguments),
         ):
             self.register(Capability(name, description, model, browser.execute,
                                      lambda name=name: browser.is_available(name)))
@@ -223,15 +332,19 @@ class CapabilityRegistry:
             raise ValueError("Invalid or duplicate capability name")
         self._entries[capability.name] = capability
 
-    def discover(self, query: str | None = None) -> dict[str, Any]:
+    def discover(self, query: str | None = None, detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
+        if detail not in ("summary", "full"):
+            return failure("invalid_arguments", "detail must be summary or full")
         keywords = (query or "").casefold().split()
-        return {"ok": True, "result": {"capabilities": [
-            {"name": entry.name, "description": entry.description,
-             "input_schema": entry.arguments.model_json_schema(), "available": entry.available(),
-             "result_contract": RESULT_CONTRACTS.get(entry.name, {})}
+        entries = [
+            {"name": entry.name, "description": entry.description, "available": entry.available(),
+             **({"input_schema": entry.arguments.model_json_schema(),
+                 "result_contract": RESULT_CONTRACTS.get(entry.name, {})} if detail == "full" else {})}
             for entry in self._entries.values()
             if all(word in f"{entry.name} {entry.description}".casefold() for word in keywords)
-        ], "conventions": USAGE_CONVENTIONS, "error_guidance": ERROR_GUIDANCE}}
+        ]
+        return {"ok": True, "result": {"capabilities": entries,
+                **({"conventions": USAGE_CONVENTIONS, "error_guidance": ERROR_GUIDANCE} if detail == "full" else {})}}
 
     async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         entry = self._entries.get(name)

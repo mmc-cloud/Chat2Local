@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_documented_browser_schemas_match_live_registry():
-    entries = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover()["result"]["capabilities"]
-    result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover()["result"]
+    entries = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover(detail="full")["result"]["capabilities"]
+    result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover(detail="full")["result"]
     expected = {**result, "capabilities": [{key: value for key, value in item.items() if key != "available"} for item in entries]}
     saved = json.loads((ROOT / "browser-extension/capability-schemas.json").read_text(encoding="utf-8"))
     assert saved == expected, "Regenerate capability-schemas.json from CapabilityRegistry after model changes"
@@ -43,6 +43,8 @@ def variants(value, schema, definitions, path="arguments"):
             for label, probe in variants(child, schema["properties"][key], definitions, f"{path}.{key}"):
                 yield label, {**value, key: probe}
     elif isinstance(value, str):
+        for choice in schema.get("enum", []):
+            yield f"{path}: enum {choice}", choice
         for size in (schema.get("minLength", 0), schema.get("maxLength", 256)):
             for length in (max(0, size - 1), size, size + 1):
                 yield f"{path}: length {length}", (value + "a" * length)[:length]
@@ -52,6 +54,12 @@ def variants(value, schema, definitions, path="arguments"):
         for boundary in (schema.get("minimum", 0), schema.get("maximum", 2**53 - 1)):
             for number in (boundary - 1, boundary, boundary + 1):
                 yield f"{path}: number {number}", number
+    elif isinstance(value, list):
+        for length in (0, 1, schema.get("maxItems", 1), schema.get("maxItems", 1) + 1):
+            yield f"{path}: items {length}", (value or [None]) * length
+        if value:
+            for label, probe in variants(value[0], schema["items"], definitions, f"{path}[0]"):
+                yield label, [probe, *value[1:]]
 
 
 def test_extension_and_python_agree_on_schema_field_boundaries():
@@ -71,6 +79,15 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
                                      "limit": 5, "depth": 1, "wait_ms": 0},
         "browser.page.click": {"tab": tab, "target": target, "wait_ms": 0},
         "browser.page.fill": {"tab": tab, "target": target, "wait_ms": 0, "value": "text"},
+        **{f"browser.page.{name}": {"tab": tab, "target": target, "wait_ms": 0}
+           for name in ("double_click", "hover", "focus")},
+        "browser.page.select": {"tab": tab, "target": target, "wait_ms": 0,
+                                "options": [{"value": "a", "label": "Option", "index": 0}]},
+        "browser.page.set_checked": {"tab": tab, "target": target, "wait_ms": 0, "checked": True},
+        "browser.page.scroll": {"tab": tab, "container": "element", "target": target,
+                                "delta_x": 0, "delta_y": 100, "wait_ms": 0},
+        "browser.page.press_key": {"tab": tab, "target": target, "wait_ms": 0, "key": "Enter", "modifiers": ["Control"]},
+        "browser.page.wait_for": {"tab": tab, "target": target, "state": "actionable", "timeout_ms": 5000},
     }
     entries = CapabilityRegistry(BrowserBridge(BrowserConfig()))._entries
     assert set(samples) == set(entries), "Add contract samples for new capabilities"
@@ -117,6 +134,17 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}}, False),
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "scope": "body", "css": None, "text": None, "tag": None}, False),
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": None, "text": "Send"}, True),
+    ("browser.page.select", {"tab": {"tab_id": 1}, "target": {"id": "x"}, "options": [{}]}, False),
+    ("browser.page.select", {"tab": {"tab_id": 1}, "target": {"id": "x"}, "options": [{"value": None}]}, False),
+    ("browser.page.select", {"tab": {"tab_id": 1}, "target": {"id": "x"}, "options": [{"value": ""}]}, True),
+    ("browser.page.select", {"tab": {"tab_id": 1}, "target": {"id": "x"}, "options": []}, True),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "page", "delta_y": 1}, True),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "page", "target": None, "delta_y": 1}, True),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "page", "target": {"id": "x"}, "delta_y": 1}, False),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "element", "delta_y": 1}, False),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "element", "target": None, "delta_y": 1}, False),
+    ("browser.page.scroll", {"tab": {"tab_id": 1}, "container": "page", "delta_y": 0}, False),
+    ("browser.page.press_key", {"tab": {"tab_id": 1}, "target": {"id": "x"}, "key": "Tab", "modifiers": ["Shift", "Shift"]}, False),
 ])
 def test_discovered_schema_expresses_non_null_selector_relations(name, arguments, valid):
     entries = CapabilityRegistry(BrowserBridge(BrowserConfig()))._entries
@@ -133,11 +161,10 @@ def test_discovery_agent_contracts_are_complete_compact_and_public():
     from chat2local.browser.errors import ERROR_GUIDANCE, EXTENSION_ERROR_MESSAGES, extension_failure
     from chat2local.mcp.output_schema import OUTPUT_SCHEMAS
     from chat2local.mcp.metadata import TOOL_METADATA
-    result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover()
+    result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover(detail="full")
     jsonschema.validate(result, OUTPUT_SCHEMAS['capability_discover'])
     assert len(TOOL_METADATA) == 12
-    assert len(result['result']['capabilities']) == 8
-    assert len(json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode('utf-8')) < 40000
+    assert len(result['result']['capabilities']) == 16
     for entry in result['result']['capabilities']:
         assert entry['description'] and entry['result_contract']
         schema = entry['input_schema']

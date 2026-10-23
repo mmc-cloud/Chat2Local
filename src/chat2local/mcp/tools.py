@@ -285,10 +285,11 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
                  annotations=annotations_for("capability_discover"))
     async def capability_discover_tool(
         query: Annotated[StrictStr | None, Field(description=TOOL_METADATA["capability_discover"]["params"]["query"], max_length=256)] = None,
+        detail: Annotated[Literal["summary", "full"], Field(description=TOOL_METADATA["capability_discover"]["params"]["detail"])] = "summary",
         device: Annotated[str | None, Field(description=TOOL_METADATA["capability_discover"]["params"]["device"])] = None,
     ) -> dict[str, Any]:
         try:
-            return await (router or get_router()).execute("capability_discover", {"query": query}, device)
+            return await (router or get_router()).execute("capability_discover", {"query": query, "detail": detail}, device)
         except DeviceError:
             return failure("device_unavailable", "Selected device is unavailable; use list_devices")
         except (WorkspaceError, ToolExecutionError):

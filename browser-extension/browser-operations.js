@@ -1,7 +1,9 @@
 /* Packaged operations only. CSS selectors select DOM nodes, never execute code. */
 (() => {
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
-    "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"];
+    "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
+    "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
+    "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"];
   const targetKeys = ["ref", "role", "name", "aria_label", "label", "placeholder", "href", "text", "id", "css"];
   const allWebsiteOrigins = ["http://*/*", "https://*/*"];
   const fail = (code, details) => ({ ok: false, error: { code, ...(details ? { details } : {}) } });
@@ -26,6 +28,12 @@
       && Object.entries(target).every(([key, value]) => key === "ref" ? text(value, 128) && /^el_[A-Za-z0-9_-]+$/.test(value)
         : text(value, key === "css" ? 1024 : key === "href" ? 8192 : key === "role" ? 64 : 256));
   }
+  function validOption(option) {
+    return keys(option, ["value", "label", "index"]) && Object.keys(option).length > 0
+      && optional(option.value, (v) => typeof v === "string" && Array.from(v).length <= 256)
+      && optional(option.label, (v) => typeof v === "string" && Array.from(v).length <= 256)
+      && optional(option.index, (v) => integer(v, 0, 9999));
+  }
   function validArguments(name, args) {
     if (name === "browser.tabs.create") return keys(args, ["url"]) && validUrl(args.url);
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
@@ -41,12 +49,30 @@
       && optional(args.tag, (v) => text(v, 64) && /^[a-zA-Z][a-zA-Z0-9-]*$/.test(v))
       && optional(args.limit, (v) => integer(v, 1, 10)) && optional(args.depth, (v) => integer(v, 0, 3))
       && optional(args.wait_ms, (v) => integer(v, 0, 5000));
+    if (name === "browser.page.wait_for") return keys(args, ["tab", "target", "state", "timeout_ms"])
+      && validTab(args.tab) && validTarget(args.target)
+      && optional(args.state, (v) => ["attached", "detached", "visible", "hidden", "enabled", "disabled", "actionable"].includes(v))
+      && optional(args.timeout_ms, (v) => integer(v, 0, 10000));
+    if (name === "browser.page.scroll") return keys(args, ["tab", "container", "target", "delta_x", "delta_y", "wait_ms"])
+      && validTab(args.tab) && ["page", "element"].includes(args.container)
+      && (args.container === "element" ? validTarget(args.target) : args.target === undefined)
+      && optional(args.delta_x, (v) => integer(v, -100000, 100000))
+      && optional(args.delta_y, (v) => integer(v, -100000, 100000))
+      && ((args.delta_x ?? 0) !== 0 || (args.delta_y ?? 0) !== 0)
+      && optional(args.wait_ms, (v) => integer(v, 0, 5000));
     const inspect = name === "browser.page.inspect", fill = name === "browser.page.fill";
-    return keys(args, ["tab", "target", "wait_ms", ...(inspect ? ["limit"] : []), ...(fill ? ["value"] : [])])
+    const select = name === "browser.page.select", checked = name === "browser.page.set_checked", key = name === "browser.page.press_key";
+    return keys(args, ["tab", "target", "wait_ms", ...(inspect ? ["limit"] : []), ...(fill ? ["value"] : []),
+      ...(select ? ["options"] : []), ...(checked ? ["checked"] : []), ...(key ? ["key", "modifiers"] : [])])
       && validTab(args.tab) && (inspect ? optional(args.target, validTarget) : validTarget(args.target))
       && optional(args.wait_ms, (v) => integer(v, 0, 5000))
       && (!inspect || optional(args.limit, (v) => integer(v, 1, 20)))
-      && (!fill || (typeof args.value === "string" && Array.from(args.value).length <= 8192));
+      && (!fill || (typeof args.value === "string" && Array.from(args.value).length <= 8192))
+      && (!select || (Array.isArray(args.options) && args.options.length <= 50 && args.options.every(validOption)))
+      && (!checked || typeof args.checked === "boolean")
+      && (!key || (text(args.key, 13) && /^(Enter|Tab|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown|Backspace|Delete|Space|[a-zA-Z0-9])$/.test(args.key)
+        && optional(args.modifiers, (v) => Array.isArray(v) && v.length <= 4 && new Set(v).size === v.length
+          && v.every((item) => ["Alt", "Control", "Meta", "Shift"].includes(item)))));
   }
   const summary = (tab) => ({ tab_id: tab.id, window_id: tab.windowId,
     title: Chat2LocalSafety.text(tab.title, 200).text, url: Chat2LocalSafety.url(tab.url).url });
@@ -181,6 +207,15 @@
         if (finalTab.url !== tab.url || finalTab.pendingUrl || !matches(finalTab, args.tab)) return fail("page_changed");
         if (Date.now() >= expiresAt) return fail("request_expired");
         return { ok: true, result: { tab: { ...summary(finalTab), url: read.result.page.url, title: read.result.page.title }, ...read.result } };
+      }
+      if (result.ok && !["browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"].includes(name)) {
+        // Phase 3 results are observations, not a promise of business success.
+        // Recheck consent/selection even after an action; failure here never replays it.
+        if (!await authorized(tab.url)) return fail("permission_denied");
+        const finalTab = await chrome.tabs.get(tab.id);
+        if (finalTab.url !== tab.url || finalTab.pendingUrl || !matches(finalTab, args.tab)) return fail("page_changed");
+        if (Date.now() >= expiresAt) return fail("request_expired");
+        return { ok: true, result: { tab: summary(finalTab), ...result.result } };
       }
       return result.ok ? { ok: true, result: { tab: summary(current), ...result.result } } : result;
     } catch {

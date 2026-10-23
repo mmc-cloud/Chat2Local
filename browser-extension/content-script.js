@@ -10,7 +10,7 @@
     + '[role="checkbox"],[role="radio"],[role="combobox"],[role="switch"],[role="menuitem"],[role="tab"],[role="option"]';
   const protectedTags = 'input,textarea,select,option,script,style,template,noscript,iframe,object,embed,[contenteditable]:not([contenteditable="false"])';
   const secretHint = /password|passwd|token|secret|cookie|authorization|api[-_]?key|csrf|session[-_]?id|one[-_]?time|cc-number/i;
-  class QueryError extends Error { constructor(code) { super(code); this.code = code; } }
+  class QueryError extends Error { constructor(code, details) { super(code); this.code = code; this.details = details; } }
   // Document-local weak references: any DOM mutation invalidates all issued refs.
   // No node attributes are added and no page content or strong node cache is kept.
   const refDocument = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -427,33 +427,210 @@
     return { ok: true, result: { page, overview, blocks, truncated } };
   }
   const validDocument = (message) => location.href === message.expected_url;
+  function checkRequest(message) {
+    if (!validDocument(message)) throw new QueryError("page_changed");
+    if (Date.now() >= message.expires_at) throw new QueryError("request_expired");
+  }
+  async function authorize(message) {
+    const authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
+      expected_url: message.expected_url, tab: message.arguments.tab });
+    if (authorization?.ok !== true) throw new QueryError(authorization?.error?.code === "page_changed" ? "page_changed" : "permission_denied");
+    checkRequest(message);
+  }
+  const pause = (deadline) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(50, deadline - Date.now()))));
+  async function findWithWait(message, find) {
+    const deadline = Math.min(message.expires_at - 100, Date.now() + (message.arguments.wait_ms || 0));
+    do {
+      checkRequest(message);
+      const elements = find();
+      if (elements.length || Date.now() >= deadline) return elements;
+      await pause(deadline);
+    } while (true);
+  }
+  function actionGuard(message, element) {
+    const { arguments: args, operation } = message;
+    // Once our first event is sent, pin the resolved node. Own handlers may
+    // invalidate public refs; never re-resolve a stale ref or switch nodes.
+    // Before that point (including scroll/focus preparation), validate the ref.
+    const { ref, ...conditions } = args.target;
+    return (eventsStarted = false) => {
+      checkRequest(message);
+      if (!element.isConnected) throw new QueryError("stale_target");
+      const current = eventsStarted && ref
+        ? (matches(element, conditions, textBudget(message.expires_at)) ? [element] : [])
+        : candidates(args.target, message.expires_at);
+      if (!current.includes(element)) throw new QueryError("stale_target");
+      if (!visible(element)) throw new QueryError("target_hidden");
+      const eligible = current.filter(visible);
+      if (eligible.length !== 1) throw new QueryError("ambiguous_target", { candidates: eligible.slice(0, 5).map(summary) });
+      if (disabled(element)) throw new QueryError("target_disabled");
+      if (!(element instanceof HTMLElement)) throw new QueryError("unsupported_element");
+      if (["fill", "press_key", "select", "set_checked"].includes(operation)) {
+        if (element.localName === "input" && element.type === "password") throw new QueryError("protected_input");
+        if (element.readOnly || element.getAttribute("aria-readonly") === "true") throw new QueryError("target_readonly");
+      }
+      if (operation === "fill" && !(element instanceof HTMLTextAreaElement) && !(element instanceof HTMLInputElement
+        && ["text", "search", "email", "url", "tel"].includes(element.type))) throw new QueryError("unsupported_element");
+      if (operation === "select" && !(element instanceof HTMLSelectElement)) throw new QueryError("unsupported_element");
+      if (operation === "set_checked") {
+        if (!(element instanceof HTMLInputElement) || !["checkbox", "radio"].includes(element.type)) throw new QueryError("unsupported_element");
+        if (element.type === "radio" && element.checked && !args.checked) throw new QueryError("unsupported_state");
+      }
+      checkRequest(message);
+    };
+  }
+  function nativeOptions(element) {
+    if (element.options.length > 10000) throw new QueryError("page_too_large");
+    return [...element.options];
+  }
+  function selectOptions(element, selectors, expiresAt) {
+    const options = nativeOptions(element);
+    if (!element.multiple && selectors.length !== 1) throw new QueryError("invalid_arguments");
+    const selected = selectors.map((selector) => {
+      const pool = selector.index === undefined ? options : options.slice(selector.index, selector.index + 1);
+      const found = pool.filter((option) => {
+        if (Date.now() >= expiresAt) throw new QueryError("request_expired");
+        if (selector.value !== undefined && selector.value !== option.value) return false;
+        if (selector.label === undefined) return true;
+        const label = option.label;
+        if (label.length > 65536) throw new QueryError("page_too_large");
+        return normalize(selector.label) === normalize(label);
+      });
+      if (!found.length) throw new QueryError("option_not_found");
+      if (found.length !== 1) throw new QueryError("ambiguous_option");
+      if (disabled(found[0]) || found[0].closest("optgroup[disabled]")) throw new QueryError("option_disabled");
+      return found[0];
+    });
+    if (new Set(selected).size !== selected.length) throw new QueryError("invalid_arguments");
+    return selected;
+  }
+  function dispatchSequence(element, events, check) {
+    for (const event of events) {
+      check(true);
+      element.dispatchEvent(event);
+    }
+    check(true);
+  }
+  function mouseEvents(element, operation) {
+    const rect = element.getBoundingClientRect();
+    const options = { bubbles: true, cancelable: true, composed: true, view: window, button: 0,
+      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+    if (operation === "double_click") return [1, 2].flatMap((detail) => [
+      new MouseEvent("mousedown", { ...options, buttons: 1, detail }),
+      new MouseEvent("mouseup", { ...options, buttons: 0, detail }),
+      new MouseEvent("click", { ...options, buttons: 0, detail }),
+    ]).concat(new MouseEvent("dblclick", { ...options, buttons: 0, detail: 2 }));
+    const pointer = (type, bubbles) => new PointerEvent(type, { ...options, bubbles, composed: bubbles,
+      cancelable: bubbles, pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 0 });
+    return [pointer("pointerover", true), pointer("pointerenter", false),
+      new MouseEvent("mouseover", options), new MouseEvent("mouseenter", { ...options, bubbles: false, composed: false, cancelable: false }),
+      pointer("pointermove", true), new MouseEvent("mousemove", options)];
+  }
+  function pressKey(element, args, check) {
+    const key = args.key === "Space" ? " " : args.key;
+    const code = /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : /^\d$/.test(key) ? `Digit${key}` : args.key;
+    const modifiers = args.modifiers || [];
+    const options = { key, code, bubbles: true, cancelable: true, composed: true, repeat: false,
+      altKey: modifiers.includes("Alt"), ctrlKey: modifiers.includes("Control"),
+      metaKey: modifiers.includes("Meta"), shiftKey: modifiers.includes("Shift") };
+    const events = [new KeyboardEvent("keydown", options), new KeyboardEvent("keyup", options)];
+    dispatchSequence(element, events, (started) => {
+      check(started);
+      if (document.activeElement !== element) throw new QueryError("state_not_reached");
+    });
+    return { keydown: events[0].defaultPrevented, keyup: events[1].defaultPrevented };
+  }
+  async function waitForState(message) {
+    const { target, state = "visible", timeout_ms = 5000 } = message.arguments;
+    const start = Date.now(), requestedDeadline = start + timeout_ms;
+    const deadline = Math.min(message.expires_at, requestedDeadline);
+    const observe = () => {
+      checkRequest(message);
+      const elements = candidates(target, message.expires_at);
+      if (elements.length > 1) throw new QueryError("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
+      const element = elements[0];
+      const matched = state === "detached" ? !element : state === "hidden" ? !element || !visible(element)
+        : !element ? false : state === "attached" ? true : state === "visible" ? visible(element)
+        : state === "actionable" ? element instanceof HTMLElement && visible(element) && !disabled(element)
+        : state === "disabled" ? disabled(element) : !disabled(element);
+      checkRequest(message);
+      return { element, matched, at: Date.now() };
+    };
+    // Record an immediate observation before any async consent lookup. Later
+    // observations can qualify only strictly before the wait deadline; for 0,
+    // only this first observation can qualify. Consent latency is not a wait.
+    const qualify = (previous, observed, initial = false) => {
+      if (!observed.matched) return null;
+      if (previous && previous.element === observed.element) return previous;
+      return (timeout_ms === 0 ? initial : observed.at < deadline) ? observed : null;
+    };
+    let observed, initialError;
+    try { observed = observe(); } catch (error) { initialError = error; }
+    await authorize(message);
+    if (initialError) throw initialError;
+    let qualified = qualify(null, observed, true);
+    observed = observe();
+    qualified = qualify(qualified, observed);
+    let lastAuthorization = Date.now();
+    do {
+      if (qualified || timeout_ms === 0 || Date.now() >= deadline || Date.now() - lastAuthorization >= 250) {
+        // Revalidate consent, the full selector and current state, but never
+        // promote a late new match (or replacement node) into an on-time match.
+        await authorize(message);
+        lastAuthorization = Date.now();
+        observed = observe();
+        qualified = qualify(qualified, observed);
+        if (qualified) {
+          const result = { status: "matched", state, target: observed.element ? summary(observed.element) : null, elapsed_ms: Date.now() - start };
+          checkRequest(message);
+          return { ok: true, result };
+        }
+        if (timeout_ms === 0 || Date.now() >= deadline) throw new QueryError("wait_timeout");
+      }
+      await pause(deadline);
+      observed = observe();
+      qualified = qualify(null, observed);
+    } while (true);
+  }
+  function scroll(message, element, check) {
+    const args = message.arguments, page = args.container === "page";
+    if (page) element = document.scrollingElement;
+    if (!(element instanceof HTMLElement)) throw new QueryError("unsupported_element");
+    check();
+    const dx = args.delta_x || 0, dy = args.delta_y || 0;
+    if (!page) {
+      const style = getComputedStyle(element), overflow = (value) => ["auto", "scroll", "overlay"].includes(value);
+      if ((dx && (!overflow(style.overflowX) || element.scrollWidth <= element.clientWidth))
+        || (dy && (!overflow(style.overflowY) || element.scrollHeight <= element.clientHeight))) throw new QueryError("target_not_scrollable");
+    }
+    const position = () => ({ x: element.scrollLeft, y: element.scrollTop });
+    const target = page ? null : summary(element), before = position();
+    element.scrollBy({ left: dx, top: dy, behavior: "instant" });
+    check(true);
+    const after = position();
+    return { ok: true, result: { status: "scrolled", container: args.container, target, before, after,
+      changed: before.x !== after.x || before.y !== after.y } };
+  }
   async function perform(message) {
     const args = message.arguments;
-    if (!args || !["read", "inspect", "dom.inspect", "click", "fill"].includes(message.operation)) return fail("invalid_arguments");
+    if (!args || !["read", "inspect", "dom.inspect", "click", "fill", "double_click", "hover", "focus", "select",
+      "set_checked", "scroll", "press_key", "wait_for"].includes(message.operation)) return fail("invalid_arguments");
+    if (message.operation === "wait_for") return waitForState(message);
+    if (message.operation === "scroll" && args.container === "page") {
+      await authorize(message);
+      return scroll(message, null, () => checkRequest(message));
+    }
     const reading = message.operation === "read", domInspect = message.operation === "dom.inspect";
     const inspect = reading || domInspect || message.operation === "inspect";
     const find = () => reading ? [] : domInspect ? domCandidates(args, message.expires_at).elements : candidates(args.target, message.expires_at);
-    const deadline = Math.min(message.expires_at - 100, Date.now() + (args.wait_ms || 0));
-    let elements;
-    do {
-      if (!validDocument(message)) return fail("page_changed");
-      if (Date.now() >= message.expires_at) return fail("request_expired");
-      elements = find();
-      if (elements === null) return fail("page_too_large");
-      if (elements.length || Date.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(50, deadline - Date.now())));
-    } while (true);
+    let elements = await findWithWait(message, find);
     if (!elements.length && (args.target || domInspect || !inspect)) return fail("target_not_found");
     if (!inspect) {
       elements = elements.filter(visible);
       if (!elements.length) return fail("target_hidden");
     }
     // Recheck permission after waiting; revocation must not leave a usable listener.
-    const authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
-      expected_url: message.expected_url, tab: args.tab });
-    if (authorization?.ok !== true) return fail(authorization?.error?.code === "page_changed" ? "page_changed" : "permission_denied");
-    if (!validDocument(message)) return fail("page_changed");
-    if (Date.now() >= message.expires_at) return fail("request_expired");
+    await authorize(message);
     if (!inspect && elements.length !== 1) return fail("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
     if (inspect) {
       if (reading) {
@@ -478,37 +655,62 @@
         total: elements.length, truncated: elements.length > (args.limit ?? 20) || summaries.some((item) => item.truncated) } };
     }
     const element = elements[0];
-    const check = () => {
-      if (!validDocument(message)) return fail("page_changed");
-      if (Date.now() >= message.expires_at) return fail("request_expired");
-      const current = candidates(args.target, message.expires_at);
-      if (current === null) return fail("page_too_large");
-      if (!element.isConnected || !current.includes(element)) return fail("stale_target");
-      if (!visible(element)) return fail("target_hidden");
-      const visibleMatches = current.filter(visible);
-      if (visibleMatches.length !== 1) return fail("ambiguous_target", { candidates: visibleMatches.slice(0, 5).map(summary) });
-      if (disabled(element)) return fail("target_disabled");
-      if (message.operation === "click" && !(element instanceof HTMLElement)) return fail("unsupported_element");
-      if (message.operation === "fill") {
-        if (element.localName === "input" && element.type === "password") return fail("protected_input");
-        if (element.readOnly || element.getAttribute("aria-readonly") === "true") return fail("target_readonly");
-        if (!(element instanceof HTMLTextAreaElement) && !(element instanceof HTMLInputElement
-          && ["text", "search", "email", "url", "tel"].includes(element.type))) return fail("unsupported_element");
-      }
-      return null;
-    };
-    let error = check();
-    if (error) return error;
+    const check = actionGuard(message, element);
+    check();
+    if (message.operation === "scroll") return scroll(message, element, check);
+    if (message.operation === "set_checked" && element.checked === args.checked) {
+      return { ok: true, result: { status: "checked", target: summary(element), checked: args.checked, changed: false, event_is_trusted: false } };
+    }
+    const options = message.operation === "select" ? selectOptions(element, args.options, message.expires_at) : null;
+    check();
     element.scrollIntoView?.({ block: "center", inline: "nearest" });
-    error = check();
-    if (error) return error;
-    element.focus(); // Does not add tabindex or change custom controls' focusability.
-    error = check();
-    if (error) return error;
+    check();
+    if (message.operation !== "hover") {
+      // Preserve Phase 2 focus behavior; new actions avoid an implicit second scroll.
+      if (["click", "fill"].includes(message.operation)) element.focus();
+      else element.focus({ preventScroll: true });
+      check();
+    }
     const target = summary(element);
     if (message.operation === "click") {
       element.click();
       return { ok: true, result: { status: "clicked", target, event_is_trusted: false, navigation_waited: false } };
+    }
+    if (["double_click", "hover"].includes(message.operation)) {
+      dispatchSequence(element, mouseEvents(element, message.operation), check);
+      return { ok: true, result: { status: message.operation === "hover" ? "hovered" : "double_clicked", target,
+        event_is_trusted: false, ...(message.operation === "hover" ? { css_hover_guaranteed: false } : { navigation_waited: false }) } };
+    }
+    if (message.operation === "focus") {
+      if (document.activeElement !== element) throw new QueryError("state_not_reached");
+      return { ok: true, result: { status: "focused", target } };
+    }
+    if (message.operation === "press_key") {
+      const default_prevented = pressKey(element, args, check);
+      return { ok: true, result: { status: "key_pressed", target, event_is_trusted: false, default_prevented } };
+    }
+    if (message.operation === "set_checked") {
+      // Focus handlers may already have achieved the desired state.
+      const changed = element.checked !== args.checked;
+      if (changed) element.click();
+      check(true);
+      if (element.checked !== args.checked) throw new QueryError("state_not_reached");
+      return { ok: true, result: { status: "checked", target, checked: element.checked, changed, event_is_trusted: false } };
+    }
+    if (message.operation === "select") {
+      const current = selectOptions(element, args.options, message.expires_at);
+      if (current.length !== options.length || current.some((option, index) => option !== options[index])) throw new QueryError("stale_target");
+      const wanted = new Set(options);
+      const selected = () => nativeOptions(element).filter((option) => option.selected);
+      const satisfied = () => selected().length === wanted.size && selected().every((option) => wanted.has(option));
+      const changed = !satisfied();
+      if (changed) {
+        if (!element.multiple) Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex").set.call(element, options[0].index);
+        else for (const option of element.options) Object.getOwnPropertyDescriptor(HTMLOptionElement.prototype, "selected").set.call(option, wanted.has(option));
+        dispatchSequence(element, [new Event("input", { bubbles: true, composed: true }), new Event("change", { bubbles: true, composed: true })], check);
+      }
+      if (!satisfied()) throw new QueryError("state_not_reached");
+      return { ok: true, result: { status: "selected", target, changed, selected_count: selected().length } };
     }
     const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, args.value);
@@ -519,7 +721,8 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (sender.id !== chrome.runtime.id || message?.type !== "chat2local.dom") return false;
     if (window !== window.top) { sendResponse(fail("unsupported_page")); return false; }
-    void perform(message).then(sendResponse, (error) => sendResponse(fail(error instanceof QueryError ? error.code : "browser_operation_failed")));
+    void perform(message).then(sendResponse, (error) => sendResponse(error instanceof QueryError
+      ? fail(error.code, error.details) : fail("browser_operation_failed")));
     return true;
   });
 })();

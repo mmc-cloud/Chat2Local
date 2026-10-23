@@ -1,5 +1,7 @@
 # Browser Use Phase 2 — 网页交互
 
+本文保留 Phase 2 的能力基线与历史验收；当前 Phase 3 的八项新增 DOM 操作及最新 16 能力契约见 [PHASE3.md](PHASE3.md)。
+
 沿用第一阶段的 12 个 MCP Tool、设备路由、独立凭据和 Origin 校验。
 生产环境不新增后台进程；扩展仍为原生 JavaScript，无需 npm 构建即可安装。
 Chat2Local 现在独立负责网页读取、定位、执行和结果观察，不再将官方 ChatGPT Chrome 插件作为必要依赖。
@@ -12,7 +14,7 @@ Chat2Local 现在独立负责网页读取、定位、执行和结果观察，不
 2. 打开扩展选项，在“网页操作授权”填写一个 HTTP(S) 网站地址，点击“授权此网站”，手动确认 Chrome 提示。
    也可以点击“授权所有网站”，一次授予普通 HTTP/HTTPS 网站访问权限。
    必须由真实用户点击触发 `chrome.permissions.request`；MCP 没有授权入口。
-3. 对目标设备调用 `capability_discover`，query 为 `browser`。
+3. 对目标设备调用 `capability_discover`，query 为 `browser`，默认 summary；再用具体能力名和 `detail: "full"` 查询完整定义。
 4. 按需使用 `tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
    不要求每次调用全部接口；始终保留同一个 `device`。
 
@@ -33,8 +35,8 @@ Chat2Local 现在独立负责网页读取、定位、执行和结果观察，不
 ## Capability 与 Schema
 
 完整、可机读的参数 Schema 见 [capability-schemas.json](capability-schemas.json)，运行中的
-`capability_discover` 是当前版本的权威来源。所有模型拒绝额外字段，数字、字符串使用严格类型。
-发现结果的每项现在包含 `result_contract`（成功 result 内字段到含义的精简映射，不是输出 JSON Schema）；
+`capability_discover(detail="full")` 是当前版本完整契约的权威来源，默认 summary 仅返回概览。所有模型拒绝额外字段，数字、字符串使用严格类型。
+full 发现结果的每项包含 `result_contract`（成功 result 内字段到含义的精简映射，不是输出 JSON Schema）；
 顶层 `result.conventions` 说明结果封装、安全引用、展示字段和重试规则，`result.error_guidance` 按错误码提供恢复指导，
 两者共享一份，不在 8 个能力中重复复制。`capability-schemas.json` 导出同样的结构，省略运行时 `available`。
 参数 JSON Schema 使用标准 anyOf + required + 非 null 条件表达 TabSelector、ElementTarget、DOM 查询的组合约束；

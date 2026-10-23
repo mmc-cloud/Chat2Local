@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Chat2Local Phase 3 Fixture</title>
+<style>
+  body { font: 16px sans-serif; margin: 24px; }
+  section { margin: 16px 0; }
+  #scroll-box { overflow: auto; width: 300px; height: 100px; border: 1px solid; }
+  #scroll-content { height: 700px; width: 600px; }
+  #hover:hover { background: red; }
+</style><body>
+<h1>Controlled Phase 3 DOM interactions</h1>
+<section><button id="double">Double</button> <output id="double-result">0:0</output>
+  <button id="hover">Hover</button> <output id="hover-result">idle</output>
+  <button id="replace">Replace double target</button></section>
+<section><label>Keys <input id="keys"></label><input id="next" aria-label="Next input">
+  <output id="key-result">idle</output></section>
+<section><label>Single choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option>
+  <option value="same">Duplicate</option><option value="same">Duplicate</option><option disabled>Disabled</option></select></label>
+  <output id="choice-result">a</output>
+  <select id="multi" aria-label="Multiple choice" multiple><option value="a">Alpha</option><option value="b">Beta</option></select>
+  <input id="check" type="checkbox" aria-label="Check"><output id="check-result">false</output>
+  <label>Radio one <input id="radio-one" type="radio" name="group" checked></label>
+  <label>Radio two <input id="radio-two" type="radio" name="group"></label></section>
+<section><div id="scroll-box"><div id="scroll-content">Explicit scroll container</div></div></section>
+<section><button id="add-later">Add later</button><button id="hide-later">Hide later</button>
+  <button id="disable-later">Disable later</button><button id="enable-later">Enable later</button>
+  <button id="remove-later">Remove later</button><div id="dynamic"></div></section>
+<section><h2>Actual framework models</h2><div id="react"></div><div id="vue"></div></section>
+<div style="height:1200px">Page scroll space</div>
+<script src="/assets/react.js"></script><script src="/assets/react-dom.js"></script><script src="/assets/vue.js"></script>
+<script>
+const $ = (selector) => document.querySelector(selector);
+let clicks = 0, doubles = 0;
+$('#double').addEventListener('click', () => { $('#double-result').textContent = `${++clicks}:${doubles}`; });
+$('#double').addEventListener('dblclick', () => { $('#double-result').textContent = `${clicks}:${++doubles}`; });
+$('#hover').addEventListener('mouseenter', () => { $('#hover-result').textContent = 'hovered'; });
+$('#replace').addEventListener('click', () => { const element = $('#double'); element.replaceWith(element.cloneNode(true)); });
+$('#keys').addEventListener('keydown', (event) => {
+  event.preventDefault();
+  $('#key-result').textContent = `${event.ctrlKey ? 'Control+' : ''}${event.key}`;
+});
+$('#choice').addEventListener('change', (event) => { $('#choice-result').textContent = event.target.value; });
+$('#check').addEventListener('change', (event) => { $('#check-result').textContent = String(event.target.checked); });
+$('#add-later').addEventListener('click', () => setTimeout(() => { $('#dynamic').innerHTML = '<button id="later">Later</button>'; }, 100));
+for (const [button, change] of [ ['hide-later', () => { $('#later').hidden = true; }],
+  ['disable-later', () => { $('#later').disabled = true; }], ['enable-later', () => { $('#later').disabled = false; }],
+  ['remove-later', () => { $('#later').remove(); }] ]) $("#" + button).addEventListener('click', () => setTimeout(change, 100));
+function Controls() {
+  const [checked, setChecked] = React.useState(false), [value, setValue] = React.useState('a');
+  return React.createElement('section', null,
+    React.createElement('input', { id: 'react-check', type: 'checkbox', checked, onChange: e => setChecked(e.target.checked) }),
+    React.createElement('select', { id: 'react-choice', value, onChange: e => setValue(e.target.value) },
+      ...['a', 'b'].map(item => React.createElement('option', { key: item, value: item }, item))),
+    React.createElement('output', { id: 'react-state' }, `${checked}:${value}`));
+}
+ReactDOM.createRoot($('#react')).render(React.createElement(Controls));
+Vue.createApp({ data: () => ({ checked: false, value: ['a'] }),
+  template: '<input id="vue-check" type="checkbox" v-model="checked"><select id="vue-choice" multiple v-model="value"><option value="a">a</option><option value="b">b</option></select><output id="vue-state">{{checked}}:{{value.join(",")}}</output>' }).mount('#vue');
+</script></body></html>

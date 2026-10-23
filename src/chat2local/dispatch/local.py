@@ -45,6 +45,7 @@ class _WorkspaceArguments(_Arguments):
 
 class CapabilityDiscoverArguments(_Arguments):
     query: str | None = Field(default=None, max_length=256)
+    detail: Literal["summary", "full"] = "summary"
 
 
 class CapabilityExecuteArguments(_Arguments):
@@ -191,8 +192,8 @@ class LocalToolDispatcher:
         try:
             args = CapabilityDiscoverArguments.model_validate(arguments)
         except ValidationError:
-            return failure("invalid_arguments", "Expected an optional query string")
-        return self.capabilities.discover(args.query)
+            return failure("invalid_arguments", "Expected an optional query string and detail=summary or full")
+        return self.capabilities.discover(args.query, args.detail)
 
     async def _capability_execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         try:

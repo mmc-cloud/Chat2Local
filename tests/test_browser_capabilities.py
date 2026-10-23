@@ -48,6 +48,9 @@ def test_discovery_and_unknown_unavailable_are_distinct(tmp_path):
             entries = result["result"]["capabilities"]
             assert len(entries) == 1
             assert entries[0]["name"] == CAPABILITY and entries[0]["available"] is False
+            assert set(entries[0]) == {"name", "description", "available"}
+            result = await local.execute("capability_discover", {"query": query, "detail": "full"})
+            entries = result["result"]["capabilities"]
             schema = entries[0]["input_schema"]
             assert schema["required"] == ["url"] and schema["additionalProperties"] is False
         assert (await local.execute("capability_discover", {"query": "browser.page.unknown"}))["result"]["capabilities"] == []
@@ -63,6 +66,7 @@ def test_discovery_and_unknown_unavailable_are_distinct(tmp_path):
 @pytest.mark.parametrize("tool,args", [
     ("capability_discover", {"query": 1}), ("capability_discover", {"query": "x" * 257}),
     ("capability_discover", {"extra": True}), ("capability_execute", {}),
+    *[("capability_discover", {"detail": detail}) for detail in (None, "", "FULL", "verbose", True, 1, [], {})],
     ("capability_execute", {"capability": CAPABILITY}),
     ("capability_execute", {"capability": CAPABILITY, "arguments": []}),
     ("capability_execute", {"capability": CAPABILITY, "arguments": {}, "device": "other"}),
@@ -86,11 +90,12 @@ def test_mcp_public_schemas_and_failure_envelopes(tmp_path):
     async def scenario():
         tools = {tool.name: tool for tool in await server.list_tools()}
         assert len(tools) == 12
-        assert set(tools["capability_discover"].input_schema["properties"]) == {"query", "device"}
+        assert set(tools["capability_discover"].input_schema["properties"]) == {"query", "detail", "device"}
         assert set(tools["capability_execute"].input_schema["properties"]) == {"capability", "arguments", "device"}
         assert tools["capability_execute"].input_schema["required"] == ["capability", "arguments"]
         for tool, args in (
             ("capability_discover", {}), ("capability_discover", {"device": "offline"}),
+            ("capability_discover", {"detail": "full"}),
             ("capability_execute", {"capability": "unknown", "arguments": {}}),
             ("capability_execute", {"capability": CAPABILITY, "arguments": {}}),
             ("capability_execute", {"capability": CAPABILITY, "arguments": {"url": "https://example.com"}}),

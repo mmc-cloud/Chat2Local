@@ -94,5 +94,5 @@ def test_public_surface_remains_twelve_and_capability_schemas_valid(tmp_path):
     from chat2local.browser.bridge import BrowserBridge
     jsonschema = pytest.importorskip('jsonschema')
     assert len(run(create_mcp_server().list_tools())) == 12
-    for entry in CapabilityRegistry(BrowserBridge(browser_config(tmp_path))).discover()['result']['capabilities']:
+    for entry in CapabilityRegistry(BrowserBridge(browser_config(tmp_path))).discover(detail="full")['result']['capabilities']:
         jsonschema.Draft202012Validator.check_schema(entry['input_schema'])

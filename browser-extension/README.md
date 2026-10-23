@@ -1,11 +1,12 @@
 # Chat2Local Browser Use
 
-可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择、独立网页读取与分段续读，以及授权网页的 inspect/click/fill、局部 DOM 只读探查与 CSS 自定义控件定位。
+可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择、独立网页读取与分段续读，以及授权网页的 DOM 定位、点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键与状态等待。
 **Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
 推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
-公共 MCP Tool 保持 12 个；浏览器能力为 8 个，统一通过 capability_discover / capability_execute 调用。
+公共 MCP Tool 保持 12 个；浏览器能力为 16 个，统一通过 capability_discover / capability_execute 调用。
 第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
-发现结果同时提供各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`，说明成功字段、隐私展示及错误恢复。
+第三阶段八项 DOM 交互的参数、事件限制、错误与测试记录见 [PHASE3.md](PHASE3.md)。
+能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
 读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
 任意 DOM 变更会使旧 ref 失效，返回 stale_target 后重新观察，不自动回退位置型 CSS。
 分页内容版本排除临时 ref：可读内容未变时仍可续读，并返回当前 ref；真正内容变化或导航仍使旧游标失效。
@@ -58,12 +59,20 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
 ```json
 {
   "device": "laptop",
-  "query": "browser.tabs.create"
+  "query": "browser",
+  "detail": "summary"
 }
 ```
 
 将以上参数传给 `capability_discover`。也支持 `"query": "Chrome tab"` 等大小写不敏感的关键词，
-多个词全部匹配；省略 query 返回全部已知能力。结果节选示例（Schema、共享指导和返回契约只展示部分字段）：
+多个词全部匹配；省略 query 返回全部已知能力。detail 默认 summary，每项仅含 name、description、available，
+不返回完整 Schema、结果契约或公共错误说明。选中能力后，用同一 device 请求 full：
+
+```json
+{"device":"laptop","query":"browser.tabs.create","detail":"full"}
+```
+
+full 结果节选示例（Schema、共享指导和返回契约只展示部分字段）：
 
 ```json
 {
@@ -80,13 +89,15 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
       },
       "available": true,
       "result_contract": {"tab_id":"integer: native Chrome tab ID for subsequent calls."}
-    }]
+    }],
+    "conventions": {"retry":"Observe actual state before retrying an uncertain action."},
+    "error_guidance": {"stale_target":"Obtain a fresh ref by observing again."}
   }
 }
 ```
 
 扩展断开或浏览器接入关闭时，已知能力仍返回 `available: false`；未知查询返回 `capabilities: []`。
-实际返回的 schema 还包含长度、模式和参数说明。仅接受绝对 `http://` 或 `https://` URL，
+detail 只接受 summary/full；显式 null、其他字符串或类型均拒绝。full 的实际 Schema 还包含长度、模式和参数说明。仅接受绝对 `http://` 或 `https://` URL，
 拒绝缺少 URL、额外字段、非字符串、凭据、空白、控制字符、反斜杠和非法端口。
 
 传给 `capability_execute`：
@@ -121,7 +132,7 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
 | `device_unavailable` | 设备离线、不支持新 Tool、Hub 请求超时等原设备路由错误 |
 | `capability_error` | 目标设备工具分发失败 |
 
-扩展错误码在 Core 的 `browser/errors.py` 中集中维护，包含通用错误和第二阶段网页交互错误。
+扩展错误码在 Core 的 `browser/errors.py` 中集中维护，包含通用错误及网页交互/状态等待错误。
 经白名单校验后保留错误分类；错误消息始终由 Bridge 使用固定文本生成，未知错误码降级为
 `browser_operation_failed`，不透传扩展原始消息；歧义错误仅附带经过白名单清理的有限候选摘要。
 
@@ -207,14 +218,14 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-第二阶段已提供页面 inspect / click / fill 与基础语义定位，详见 [Phase 2](PHASE2.md)。不包含标签组或书签，GUI 和发布流程保持既有实现。
+第二阶段的读取/定位/点击/填写见 [Phase 2](PHASE2.md)，第三阶段完整 DOM 交互见 [Phase 3](PHASE3.md)。不包含窗口管理、标签组或书签，GUI 和发布流程保持既有实现。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
 没有端到端 exactly-once 或页面加载完成保证。第二阶段已通过真实 Chrome 的本机 MCP→Hub→Agent 验收，
 覆盖普通 HTML、React / Vue 输入与点击等主要链路；详细覆盖及剩余人工检查见 [PHASE2.md](PHASE2.md)。
 
-下一阶段在代码审查与真实 Chrome 验收后，再按独立 Capability schema 增量加入更高级的页面能力，
-保留现有 Tool 和设备路由边界。
+合成双击、悬停和按键不等价于真实输入，不保证 CSS :hover、原生键盘默认动作或浏览器快捷键。
+动作错误也可能发生在部分事件之后；第三阶段的受控浏览器验收与剩余覆盖边界见 [Phase 3](PHASE3.md)。
 
 实现依据：Chrome 官方 [WebSocket worker 生命周期说明](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)、
 [alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms)、

@@ -160,6 +160,25 @@ def capability_schema(result: dict[str, Any]) -> dict[str, Any]:
     ]}
 
 
+def capability_discovery_schema() -> dict[str, Any]:
+    summary = {
+        "name": field("string", "Unique capability name."),
+        "description": field("string", "Capability purpose."),
+        "available": field("boolean", "Whether its provider is currently connected and supports it."),
+    }
+    full = {**summary,
+        "input_schema": field("object", "Capability-specific argument JSON Schema."),
+        "result_contract": field("object", "Compact map of success-result field paths to meanings; not a JSON Schema.", additionalProperties={"type": "string"}),
+    }
+    return {"type": "object", "oneOf": [
+        obj({"capabilities": array(obj(summary, required=list(summary)), "Matching capability summaries (default).")}, required=["capabilities"]),
+        obj({"capabilities": array(obj(full, required=list(full)), "Full definitions for matching capabilities."),
+             "conventions": field("object", "Shared envelope, safe reference, display and retry rules.", additionalProperties={"type": "string"}),
+             "error_guidance": field("object", "Shared error code to meaning and recovery guidance.", additionalProperties={"type": "string"})},
+            required=["capabilities", "conventions", "error_guidance"]),
+    ]}
+
+
 def build_output_schemas() -> dict[str, dict[str, Any]]:
     common = process_fields()
     handoff = handoff_fields()
@@ -201,16 +220,7 @@ def build_output_schemas() -> dict[str, dict[str, Any]]:
         "handoff_get": obj({**handoff, "content": field("string", "Continuation body without front matter.")},
                            required=[*handoff, "content"]),
         "handoff_save": obj(handoff, required=list(handoff)),
-        "capability_discover": capability_schema(obj({"capabilities": array(obj({
-            "name": field("string", "Unique capability name."),
-            "description": field("string", "Capability purpose."),
-            "input_schema": field("object", "Capability-specific argument JSON Schema."),
-            "available": field("boolean", "Whether its provider is currently connected and supports it."),
-            "result_contract": field("object", "Compact map of success-result field paths to meanings; not a JSON Schema.", additionalProperties={"type": "string"}),
-        }, required=["name", "description", "input_schema", "available", "result_contract"]), "Matching capabilities."),
-            "conventions": field("object", "Shared envelope, safe reference, display and retry rules.", additionalProperties={"type": "string"}),
-            "error_guidance": field("object", "Shared error code to meaning and recovery guidance.", additionalProperties={"type": "string"})},
-            required=["capabilities"])),
+        "capability_discover": capability_schema(capability_discovery_schema()),
         "capability_execute": capability_schema({"type": "object"}),
     }
 

@@ -179,9 +179,10 @@ https://mcp.example.com/mcp
 
 Chat2Local 当前公开 12 个 MCP tools，覆盖文件读取与搜索、patch 修改、Shell / Process 操作、多设备选择、Handoff 和可选扩展能力。
 
-`capability_discover` 查询指定设备的能力说明、参数 JSON Schema 和实时可用状态，`capability_execute` 执行能力。
-浏览器能力包括标签页创建/查询/选择，以及按网站授权的语义 inspect/click/fill，均通过独立安装的可选 Chrome 扩展执行。默认不启动浏览器监听，
-扩展未连接不会影响原有工具。安装和配对见 [浏览器扩展说明](browser-extension/README.md)，网页交互、网站授权与本地验收见 [Phase 2](browser-extension/PHASE2.md)。
+`capability_discover` 默认以 summary 查询指定设备的能力概览和实时可用状态；选中能力后用 `detail: "full"` 查询参数 JSON Schema、结果契约和恢复指导，再通过 `capability_execute` 执行。
+浏览器提供 16 个内部能力，包括标签页创建/查询/选择、网页读取/定位，以及点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键和状态等待。
+这些能力均通过按网站授权的可选 Chrome 扩展执行，默认不启动浏览器监听；扩展未连接不会影响原有工具。
+安装和配对见 [浏览器扩展说明](browser-extension/README.md)，读取与授权基线见 [Phase 2](browser-extension/PHASE2.md)，完整 DOM 交互和验收见 [Phase 3](browser-extension/PHASE3.md)。
 
 当前公开的 Tool：
 

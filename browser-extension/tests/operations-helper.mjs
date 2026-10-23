@@ -4,7 +4,7 @@ import vm from "node:vm";
 const source = readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8");
 
 export function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "https://test.example/" }],
-  consent = ["https://test.example/*"], granted = true, allWebsites = false, inject, send, cryptoApi = crypto } = {}) {
+  consent = ["https://test.example/*"], granted = true, allWebsites = false, inject, send, cryptoApi = crypto, dateApi = Date } = {}) {
   const calls = { injected: [], messages: [] };
   let listener;
   const settings = { pageOrigins: consent, allWebsites };
@@ -20,7 +20,7 @@ export function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "htt
     },
     scripting: { executeScript: async (args) => { calls.injected.push(args); return inject ? inject(args) : [{ frameId: 0, documentId: "doc-1" }]; } },
   };
-  const context = vm.createContext({ chrome, URL, Date, crypto: cryptoApi, TextEncoder, btoa, atob });
+  const context = vm.createContext({ chrome, URL, Date: dateApi, crypto: cryptoApi, TextEncoder, btoa, atob });
   vm.runInContext(readFileSync(new URL("../browser-safety.js", import.meta.url), "utf8"), context);
   vm.runInContext(source, context);
   const api = context.Chat2LocalBrowser;

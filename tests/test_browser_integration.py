@@ -20,6 +20,50 @@ from test_devices import TOKEN, decode, eventually, hub_runtime, running_agent, 
 from test_process_integration import mcp_client
 
 
+def test_discovery_detail_routes_through_mcp_hub_agent_to_the_selected_provider(tmp_path):
+    roots = [tmp_path / name for name in ("hub", "first", "second")]
+    for root in roots:
+        root.mkdir()
+    supported = ["browser.page.scroll", "browser.page.wait_for"]
+    async def scenario():
+        router = hub_runtime(roots[0])
+        locals_ = [LocalToolDispatcher(WorkspaceManager(root), AppConfig(browser=browser_config(tmp_path, name=root.name)))
+                   for root in roots[1:]]
+        async with running_server(create_app(router, hub_token=TOKEN)) as (url, ws_url), AsyncExitStack() as stack:
+            for root, local in zip(roots[1:], locals_):
+                await stack.enter_async_context(running_agent(AgentClient(ws_url, root.name, TOKEN, local)))
+            await eventually(lambda: len(router.registry.sessions) == 2)
+            for local, capability in zip(locals_, supported):
+                await stack.enter_async_context(extension(local.browser, capabilities=[capability]))
+            async with mcp_client(url) as client:
+                for index, device in enumerate(("first", "second")):
+                    for detail in (None, "summary", "full"):
+                        arguments = {"device": device, "query": "BROWSER.PAGE"}
+                        if detail is not None:
+                            arguments["detail"] = detail
+                        result = decode(await client.call_tool("capability_discover", arguments))["result"]
+                        entries = result["capabilities"]
+                        assert entries and all(entry["name"].startswith("browser.page.") for entry in entries)
+                        assert [entry["name"] for entry in entries if entry["available"]] == [supported[index]]
+                        if detail == "full":
+                            assert result["conventions"]["references"] and result["error_guidance"]["stale_target"]
+                            assert all(entry["input_schema"] and entry["result_contract"] for entry in entries)
+                        else:
+                            assert set(result) == {"capabilities"}
+                            assert all(set(entry) == {"name", "description", "available"} for entry in entries)
+                    for detail in ("summary", "full"):
+                        exact = decode(await client.call_tool("capability_discover", {
+                            "device": device, "query": supported[index], "detail": detail,
+                        }))["result"]["capabilities"]
+                        assert len(exact) == 1 and exact[0]["available"]
+                hub = decode(await client.call_tool("capability_discover", {"query": "browser", "detail": "full"}))
+                assert not any(entry["available"] for entry in hub["result"]["capabilities"])
+                for detail in (None, "verbose"):
+                    invalid = await router.execute("capability_discover", {"detail": detail}, "first")
+                    assert invalid["error"]["code"] == "invalid_arguments"
+    run(scenario())
+
+
 def test_mcp_hub_agent_browser_device_isolation_and_disconnect(tmp_path):
     roots = [tmp_path / name for name in ("hub", "laptop", "desktop")]
     for root in roots:
@@ -42,7 +86,7 @@ def test_mcp_hub_agent_browser_device_isolation_and_disconnect(tmp_path):
                 sockets = [await stack.enter_async_context(extension(local.browser, capabilities=[CAPABILITY, "browser.page.dom.inspect"]))
                            for local in agents]
                 for index, device in enumerate(("laptop", "desktop")):
-                    discovered = decode(await client.call_tool("capability_discover", {"device": device, "query": "Chrome"}))
+                    discovered = decode(await client.call_tool("capability_discover", {"device": device, "query": "Chrome", "detail": "full"}))
                     assert discovered["result"]["capabilities"][0]["available"] is True
                     assert discovered["result"]["capabilities"][0]["input_schema"]["required"] == ["url"]
                     pending = asyncio.create_task(client.call_tool("capability_execute", {
@@ -115,7 +159,7 @@ def test_server_lifespan_owns_optional_local_bridge(tmp_path, hub):
     run(scenario())
 
 
-def test_phase2_capabilities_route_to_only_the_selected_agent(tmp_path):
+def test_phase2_and_phase3_capabilities_route_to_only_the_selected_agent(tmp_path):
     roots = [tmp_path / name for name in ("hub", "first", "second")]
     for root in roots:
         root.mkdir()
@@ -130,7 +174,7 @@ def test_phase2_capabilities_route_to_only_the_selected_agent(tmp_path):
             sockets = [await stack.enter_async_context(extension(local.browser, capabilities=list(CAPABILITY_NAMES))) for local in locals_]
             async with mcp_client(url) as client:
                 for index, device in enumerate(("first", "second")):
-                    listing = decode(await client.call_tool("capability_discover", {"device": device}))
+                    listing = decode(await client.call_tool("capability_discover", {"device": device, "detail": "full"}))
                     assert all(entry["available"] for entry in listing["result"]["capabilities"])
                     assert listing["result"]["conventions"]["references"]
                     assert listing["result"]["error_guidance"]["stale_target"]
@@ -143,6 +187,13 @@ def test_phase2_capabilities_route_to_only_the_selected_agent(tmp_path):
                         ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"name": "Go"}}),
                         ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"ref": "el_test_reference"}}),
                         ("browser.page.fill", {"tab": {"tab_id": 7}, "target": {"label": "Query"}, "value": "text"}),
+                        *[(f"browser.page.{name}", {"tab": {"tab_id": 7}, "target": {"ref": "el_test_reference"}})
+                          for name in ("double_click", "hover", "focus")],
+                        ("browser.page.select", {"tab": {"tab_id": 7}, "target": {"id": "choice"}, "options": [{"value": ""}]}),
+                        ("browser.page.set_checked", {"tab": {"tab_id": 7}, "target": {"id": "check"}, "checked": True}),
+                        ("browser.page.scroll", {"tab": {"tab_id": 7}, "container": "page", "delta_y": 100}),
+                        ("browser.page.press_key", {"tab": {"tab_id": 7}, "target": {"id": "q"}, "key": "Enter", "modifiers": ["Control"]}),
+                        ("browser.page.wait_for", {"tab": {"tab_id": 7}, "target": {"id": "later"}, "state": "visible", "timeout_ms": 100}),
                     ):
                         pending = asyncio.create_task(client.call_tool("capability_execute", {
                             "device": device, "capability": capability, "arguments": arguments,

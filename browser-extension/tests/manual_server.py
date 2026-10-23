@@ -8,6 +8,7 @@ ROUTES = {
     "/": ("tests/fixtures/basic.html", "text/html"),
     "/duplicate": ("tests/fixtures/basic.html", "text/html"),
     "/frameworks": ("tests/fixtures/frameworks.html", "text/html"),
+    "/phase3": ("tests/fixtures/phase3.html", "text/html"),
     "/assets/react.js": ("node_modules/react/umd/react.development.js", "text/javascript"),
     "/assets/react-dom.js": ("node_modules/react-dom/umd/react-dom.development.js", "text/javascript"),
     "/assets/vue.js": ("node_modules/vue/dist/vue.global.prod.js", "text/javascript"),

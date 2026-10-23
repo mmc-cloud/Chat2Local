@@ -1906,13 +1906,3534 @@
         "target": "object: sanitized pre-action summary/ref; no input value is returned.",
         "submitted": "false: does not explicitly submit; page event handlers may still have side effects."
       }
+    },
+    {
+      "name": "browser.page.double_click",
+      "description": "Dispatch two synthetic mouse click sequences and dblclick to one visible enabled target. May run single-click handlers twice; not trusted physical input. Observe state before retrying any uncertain outcome.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab",
+          "target"
+        ],
+        "title": "ClickArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'double_clicked': Two synthetic mousedown/mouseup/click sequences (detail 1/2), then dblclick (detail 2); may have click side effects.",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "event_is_trusted": "false: synthetic mouse events; not physical double-click input.",
+        "navigation_waited": "false: observe page state afterward."
+      }
+    },
+    {
+      "name": "browser.page.hover",
+      "description": "Send synthetic pointer/mouse over, enter and move events to one visible enabled target. No real pointer movement, leave events or CSS :hover guarantee; handlers may change the page.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab",
+          "target"
+        ],
+        "title": "ClickArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'hovered': Synthetic pointerover/pointerenter/mouseover/mouseenter/pointermove/mousemove on the target; does not move a real pointer or send leave events.",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "event_is_trusted": "false: synthetic pointer/mouse events.",
+        "css_hover_guaranteed": "false: does not establish CSS :hover or native pointer hit testing."
+      }
+    },
+    {
+      "name": "browser.page.focus",
+      "description": "Focus one visible enabled HTML target and verify activeElement. Does not add tabindex or force nonfocusable elements; focus handlers may have side effects.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab",
+          "target"
+        ],
+        "title": "ClickArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'focused': Native focus called without adding tabindex; activeElement verified at return.",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state."
+      }
+    },
+    {
+      "name": "browser.page.select",
+      "description": "Replace the selection of one native select using exact value/label/index option conditions. Validate every option before changes; reject missing, ambiguous or disabled options. Not custom ARIA dropdowns.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "SelectOption": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "value": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "index": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "index"
+                ]
+              }
+            ],
+            "properties": {
+              "value": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact option value, including empty string. Conditions are ANDed; duplicate values require label or index to disambiguate.",
+                "title": "Value"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized option label, including empty string; not a substring. No option values or labels are returned.",
+                "title": "Label"
+              },
+              "index": {
+                "anyOf": [
+                  {
+                    "maximum": 9999,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Zero-based index in the native select.options collection, including options inside optgroups.",
+                "title": "Index"
+              }
+            },
+            "title": "SelectOption",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          },
+          "options": {
+            "description": "Exact replacement selection. Every selector must resolve uniquely to a distinct enabled option before any changes. Single-select requires one item; [] clears a multiple select. Native select only; input/change fire once when changed.",
+            "items": {
+              "$ref": "#/$defs/SelectOption"
+            },
+            "maxItems": 50,
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tab",
+          "target",
+          "options"
+        ],
+        "title": "SelectArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'selected': Native option selection replaced; bubbling input/change emitted once only if changed.",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "changed": "boolean: selection differed before events.",
+        "selected_count": "integer: selected native option count verified after events; no option text/values returned."
+      }
+    },
+    {
+      "name": "browser.page.set_checked",
+      "description": "Set an explicit native checkbox/radio state; matching calls are no-ops, otherwise click once and verify. Checked radios cannot be unchecked directly. Not custom ARIA checkbox widgets.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          },
+          "checked": {
+            "description": "Desired native checkbox/radio state. Already matching state is a no-op; otherwise click once and verify. A checked radio cannot be unchecked directly (unsupported_state); select another radio in its group.",
+            "title": "Checked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tab",
+          "target",
+          "checked"
+        ],
+        "title": "SetCheckedArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'checked': Desired native checkbox/radio state verified after at most one HTMLElement.click().",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "changed": "boolean: click was needed; matching state is a no-op.",
+        "checked": "boolean: verified requested state; no toggle on repeated matching calls.",
+        "event_is_trusted": "false: click is synthetic; page handlers may prevent/revert it (state_not_reached)."
+      }
+    },
+    {
+      "name": "browser.page.scroll",
+      "description": "Scroll an explicit page or unique visible enabled element by nonzero CSS pixel deltas, instantly. Never scrolls another container as fallback; reports observed movement, not lazy-load completion.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "else": {
+              "properties": {
+                "target": {
+                  "type": "null"
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "container": {
+                  "const": "element"
+                }
+              }
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "target": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "delta_x": {
+                    "not": {
+                      "const": 0
+                    }
+                  }
+                },
+                "required": [
+                  "delta_x"
+                ]
+              },
+              {
+                "properties": {
+                  "delta_y": {
+                    "not": {
+                      "const": 0
+                    }
+                  }
+                },
+                "required": [
+                  "delta_y"
+                ]
+              }
+            ]
+          }
+        ],
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "container": {
+            "description": "Explicit scroll container: page uses document.scrollingElement; element uses only target, never its ancestor or an implicit active container.",
+            "enum": [
+              "page",
+              "element"
+            ],
+            "title": "Container",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ElementTarget"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required only for container=element; must resolve to one visible enabled HTML scroll container with scrollable overflow on every requested axis."
+          },
+          "delta_x": {
+            "default": 0,
+            "description": "Relative horizontal CSS pixels; positive right, negative left (RTL follows native scroll coordinates). At least one delta must be nonzero.",
+            "maximum": 100000,
+            "minimum": -100000,
+            "title": "Delta X",
+            "type": "integer"
+          },
+          "delta_y": {
+            "default": 0,
+            "description": "Relative vertical CSS pixels; positive down, negative up. Instant scroll clamped by the browser; no wheel simulation or lazy-load completion wait.",
+            "maximum": 100000,
+            "minimum": -100000,
+            "title": "Delta Y",
+            "type": "integer"
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab",
+          "container"
+        ],
+        "title": "ScrollArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'scrolled': one instant relative scroll requested on the explicit container; not lazy-load completion.",
+        "container": "'page'|'element': requested container; never falls back to an ancestor.",
+        "target": "object|null: sanitized pre-action element summary; null for page scrolling.",
+        "before": "object: x/y CSS pixel scroll position before request.",
+        "after": "object: observed x/y CSS pixel scroll position after request, subject to clamping/scroll snapping.",
+        "changed": "boolean: observed position moved; false can mean an edge or an unscrollable page."
+      }
+    },
+    {
+      "name": "browser.page.press_key",
+      "description": "Focus a unique visible enabled target, then dispatch synthetic keydown/keyup with optional modifier flags. No native typing, Tab traversal, Enter submission or browser shortcut guarantee. Password/read-only fields rejected; handlers may have side effects.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+          },
+          "wait_ms": {
+            "default": 0,
+            "description": "Milliseconds to wait for a matching element to appear (0-5000); not navigation or business completion. Actions are never replayed.",
+            "maximum": 5000,
+            "minimum": 0,
+            "title": "Wait Ms",
+            "type": "integer"
+          },
+          "key": {
+            "description": "One named key or ASCII letter/digit. Space maps to event.key=' '. Dispatches only keydown/keyup to the focused target; no text insertion, Tab traversal, form submission or browser shortcut emulation.",
+            "maxLength": 13,
+            "minLength": 1,
+            "pattern": "^(Enter|Tab|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown|Backspace|Delete|Space|[a-zA-Z0-9])$",
+            "title": "Key",
+            "type": "string"
+          },
+          "modifiers": {
+            "description": "Unique modifier flags on both events; does not press modifier keys or invoke native OS/browser shortcuts. Event handlers may have side effects.",
+            "items": {
+              "enum": [
+                "Alt",
+                "Control",
+                "Meta",
+                "Shift"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Modifiers",
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "tab",
+          "target",
+          "key"
+        ],
+        "title": "PressKeyArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'key_pressed': One synthetic keydown/keyup pair sent to the focused target; no default action emulation.",
+        "target": "object: sanitized target summary/ref; action events may invalidate the ref. Re-observe to verify business state.",
+        "event_is_trusted": "false: not trusted keyboard input.",
+        "default_prevented": "object: keydown/keyup cancellation booleans; no promise of native default actions even when false."
+      }
+    },
+    {
+      "name": "browser.page.wait_for",
+      "description": "Read-only bounded wait for a unique locator to be attached/detached/visible/hidden/enabled/disabled/actionable. actionable means visible enabled HTML, not business success or bypass of operation-specific protections. Hidden/detached allow absence, never stale refs. No click/scroll/focus/navigation; wait_timeout if unmet.",
+      "input_schema": {
+        "$defs": {
+          "ElementTarget": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "ref"
+                ]
+              },
+              {
+                "properties": {
+                  "css": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "css"
+                ]
+              },
+              {
+                "properties": {
+                  "role": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "properties": {
+                  "name": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "properties": {
+                  "aria_label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "aria_label"
+                ]
+              },
+              {
+                "properties": {
+                  "label": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              },
+              {
+                "properties": {
+                  "placeholder": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "placeholder"
+                ]
+              },
+              {
+                "properties": {
+                  "href": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "href"
+                ]
+              },
+              {
+                "properties": {
+                  "text": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "properties": {
+                  "id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "properties": {
+              "ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^el_[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Opaque document-local reference returned by read/inspect/dom.inspect/candidates. Prefer target={ref: returned_ref}; any DOM mutation invalidates it. Re-observe on stale_target. Other supplied conditions are still ANDed.",
+                "title": "Ref"
+              },
+              "css": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CSS selector ANDed with all other conditions; syntax checked in Chrome. Positional CSS is not stable identity: use a returned ref across calls.",
+                "title": "Css"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact explicit or supported implicit ARIA role, e.g. button, link, textbox; not the HTML tag name.",
+                "title": "Role"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized semantic name from aria-labelledby, aria-label, associated label, alt, filtered text or title/placeholder. Not a complete Accessible Name algorithm; sanitized display names may not be exact targets, prefer ref.",
+                "title": "Name"
+              },
+              "aria_label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized aria-label attribute, distinct from the computed semantic name. Prefer ref if displayed value is redacted or clipped.",
+                "title": "Aria Label"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized text of an associated HTML form label; excludes protected descendants and field values.",
+                "title": "Label"
+              },
+              "placeholder": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact normalized placeholder attribute; not the current input value. Prefer ref for redacted display values.",
+                "title": "Placeholder"
+              },
+              "href": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original resolved absolute href, if independently known. Display URLs are sanitized and MUST NOT be copied as exact href; use returned ref instead. Relative strings are not resolved.",
+                "title": "Href"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact whitespace-normalized filtered descendant text, not substring matching or the semantic name. Broad text discovery removes incidental ancestor matches; bounded reads may fail page_too_large.",
+                "title": "Text"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact original HTML id, case-sensitive; not tab_id or ref. Prefer ref if the display id was redacted or clipped.",
+                "title": "Id"
+              }
+            },
+            "title": "ElementTarget",
+            "type": "object"
+          },
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "target": {
+            "$ref": "#/$defs/ElementTarget",
+            "description": "Shared ANDed locator, unique across all matches including hidden elements. Use semantic/CSS conditions for dynamic DOM; an expired ref is always stale_target, never proof of absence."
+          },
+          "state": {
+            "default": "visible",
+            "description": "attached: exists; detached: absent; visible: exists and visible; hidden: absent or hidden; enabled/disabled: exists with that shared disabled state, regardless of visibility. actionable: unique visible enabled HTML element, only basic DOM readiness; operation-specific password/read-only/type protections still apply. Multiple matches are ambiguous_target.",
+            "enum": [
+              "attached",
+              "detached",
+              "visible",
+              "hidden",
+              "enabled",
+              "disabled",
+              "actionable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "default": 5000,
+            "description": "State must be observed strictly before the wait deadline; 0 permits only the initial synchronous check. Initial/final async permission and state revalidation remain required; their latency cannot qualify a late new match. Request expiry still overrides. Unsatisfied state returns wait_timeout; navigation, stale ref, invalid CSS and revoked permission remain distinct errors. Read-only; no actions replayed.",
+            "maximum": 10000,
+            "minimum": 0,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab",
+          "target"
+        ],
+        "title": "WaitForArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object: selected native tab and sanitized display metadata.",
+        "status": "'matched': state qualified before the wait deadline (only initial check for 0) and still held for the same target at final authorized observation; not a future guarantee.",
+        "state": "string: requested attached/detached/visible/hidden/enabled/disabled/actionable state. actionable is basic DOM readiness only, not operation-specific permission or business success.",
+        "target": "object|null: fresh sanitized summary/ref if present; null if absent. Expired refs never count as absence.",
+        "elapsed_ms": "integer: total elapsed time including async permission/state confirmation; may exceed timeout_ms for an already qualified match, but never the request deadline."
+      }
     }
   ],
   "conventions": {
     "envelope": "execute returns {ok:true,result:{...}} or {ok:false,error:{code,message,details?}}. result_contract describes fields inside result; errors use shared error_guidance.",
     "references": "Copy an observed ref into target={ref:...}. Refs are weak, document-local and bounded to 10000; any DOM mutation, navigation or cache eviction may invalidate them. Re-observe on stale_target. Never fall back to a positional path automatically.",
     "display": "All returned text/URLs are sanitized display data, possibly clipped. Keep original exact href/CSS semantics only for independently known inputs; use native tab_id and fresh element ref to act from observations.",
-    "retry": "read/inspect are read-only. create/click/fill may have side effects; timeouts/disconnections do not prove failure. Observe actual state before retrying; never blindly repeat."
+    "retry": "read/inspect/wait_for are read-only. Tab creation and all DOM actions may have side effects, including preparation (scroll/focus) and partially dispatched event sequences. Errors/timeouts/disconnections do not prove no action occurred. Observe actual state before retrying; never blindly repeat.",
+    "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass."
   },
   "error_guidance": {
     "invalid_arguments": "Input/schema/URL error: correct arguments before retrying; no action dispatched by the rejecting validator.",
@@ -1922,16 +5443,23 @@
     "tab_not_found": "No exact tab match: list tabs and choose a native tab_id.",
     "ambiguous_tab": "Multiple tabs: choose a native tab_id from candidates; never pick the first implicitly.",
     "target_not_found": "No target satisfies all conditions: observe again and refine, do not loosen conditions blindly.",
-    "ambiguous_target": "Multiple visible action targets: choose a fresh candidate ref or refine conditions; no click/fill performed.",
-    "target_hidden": "Target is hidden: stop and observe; no click/fill performed.",
-    "target_disabled": "Target or ancestor is disabled/inert: stop; no click/fill performed. Do not bypass disabled state.",
-    "target_readonly": "Field is read-only: stop; no fill performed.",
-    "protected_input": "Protected password input: stop; no fill performed.",
+    "ambiguous_target": "Multiple eligible matches (wait_for includes hidden elements): refine conditions or use a fresh ref. Stop; preparation or an earlier event in a sequence may already have run.",
+    "target_hidden": "Target is hidden: stop and observe; preparation or an earlier event in a sequence may already have run.",
+    "target_disabled": "Target or ancestor is disabled/inert: stop. Do not bypass disabled state; preparation or an earlier event may already have run.",
+    "target_readonly": "Field is read-only: stop; fill/press_key or state-setting is refused. Re-observe if preparation already ran.",
+    "protected_input": "Protected password input: stop; fill/press_key is refused.",
     "stale_target": "Reference expired or target changed: obtain a fresh ref via read/inspect/dom.inspect. Never substitute positional CSS automatically.",
     "page_changed": "Navigation, readable content or tab selection changed: discard old cursor/ref and observe again; start read without cursor.",
     "permission_denied": "User must grant website access in extension options; MCP cannot grant it. Re-observe after authorization.",
     "unsupported_page": "Use an authorized HTTP(S) top-level page; browser internal pages and embedded documents are unsupported.",
-    "unsupported_element": "Choose a supported HTML target; fill only supported text input/textarea types.",
+    "unsupported_element": "Choose a supported HTML target: select and set_checked require native select and checkbox/radio, fill requires supported text inputs. No custom widget or focusability bypass.",
+    "unsupported_state": "A checked radio cannot be directly unchecked; select another radio in its group. An already unchecked radio requested false is a no-op.",
+    "state_not_reached": "Focus/selection/checked state was prevented, reverted or changed by page handlers. Side effects may have occurred; inspect state before deciding any next action.",
+    "option_not_found": "No option matches all conditions: inspect the control and correct known option conditions; no selection changed by this operation.",
+    "ambiguous_option": "More than one option matches: refine value/label/index, never choose the first implicitly. No selection changed by this operation.",
+    "option_disabled": "Requested option or optgroup is disabled: stop; do not bypass it. No selection changed by this operation.",
+    "target_not_scrollable": "The explicit element cannot scroll on a requested axis; inspect layout and choose the intended container. Never fall back to a parent or page automatically.",
+    "wait_timeout": "The requested state did not hold before the bounded wait ended. Read-only; re-observe and choose the next step explicitly. Stale refs, navigation and permission errors are distinct.",
     "scope_not_found": "Local DOM scope missing: re-observe and correct scope.",
     "ambiguous_scope": "Scope must resolve to exactly one root; refine CSS.",
     "page_too_large": "DOM/text work budget exceeded: narrow target or dom.inspect scope; lowering read max_chars does not lower extraction work.",
@@ -1939,8 +5467,8 @@
     "request_expired": "Deadline elapsed: re-observe first; never automatically replay side-effecting requests.",
     "injection_failed": "Check permission and page state; observe again before retrying.",
     "capability_busy": "Too many in-flight calls: wait for completion; do not duplicate pending actions.",
-    "capability_timeout": "Outcome may be unknown: inspect actual state before any retry of create/click/fill.",
-    "capability_unavailable": "Extension absent/disconnected: reconnect and discover again. An interrupted create/click/fill may already have executed; inspect state before retrying.",
+    "capability_timeout": "Outcome may be unknown: inspect actual state before any retry of tab creation or a DOM action; never replay automatically.",
+    "capability_unavailable": "Extension absent/disconnected: reconnect and discover again. An interrupted tab creation or DOM action may already have executed; inspect state before retrying.",
     "device_unavailable": "Target device offline: reconnect and discover on that same device; do not reroute actions to another device.",
     "capability_error": "Device dispatch failed: check the target device and re-observe actual state before retrying side-effecting calls.",
     "browser_operation_failed": "Execution failed or outcome unknown: inspect actual state before retrying any action; diagnostics are intentionally sanitized."
