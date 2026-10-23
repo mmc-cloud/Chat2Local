@@ -836,28 +836,75 @@ def test_short_wait_uses_configured_foreground_timeout(workspace):
     run(scenario())
 
 
-def test_concurrent_read_append_and_eviction_are_atomic(workspace):
+def test_concurrent_read_append_and_eviction_are_atomic(workspace, monkeypatch):
     async def scenario():
         async with managed(ProcessConfig(stdout_buffer_limit=16, response_output_limit=4,
                                          terminate_grace_period=0.05)) as manager:
             record = await manager.spawn(
-                "import os,time; "
-                "[(os.write(1,str(i).zfill(4).encode()),time.sleep(0.004)) for i in range(40)]", workspace=workspace)
+                "import os,sys\n"
+                "for start in range(0,40,8):\n"
+                "    if sys.stdin.buffer.read(1) != b'n':\n"
+                "        sys.exit(2)\n"
+                "    for i in range(start,start+8):\n"
+                "        os.write(1,str(i).zfill(4).encode())\n"
+                "sys.stdin.buffer.read(1)\n", workspace=workspace)
+            appended = asyncio.Event()
+            original_append = record.stdout.append
+
+            def notify_append(text):
+                original_append(text)
+                appended.set()
+
+            monkeypatch.setattr(record.stdout, "append", notify_append)
+            expected = "".join(str(i).zfill(4) for i in range(40))
             previous_start, previous_end, previous_cursor = 0, 0, 0
             text = ""
             dropped = False
-            while not record.finished.is_set() or record.stdout.read_cursor < record.stdout.retained_end:
+
+            def read_and_check():
+                nonlocal previous_start, previous_end, previous_cursor, text, dropped
                 output = manager.read_output(record.process_id).stdout
-                assert output.retained_start >= previous_start and output.retained_end >= previous_end
-                assert output.read_cursor >= previous_cursor and record.stdout.retained_bytes <= 16
+                assert output.retained_start >= previous_start, "retained_start moved backwards"
+                assert output.retained_end >= previous_end, "retained_end moved backwards"
+                assert output.read_cursor >= previous_cursor, "read_cursor moved backwards"
+                assert record.stdout.retained_bytes <= 16, "stdout exceeded its byte budget"
+                assert output.retained_start + record.stdout.retained_bytes == output.retained_end
+                assert output.retained_start <= output.read_cursor <= output.retained_end
+                read_start = max(previous_cursor, output.retained_start)
+                read_bytes = len(output.text.encode())
+                assert 0 < read_bytes <= 4, "read made no progress or exceeded its byte budget"
+                assert output.text == expected[read_start:output.read_cursor], "read returned wrong stream bytes"
+                assert output.read_cursor == read_start + read_bytes, "cursor skipped or repeated bytes"
+                assert output.output_dropped == (previous_cursor < output.retained_start)
+                assert output.has_more == (output.read_cursor < output.retained_end)
                 previous_start = output.retained_start
                 previous_end = output.retained_end
                 previous_cursor = output.read_cursor
                 dropped |= output.output_dropped
                 text += output.text
-                await asyncio.sleep(0.025)
-            assert dropped and record.stdout.retained_end == 160 and text.endswith("0039")
-            assert record.stdout.read_cursor == 160
+
+            # Each 32-byte burst must reach the real drain before the next read,
+            # exceeding the 16-byte buffer regardless of pipe chunking or speed.
+            # The child waits on stdin between bursts and until we close stdin,
+            # so reads and subsequent appends interleave while it is still alive.
+            for end in range(32, 161, 32):
+                await manager.write_stdin(record.process_id, "n")
+                async with asyncio.timeout(10):
+                    while record.stdout.retained_end < end:
+                        appended.clear()
+                        await appended.wait()
+                assert record.stdout.retained_end == end, "unexpected burst size"
+                assert record.stdout.retained_start == end - 16, "wrong retained window after eviction"
+                assert record.process.returncode is None, "child exited before the read/append sequence finished"
+                read_and_check()
+            assert dropped, "unread output was not reported as evicted"
+            await manager.close_stdin(record.process_id)
+            assert (await finish(manager, record)).exit_code == 0
+            while record.stdout.read_cursor < record.stdout.retained_end:
+                read_and_check()
+            assert record.stdout.retained_end == 160, "not all child output reached stdout"
+            assert text.endswith("0039"), "final output record was not read"
+            assert record.stdout.read_cursor == 160, "stdout was not fully consumed"
     run(scenario())
 
 
