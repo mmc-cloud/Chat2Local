@@ -59,6 +59,14 @@ def test_independent_availability_and_mixed_out_of_order_responses(tmp_path):
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": "div", "limit": 11}),
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "tag": "div > span"}),
     ("browser.page.dom.inspect", {"tab": {"tab_id": 1}, "css": "div", "javascript": "alert(1)"}),
+    ("browser.page.read", {}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "max_chars": 999}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "max_chars": 12001}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "max_chars": True}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "cursor": ""}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "cursor": "a" * 513}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "cursor": "!"}),
+    ("browser.page.read", {"tab": {"tab_id": 1}, "javascript": "alert(1)"}),
 ])
 def test_strict_per_capability_schemas(tmp_path, name, args):
     from chat2local.browser.bridge import BrowserBridge
@@ -77,7 +85,7 @@ def test_bounded_sanitized_error_candidates_match_public_schema():
     assert 'SECRET' not in json.dumps(result)
     jsonschema.validate(result, OUTPUT_SCHEMAS['capability_execute'])
     for code in ('permission_denied', 'page_changed', 'protected_input', 'stale_target',
-                 'invalid_selector', 'scope_not_found', 'ambiguous_scope'):
+                 'invalid_selector', 'scope_not_found', 'ambiguous_scope', 'invalid_cursor'):
         assert extension_failure({"code": code, "message": "SECRET"})['error']['code'] == code
     assert extension_failure({"code": ["bad"]})['error']['code'] == 'browser_operation_failed'
 

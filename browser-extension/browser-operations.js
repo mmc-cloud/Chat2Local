@@ -1,8 +1,8 @@
 /* Packaged operations only. CSS selectors select DOM nodes, never execute code. */
 (() => {
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
-    "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"];
-  const targetKeys = ["role", "name", "aria_label", "label", "placeholder", "href", "text", "id", "css"];
+    "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"];
+  const targetKeys = ["ref", "role", "name", "aria_label", "label", "placeholder", "href", "text", "id", "css"];
   const allWebsiteOrigins = ["http://*/*", "https://*/*"];
   const fail = (code, details) => ({ ok: false, error: { code, ...(details ? { details } : {}) } });
   const record = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -23,13 +23,17 @@
   }
   function validTarget(target) {
     return keys(target, targetKeys) && Object.keys(target).length > 0
-      && Object.entries(target).every(([key, value]) => text(value, key === "css" ? 1024 : key === "href" ? 8192 : key === "role" ? 64 : 256));
+      && Object.entries(target).every(([key, value]) => key === "ref" ? text(value, 128) && /^el_[A-Za-z0-9_-]+$/.test(value)
+        : text(value, key === "css" ? 1024 : key === "href" ? 8192 : key === "role" ? 64 : 256));
   }
   function validArguments(name, args) {
     if (name === "browser.tabs.create") return keys(args, ["url"]) && validUrl(args.url);
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
       && optional(args.tab, validTab) && optional(args.limit, (v) => integer(v, 1, 50));
     if (name === "browser.tabs.resolve") return keys(args, ["tab"]) && validTab(args.tab);
+    if (name === "browser.page.read") return keys(args, ["tab", "cursor", "max_chars"]) && validTab(args.tab)
+      && optional(args.cursor, (v) => text(v, 512) && /^[A-Za-z0-9_-]+$/.test(v))
+      && optional(args.max_chars, (v) => integer(v, 1000, 12000));
     if (name === "browser.page.dom.inspect") return keys(args, ["tab", "css", "text", "tag", "scope", "limit", "depth", "wait_ms"])
       && validTab(args.tab) && [args.css, args.text, args.tag].some((value) => value !== undefined)
       && optional(args.css, (v) => text(v, 1024)) && optional(args.scope, (v) => text(v, 1024))
@@ -45,7 +49,7 @@
       && (!fill || (typeof args.value === "string" && Array.from(args.value).length <= 8192));
   }
   const summary = (tab) => ({ tab_id: tab.id, window_id: tab.windowId,
-    title: (tab.title || "").slice(0, 200), url: (tab.url || "").slice(0, 2048) });
+    title: Chat2LocalSafety.text(tab.title, 200).text, url: Chat2LocalSafety.url(tab.url).url });
   const matches = (tab, selector) => !selector || (selector.tab_id === undefined || tab.id === selector.tab_id)
     && (selector.url === undefined || tab.url === selector.url)
     && (selector.title === undefined || tab.title === selector.title);
@@ -95,6 +99,40 @@
       return true;
     });
   }
+  async function paginateRead(snapshot, args, documentId, url) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ url, snapshot })));
+    const version = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    let offset = 0;
+    if (args.cursor) {
+      let cursor;
+      try {
+        cursor = JSON.parse(atob(args.cursor.replace(/-/g, "+").replace(/_/g, "/")));
+        if (!keys(cursor, ["document", "version", "offset"]) || typeof cursor.document !== "string"
+          || !/^[0-9a-f]{64}$/.test(cursor.version) || !integer(cursor.offset, 0, 10000)) return fail("invalid_cursor");
+      } catch { return fail("invalid_cursor"); }
+      if (cursor.document !== documentId || cursor.version !== version) return fail("page_changed");
+      if (cursor.offset > snapshot.blocks.length) return fail("invalid_cursor");
+      offset = cursor.offset;
+    }
+    const blocks = [], maxChars = args.max_chars ?? 8000;
+    const metadataBytes = new TextEncoder().encode(JSON.stringify({ page: snapshot.page, overview: snapshot.overview,
+      tab: { url: snapshot.page.url, title: snapshot.page.title } })).length;
+    const byteLimit = Math.min(32 * 1024, 40 * 1024 - metadataBytes - 1024);
+    let chars = 0, bytes = 0;
+    for (const block of snapshot.blocks.slice(offset)) {
+      const length = Array.from(block.text || "").length;
+      const size = new TextEncoder().encode(JSON.stringify(block)).length + 1;
+      if (chars + length > maxChars || bytes + size > byteLimit) break;
+      blocks.push(block); chars += length; bytes += size;
+    }
+    if (!blocks.length && offset < snapshot.blocks.length) return fail("result_too_large");
+    const nextOffset = offset + blocks.length, hasMore = nextOffset < snapshot.blocks.length;
+    const cursor = hasMore ? btoa(JSON.stringify({ document: documentId, version, offset: nextOffset }))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "") : null;
+    return { ok: true, result: { page: snapshot.page, overview: snapshot.overview, blocks,
+      offset, total_blocks: snapshot.blocks.length, has_more: hasMore, next_cursor: cursor,
+      truncated: hasMore || snapshot.truncated, content_truncated: snapshot.truncated, content_is_untrusted: true } };
+  }
   async function pageOperation(name, args, expiresAt) {
     const selected = await resolve(args.tab);
     if (!selected.ok) return selected;
@@ -106,7 +144,7 @@
     let documentId;
     try {
       const injected = await chrome.scripting.executeScript({
-        target: { tabId: tab.id, frameIds: [0] }, files: ["content-script.js"],
+        target: { tabId: tab.id, frameIds: [0] }, files: ["browser-safety.js", "content-script.js"],
         world: "ISOLATED", injectImmediately: true,
       });
       documentId = injected.find((item) => item.frameId === 0)?.documentId;
@@ -131,6 +169,16 @@
         expected_url: tab.url, expires_at: expiresAt,
       }, { documentId });
       if (!record(result) || typeof result.ok !== "boolean") return fail("injection_failed");
+      if (result.ok && name === "browser.page.read") {
+        const read = await paginateRead(result.result, args, documentId, tab.url);
+        if (!read.ok) return read;
+        // Hashing yields: recheck consent and the full selector before returning data.
+        if (!await authorized(tab.url)) return fail("permission_denied");
+        const finalTab = await chrome.tabs.get(tab.id);
+        if (finalTab.url !== tab.url || finalTab.pendingUrl || !matches(finalTab, args.tab)) return fail("page_changed");
+        if (Date.now() >= expiresAt) return fail("request_expired");
+        return { ok: true, result: { tab: { ...summary(finalTab), url: read.result.page.url, title: read.result.page.title }, ...read.result } };
+      }
       return result.ok ? { ok: true, result: { tab: summary(current), ...result.result } } : result;
     } catch {
       try { await chrome.tabs.get(tab.id); } catch { return fail("tab_not_found"); }
@@ -145,7 +193,7 @@
     try {
       if (request.capability === "browser.tabs.create") {
         const tab = await chrome.tabs.create({ url: args.url });
-        return { ok: true, result: { tab_id: tab.id, window_id: tab.windowId, url: args.url } };
+        return { ok: true, result: { tab_id: tab.id, window_id: tab.windowId, url: Chat2LocalSafety.url(args.url).url } };
       }
       if (request.capability === "browser.tabs.list") {
         const tabs = await findTabs(args.tab), limit = args.limit ?? 20;

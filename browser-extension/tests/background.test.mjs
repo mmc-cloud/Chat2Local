@@ -65,7 +65,7 @@ test("minimal manifest and private loopback connection, no page exposure", async
   const ws = w.open();
   assert.equal(ws.url, "ws://127.0.0.1:8766/browser/ws");
   assert.deepEqual(ws.sent[0].capabilities, [capability, "browser.tabs.list", "browser.tabs.resolve",
-    "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"]);
+    "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill"]);
   assert.equal(ws.sent[0].token, token);
   assert.equal(w.alarms[0][1].periodInMinutes, 0.5);
   await w.auth(ws);
@@ -74,7 +74,7 @@ test("minimal manifest and private loopback connection, no page exposure", async
   assert.equal(w.tabs.length, 1);
   assert.equal(w.tabs[0].url, "https://example.com");
   assert.deepEqual(ws.sent.at(-1), { type: "response", protocol_version: 1, request_id: requestId,
-    ok: true, result: { tab_id: 42, window_id: 7, url: "https://example.com" } });
+    ok: true, result: { tab_id: 42, window_id: 7, url: "https://example.com/" } });
 });
 
 test("no browser operations before authenticated acknowledgement", async () => {

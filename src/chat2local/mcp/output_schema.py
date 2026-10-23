@@ -206,7 +206,10 @@ def build_output_schemas() -> dict[str, dict[str, Any]]:
             "description": field("string", "Capability purpose."),
             "input_schema": field("object", "Capability-specific argument JSON Schema."),
             "available": field("boolean", "Whether its provider is currently connected and supports it."),
-        }, required=["name", "description", "input_schema", "available"]), "Matching capabilities.")},
+            "result_contract": field("object", "Compact map of success-result field paths to meanings; not a JSON Schema.", additionalProperties={"type": "string"}),
+        }, required=["name", "description", "input_schema", "available", "result_contract"]), "Matching capabilities."),
+            "conventions": field("object", "Shared envelope, safe reference, display and retry rules.", additionalProperties={"type": "string"}),
+            "error_guidance": field("object", "Shared error code to meaning and recovery guidance.", additionalProperties={"type": "string"})},
             required=["capabilities"])),
         "capability_execute": capability_schema({"type": "object"}),
     }

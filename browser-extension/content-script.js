@@ -11,6 +11,34 @@
   const protectedTags = 'input,textarea,select,option,script,style,template,noscript,iframe,object,embed,[contenteditable]:not([contenteditable="false"])';
   const secretHint = /password|passwd|token|secret|cookie|authorization|api[-_]?key|csrf|session[-_]?id|one[-_]?time|cc-number/i;
   class QueryError extends Error { constructor(code) { super(code); this.code = code; } }
+  // Document-local weak references: any DOM mutation invalidates all issued refs.
+  // No node attributes are added and no page content or strong node cache is kept.
+  const refDocument = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  let refSequence = 0, referenceUrl = location.href, references = new Map(), nodeReferences = new WeakMap();
+  const invalidateReferences = () => { references.clear(); nodeReferences = new WeakMap(); };
+  const mutations = new MutationObserver(invalidateReferences);
+  mutations.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  function syncReferences() {
+    if (mutations.takeRecords().length || location.href !== referenceUrl) invalidateReferences();
+    referenceUrl = location.href;
+  }
+  function reference(element) {
+    syncReferences();
+    let ref = nodeReferences.get(element);
+    if (!ref || !references.has(ref)) {
+      ref = `el_${refDocument}_${++refSequence}`;
+      references.set(ref, { node: new WeakRef(element), url: location.href });
+      nodeReferences.set(element, ref);
+      if (references.size > 10000) references.delete(references.keys().next().value);
+    }
+    return ref;
+  }
+  function referenced(ref) {
+    syncReferences();
+    const record = references.get(ref), element = record?.node.deref();
+    if (!element?.isConnected || record.url !== location.href) throw new QueryError("stale_target");
+    return element;
+  }
   function query(root, css) {
     try {
       const found = root.querySelectorAll(css);
@@ -133,26 +161,33 @@
     if (info.text || info.truncated) return info;
     return { text: normalize(element.getAttribute("title") || element.getAttribute("placeholder")), truncated: false };
   }
+  function styleVisible(element) {
+    const style = getComputedStyle(element);
+    return !element.hidden && element.getAttribute("aria-hidden") !== "true" && style.display !== "none"
+      && !["hidden", "collapse"].includes(style.visibility) && style.opacity !== "0" && style.contentVisibility !== "hidden";
+  }
   function visible(element) {
     for (let node = element; node instanceof Element; node = node.parentElement) {
-      const style = getComputedStyle(node);
-      if (node.hidden || node.getAttribute("aria-hidden") === "true" || style.display === "none"
-        || ["hidden", "collapse"].includes(style.visibility) || style.opacity === "0") return false;
+      if (!styleVisible(node)) return false;
     }
     return element.getClientRects().length > 0;
   }
-  const disabled = (element) => element.matches(":disabled") || Boolean(element.closest('[aria-disabled="true"],[inert],.disabled,.is-disabled'));
+  const disabled = (element) => element.matches(":disabled") || Boolean(element.closest('[aria-disabled="true"],[inert],.disable,.disabled,.is-disabled'));
   function matches(element, target, budget = textBudget()) {
     const values = { role: () => role(element), aria_label: () => normalize(element.getAttribute("aria-label")),
       placeholder: () => normalize(element.getAttribute("placeholder")), href: () => element.href || "",
       id: () => element.id };
-    return Object.entries(target || {}).every(([key, value]) => key === "css" ? element.matches(value)
+    return Object.entries(target || {}).every(([key, value]) => key === "ref" ? referenced(value) === element : key === "css" ? element.matches(value)
       : key === "name" ? exactText(name(element, budget), value)
       : key === "text" ? exactText(boundedText(element, budget), value)
       : key === "label" ? [...(element.labels || [])].some((label) => exactText(boundedText(label, budget), value))
       : values[key]?.() === (["href", "id", "role"].includes(key) ? value : normalize(value)));
   }
   function candidates(target, expiresAt = Infinity) {
+    if (target?.ref) {
+      const element = referenced(target.ref);
+      return matches(element, target, textBudget(expiresAt)) ? [element] : [];
+    }
     if (target?.text && !target.css) return textSearch(document.documentElement, target, expiresAt);
     const elements = query(document, target?.css || controls);
     const budget = textBudget(expiresAt);
@@ -185,13 +220,7 @@
       return exactText(text, args.text);
     }) };
   }
-  function redactedText(value, max = 160) {
-    const raw = String(value ?? "");
-    const text = normalize(raw.slice(0, max * 8))
-      .replace(/\b(?:Bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+|[A-Za-z0-9_-]{32,})\b/gu, "[redacted]")
-      .replace(/\b(?:password|token|secret|cookie|authorization|api[-_]?key)\s*[:=]\s*\S+/giu, "[redacted]");
-    return { text: text.slice(0, max), truncated: raw.length > max * 8 || text.length > max };
-  }
+  const redactedText = (value, max = 160) => Chat2LocalSafety.text(value, max);
   function cssPath(element) {
     const parts = [];
     let work = 0;
@@ -229,7 +258,7 @@
         attributes[key] = present(element.getAttribute(key), 80);
       }
       const item = { tag: present(element.localName, 64), id: present(element.id), class: present(element.getAttribute("class")),
-        role: present(role(element), 64), text: present(text.text),
+        role: present(role(element), 64), text: text.truncated ? "" : present(text.text),
         visible: isVisible, disabled: disabled(element), attributes, children: [], truncated: clipped };
       budget.nodes--;
       budget.bytes -= new TextEncoder().encode(JSON.stringify(item)).length + 64;
@@ -252,6 +281,7 @@
       const info = describe(element, args.depth ?? 1);
       if (!info) break;
       info.css = cssPath(element);
+      info.ref = reference(element);
       budget.bytes -= (info.css?.length || 0) + 32;
       info.parents = [];
       for (let parent = element.parentElement; parent && info.parents.length < 2 && root.contains(parent); parent = parent.parentElement) {
@@ -269,17 +299,140 @@
       truncated: budget.truncated || result.length < elements.length } };
   }
   function summary(element) {
-    return { role: clip(role(element), 64), name: clip(name(element).text), id: clip(element.id),
-      href: (element.href || "").slice(0, 2048), aria_label: clip(element.getAttribute("aria-label")),
-      placeholder: clip(element.getAttribute("placeholder")), visible: visible(element),
-      disabled: disabled(element), read_only: Boolean(element.readOnly), input_type: clip(element.type || "", 32) };
+    let truncated = false;
+    const present = (value, max = 160) => { const info = redactedText(value, max); truncated ||= info.truncated; return info.text; };
+    const info = name(element), href = readUrl(element.href || "");
+    truncated ||= info.truncated || href.truncated;
+    return { ref: reference(element), role: present(role(element), 64), name: info.truncated ? "" : present(info.text), id: present(element.id),
+      href: element.href ? href.url : "", aria_label: present(element.getAttribute("aria-label")),
+      placeholder: present(element.getAttribute("placeholder")), visible: visible(element),
+      disabled: disabled(element), read_only: Boolean(element.readOnly), input_type: present(element.type || "", 32), truncated };
+  }
+  function readUrl(value) {
+    return Chat2LocalSafety.url(value, document.baseURI);
+  }
+  function readContent(value, collapse = true) {
+    return Chat2LocalSafety.content(value, collapse);
+  }
+  function readField(value, max) {
+    return redactedText(value, max);
+  }
+  function readPage(expiresAt) {
+    const blocks = [], overview = { headings: 0, links: 0, controls: 0, images: 0 };
+    const names = textBudget(expiresAt);
+    let visited = 0, rawChars = 0, blockId = 0, pending = null, truncated = false;
+    const url = readUrl(location.href), title = readField(document.title, 512);
+    const description = readField(document.querySelector('meta[name="description"]')?.getAttribute("content"), 512);
+    const language = readField(document.documentElement?.getAttribute("lang"), 64);
+    truncated = url.truncated || title.truncated || description.truncated || language.truncated;
+    const page = { url: url.url, title: title.text, description: description.text, language: language.text, truncated };
+    const boundaries = new Set(["div", "section", "article", "main", "nav", "aside", "header", "footer", "p", "li",
+      "ul", "ol", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "blockquote", "pre", "dt", "dd",
+      "h1", "h2", "h3", "h4", "h5", "h6"]);
+    const structure = (context) => Object.fromEntries(["ref", "heading_level", "list_depth", "ordered", "row", "column", "header"]
+      .filter((key) => context[key] !== undefined).map((key) => [key, context[key]]));
+    function append(context, raw, force = false) {
+      const text = readContent(raw, context.type !== "code");
+      if (!text && !force) return;
+      const id = blockId++;
+      const characters = Array.from(text);
+      const parts = Math.max(1, Math.ceil(characters.length / 1000));
+      for (let part = 0; part < parts; part++) {
+        if (blocks.length >= 10000) throw new QueryError("page_too_large");
+        blocks.push({ ...context, block_id: id, part, text: characters.slice(part * 1000, (part + 1) * 1000).join("") });
+      }
+      if (context.truncated) truncated = true;
+    }
+    function flush() {
+      if (pending) append(pending.context, pending.raw);
+      pending = null;
+    }
+    function visit(node, context, depth, listDepth, ordered) {
+      if (Date.now() >= expiresAt) throw new QueryError("request_expired");
+      if (++visited > 50000 || depth > 128) throw new QueryError("page_too_large");
+      if (node.nodeType === Node.TEXT_NODE) {
+        rawChars += node.data.length;
+        if (rawChars > 1000000) throw new QueryError("page_too_large");
+        if (!pending || pending.context !== context) { flush(); pending = { context, raw: "" }; }
+        pending.raw += node.data;
+        return;
+      }
+      if (!(node instanceof HTMLElement) || !styleVisible(node)) return;
+      const tag = node.localName;
+      if (tag.length > 64) throw new QueryError("page_too_large");
+      if (tag === "details" && !node.open) {
+        flush();
+        const summary = [...node.children].find((child) => child.localName === "summary");
+        if (summary) visit(summary, context, depth + 1, listDepth, ordered);
+        return;
+      }
+      const control = node.matches(semanticControls) || node.hasAttribute("tabindex");
+      // Read only explicit control metadata from protected form fields, never values.
+      if (protectedNode(node)) {
+        if (control && ["input", "textarea", "select"].includes(tag)) {
+          flush(); overview.controls++;
+          const info = name(node, names), label = readField(info.text, 256), roleInfo = readField(role(node), 64);
+          append({ ...structure(context), type: "control", tag, depth, ref: reference(node), role: roleInfo.text, name: info.truncated ? "" : label.text, disabled: disabled(node),
+            truncated: info.truncated || label.truncated || roleInfo.truncated }, "", true);
+        }
+        return;
+      }
+      if (tag === "br") { if (pending) pending.raw += "\n"; return; }
+      if (tag === "img") {
+        flush();
+        const alt = readField(node.getAttribute("alt") || node.getAttribute("aria-label") || node.getAttribute("title"), 512);
+        if (alt.text) {
+          overview.images++;
+          append({ ...structure(context), type: "image", tag, depth, disabled: disabled(node), truncated: alt.truncated,
+            ...(context.type === "link" ? { url: context.url, ref: context.ref } : {}) }, alt.text);
+        }
+        return;
+      }
+      const boundary = boundaries.has(tag) || tag === "a" || control;
+      if (boundary) flush();
+      let next = context;
+      if (boundary) {
+        next = { ...structure(context), type: "text", tag, depth, disabled: disabled(node) };
+        if (/^h[1-6]$/.test(tag)) {
+          next.type = "heading"; next.level = Number(tag[1]); next.heading_level = next.level; overview.headings++;
+        }
+        else if (tag === "p" || tag === "dt" || tag === "dd") next.type = "paragraph";
+        else if (tag === "pre") next.type = "code";
+        else if (tag === "blockquote") next.type = "quote";
+        else if (tag === "li") Object.assign(next, { type: "list_item", list_depth: listDepth, ordered });
+        else if (tag === "td" || tag === "th") Object.assign(next, { type: "table_cell", row: node.parentElement.rowIndex + 1,
+          column: node.cellIndex + 1, header: tag === "th" });
+        if (tag === "a" && node.hasAttribute("href")) {
+          const link = readUrl(node.getAttribute("href"));
+          Object.assign(next, { type: "link", ref: reference(node), url: link.url, truncated: link.truncated }); overview.links++;
+        } else if (control && tag !== "label") {
+          const info = name(node, names), label = readField(info.text, 256), roleInfo = readField(role(node), 64);
+          Object.assign(next, { type: "control", ref: reference(node), role: roleInfo.text, name: info.truncated ? "" : label.text,
+            truncated: info.truncated || label.truncated || roleInfo.truncated }); overview.controls++;
+        }
+      }
+      const before = blocks.length;
+      for (const child of node.childNodes) visit(child, next, depth + 1,
+        tag === "ul" || tag === "ol" ? listDepth + 1 : listDepth, tag === "ul" || tag === "ol" ? tag === "ol" : ordered);
+      if (boundary) {
+        flush();
+        if (blocks.length === before && (next.type === "control" || next.type === "link")) append(next, "", true);
+      }
+    }
+    const body = document.body;
+    if (body && !protectedContent(body) && styleVisible(document.documentElement)) {
+      visit(body, { type: "text", tag: "body", depth: 0, disabled: disabled(body) }, 0, 0, false);
+      flush();
+    }
+    return { ok: true, result: { page, overview, blocks, truncated } };
   }
   const validDocument = (message) => location.href === message.expected_url;
   async function perform(message) {
     const args = message.arguments;
-    if (!args || !["inspect", "dom.inspect", "click", "fill"].includes(message.operation)) return fail("invalid_arguments");
-    const domInspect = message.operation === "dom.inspect", inspect = domInspect || message.operation === "inspect";
-    const find = () => domInspect ? domCandidates(args, message.expires_at).elements : candidates(args.target, message.expires_at);
+    if (!args || !["read", "inspect", "dom.inspect", "click", "fill"].includes(message.operation)) return fail("invalid_arguments");
+    const reading = message.operation === "read", domInspect = message.operation === "dom.inspect";
+    const inspect = reading || domInspect || message.operation === "inspect";
+    const find = () => reading ? [] : domInspect ? domCandidates(args, message.expires_at).elements : candidates(args.target, message.expires_at);
     const deadline = Math.min(message.expires_at - 100, Date.now() + (args.wait_ms || 0));
     let elements;
     do {
@@ -294,7 +447,6 @@
     if (!inspect) {
       elements = elements.filter(visible);
       if (!elements.length) return fail("target_hidden");
-      if (elements.length !== 1) return fail("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
     }
     // Recheck permission after waiting; revocation must not leave a usable listener.
     const authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
@@ -302,7 +454,14 @@
     if (authorization?.ok !== true) return fail(authorization?.error?.code === "page_changed" ? "page_changed" : "permission_denied");
     if (!validDocument(message)) return fail("page_changed");
     if (Date.now() >= message.expires_at) return fail("request_expired");
+    if (!inspect && elements.length !== 1) return fail("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
     if (inspect) {
+      if (reading) {
+        const result = readPage(message.expires_at);
+        if (!validDocument(message)) return fail("page_changed");
+        if (Date.now() >= message.expires_at) return fail("request_expired");
+        return result;
+      }
       if (domInspect) {
         const found = domCandidates(args, message.expires_at);
         if (!found.elements.length) return fail("target_not_found");
@@ -314,8 +473,9 @@
       elements = find();
       if (elements === null) return fail("page_too_large");
       if (args.target && !elements.length) return fail("target_not_found");
-      return { ok: true, result: { elements: elements.slice(0, args.limit ?? 20).map(summary),
-        total: elements.length, truncated: elements.length > (args.limit ?? 20) } };
+      const summaries = elements.slice(0, args.limit ?? 20).map(summary);
+      return { ok: true, result: { elements: summaries,
+        total: elements.length, truncated: elements.length > (args.limit ?? 20) || summaries.some((item) => item.truncated) } };
     }
     const element = elements[0];
     const check = () => {

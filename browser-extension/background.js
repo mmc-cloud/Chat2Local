@@ -1,4 +1,5 @@
 /* Only this extension's authenticated, loopback socket can dispatch operations. */
+importScripts("browser-safety.js");
 importScripts("browser-operations.js");
 const browserOperations = globalThis.Chat2LocalBrowser;
 browserOperations.installAuthorizationHandler();

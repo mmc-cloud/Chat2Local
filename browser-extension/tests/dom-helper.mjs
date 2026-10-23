@@ -11,6 +11,7 @@ export function page(html, { url = "https://test.example/", authorize = async ()
   // jsdom has no layout engine. Visibility logic still runs the real style/
   // ancestry checks; only rectangle presence is supplied by this test adapter.
   window.HTMLElement.prototype.getClientRects = function () { return this.isConnected ? [{ width: 100, height: 20 }] : []; };
+  window.eval(readFileSync(new URL("../browser-safety.js", import.meta.url), "utf8"));
   window.eval(source);
   const dispatch = (message, sender = { id: "test-extension" }) => new Promise((resolve) => {
     if (!listener(message, sender, resolve)) resolve({ ignored: true });

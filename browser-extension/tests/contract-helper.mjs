@@ -6,6 +6,7 @@ const context = vm.createContext({ URL, Date, chrome: { tabs: {
   create: async () => ({ id: 1, windowId: 1 }), query: async () => [],
   get: async () => { throw Error("No test tab"); },
 } } });
+vm.runInContext(readFileSync(new URL("../browser-safety.js", import.meta.url), "utf8"), context);
 vm.runInContext(readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8"), context);
 const api = context.Chat2LocalBrowser;
 let input = "";

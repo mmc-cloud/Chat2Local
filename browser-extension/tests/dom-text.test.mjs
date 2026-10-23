@@ -24,7 +24,7 @@ test("review: semantic inspect never reads protected input content, including th
     assert.equal(byId.parent.name, "Public");
     assert.equal(byId.referenced.name, "Safe");
     assert.deepEqual(Object.keys(byId.draft).sort(), ["role", "name", "id", "href", "aria_label", "placeholder", "visible",
-      "disabled", "read_only", "input_type"].sort());
+      "disabled", "read_only", "input_type", "ref", "truncated"].sort());
   } finally { p.window.close(); }
 });
 

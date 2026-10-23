@@ -1,38 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import vm from "node:vm";
 import { page } from "./dom-helper.mjs";
-const source = readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8");
-
-function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "https://test.example/" }],
-  consent = ["https://test.example/*"], granted = true, allWebsites = false, inject, send } = {}) {
-  const calls = { injected: [], messages: [] };
-  let listener;
-  const settings = { pageOrigins: consent, allWebsites };
-  const chrome = {
-    runtime: { id: "test-extension", onMessage: { addListener(fn) { listener = fn; } } },
-    storage: { local: { get: async () => settings } },
-    permissions: { contains: async () => granted },
-    tabs: {
-      query: async () => tabs.map((tab) => ({ ...tab })),
-      get: async (id) => { const tab = tabs.find((tab) => tab.id === id); if (!tab) throw Error("closed"); return { ...tab }; },
-      create: async (args) => ({ id: 99, windowId: 7, url: args.url }),
-      sendMessage: async (...args) => { calls.messages.push(args); return send ? send(...args) : { ok: true, result: { status: "clicked" } }; },
-    },
-    scripting: { executeScript: async (args) => { calls.injected.push(args); return inject ? inject(args) : [{ frameId: 0, documentId: "doc-1" }]; } },
-  };
-  const context = vm.createContext({ chrome, URL, Date });
-  vm.runInContext(source, context);
-  const api = context.Chat2LocalBrowser;
-  api.installAuthorizationHandler();
-  const call = (capability, args, expiresAt = Date.now() + 10000) => api.execute({ capability,
-    arguments: args, expires_at: expiresAt });
-  const authorize = (message, sender) => new Promise((resolve) => {
-    if (!listener(message, sender, resolve)) resolve({ ok: false });
-  });
-  return { api, call, chrome, calls, authorize, tabs, consent, settings };
-}
+import { fixture } from "./operations-helper.mjs";
 
 test("tabs list is bounded; selection uses native IDs and exact AND conditions", async () => {
   const f = fixture({ tabs: Array.from({ length: 8 }, (_, id) => ({ id, windowId: 7, title: "Same", url: "https://test.example/" })) });
@@ -117,7 +86,7 @@ test("background injects the packaged top-frame module and sends to its document
     assert.equal(p.document.querySelector("input").value, "native text");
     assert.equal((await f.call("browser.page.click", { tab: { tab_id: 1 }, target: { role: "button", name: "Go" } })).result.status, "clicked");
     assert.equal(clicks, 1);
-    assert.deepEqual(Array.from(f.calls.injected[0].files), ["content-script.js"]);
+    assert.deepEqual(Array.from(f.calls.injected[0].files), ["browser-safety.js", "content-script.js"]);
     assert.deepEqual(Array.from(f.calls.injected[0].target.frameIds), [0]);
     assert.equal(f.calls.injected[0].world, "ISOLATED");
     assert.equal(f.calls.messages[0][2].documentId, "doc-1");

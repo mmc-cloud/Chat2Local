@@ -1,7 +1,13 @@
 # Chat2Local Browser Use
 
-可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择，以及授权网页的 inspect/click/fill、局部 DOM 只读探查与 CSS 自定义控件定位。
+可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择、独立网页读取与分段续读，以及授权网页的 inspect/click/fill、局部 DOM 只读探查与 CSS 自定义控件定位。
+**Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
+推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
+公共 MCP Tool 保持 12 个；浏览器能力为 8 个，统一通过 capability_discover / capability_execute 调用。
 第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
+发现结果同时提供各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`，说明成功字段、隐私展示及错误恢复。
+读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
+任意 DOM 变更会使旧 ref 失效，返回 stale_target 后重新观察，不自动回退位置型 CSS。
 Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。
 Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影响原有 10 个 Tool。
@@ -56,7 +62,7 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
 ```
 
 将以上参数传给 `capability_discover`。也支持 `"query": "Chrome tab"` 等大小写不敏感的关键词，
-多个词全部匹配；省略 query 返回全部已知能力。结果示例（schema 字段略）：
+多个词全部匹配；省略 query 返回全部已知能力。结果节选示例（Schema、共享指导和返回契约只展示部分字段）：
 
 ```json
 {
@@ -64,14 +70,15 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
   "result": {
     "capabilities": [{
       "name": "browser.tabs.create",
-      "description": "Create a Chrome tab with an HTTP or HTTPS URL.",
+      "description": "Create one Chrome tab for an HTTP(S) URL. Side effect: opens a tab; does not wait for load or prove business success. Check tabs before retrying an uncertain result.",
       "input_schema": {
         "type": "object",
         "required": ["url"],
         "additionalProperties": false,
         "properties": {"url": {"type": "string"}}
       },
-      "available": true
+      "available": true,
+      "result_contract": {"tab_id":"integer: native Chrome tab ID for subsequent calls."}
     }]
   }
 }
@@ -87,17 +94,18 @@ Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core�
 {
   "device": "laptop",
   "capability": "browser.tabs.create",
-  "arguments": {"url": "https://example.com"}
+  "arguments": {"url": "https://example.com/"}
 }
 ```
 
 成功结果：
 
 ```json
-{"ok": true, "result": {"tab_id": 123, "window_id": 1, "url": "https://example.com"}}
+{"ok": true, "result": {"tab_id": 123, "window_id": 1, "url": "https://example.com/"}}
 ```
 
-`url` 是已提交的请求 URL，成功表示 Chrome 已创建标签页，不表示页面已加载完成或最终跳转目标。
+`url` 是已提交请求 URL 的规范化脱敏展示值（去除 Query、Fragment、凭据等）；精确选择后续标签页使用 tab_id。
+成功表示 Chrome 已创建标签页，不表示页面已加载完成或最终跳转目标。
 失败结果统一为 `{"ok": false, "error": {"code": "...", "message": "..."}}`：
 
 | code | 含义 |

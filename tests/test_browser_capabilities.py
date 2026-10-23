@@ -50,7 +50,7 @@ def test_discovery_and_unknown_unavailable_are_distinct(tmp_path):
             assert entries[0]["name"] == CAPABILITY and entries[0]["available"] is False
             schema = entries[0]["input_schema"]
             assert schema["required"] == ["url"] and schema["additionalProperties"] is False
-        assert (await local.execute("capability_discover", {"query": "browser.page.unknown"}))["result"] == {"capabilities": []}
+        assert (await local.execute("capability_discover", {"query": "browser.page.unknown"}))["result"]["capabilities"] == []
         unknown = await local.execute("capability_execute", {"capability": "unknown", "arguments": {}})
         assert unknown["error"]["code"] == "unknown_capability"
         unavailable = await local.execute("capability_execute", {"capability": CAPABILITY, "arguments": {"url": "https://example.com"}})

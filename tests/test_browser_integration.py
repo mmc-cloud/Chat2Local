@@ -132,11 +132,16 @@ def test_phase2_capabilities_route_to_only_the_selected_agent(tmp_path):
                 for index, device in enumerate(("first", "second")):
                     listing = decode(await client.call_tool("capability_discover", {"device": device}))
                     assert all(entry["available"] for entry in listing["result"]["capabilities"])
+                    assert listing["result"]["conventions"]["references"]
+                    assert listing["result"]["error_guidance"]["stale_target"]
+                    assert all(entry["result_contract"] for entry in listing["result"]["capabilities"])
                     for capability, arguments in (
                         ("browser.tabs.list", {}),
                         ("browser.tabs.resolve", {"tab": {"tab_id": 7}}),
+                        ("browser.page.read", {"tab": {"tab_id": 7}, "max_chars": 1000}),
                         ("browser.page.inspect", {"tab": {"tab_id": 7}, "target": {"role": "button"}}),
                         ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"name": "Go"}}),
+                        ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"ref": "el_test_reference"}}),
                         ("browser.page.fill", {"tab": {"tab_id": 7}, "target": {"label": "Query"}, "value": "text"}),
                     ):
                         pending = asyncio.create_task(client.call_tool("capability_execute", {
@@ -144,18 +149,30 @@ def test_phase2_capabilities_route_to_only_the_selected_agent(tmp_path):
                         }))
                         request = json.loads(await asyncio.wait_for(sockets[index].recv(), 3))
                         assert request["capability"] == capability
+                        if "ref" in arguments.get("target", {}):
+                            assert request["arguments"]["target"] == {"ref": "el_test_reference"}
                         assert not locals_[1 - index].browser._pending
                         await sockets[index].send(response(request, result={"device": device}))
                         assert decode(await pending)["result"]["device"] == device
+                pending = asyncio.create_task(client.call_tool("capability_execute", {
+                    "device": "first", "capability": "browser.page.read", "arguments": {"tab": {"tab_id": 7}},
+                }))
+                await asyncio.wait_for(sockets[0].recv(), 3)
+                await sockets[0].close()
+                disconnected = decode(await pending)
+                assert disconnected["error"]["code"] == "capability_unavailable"
+                assert locals_[1].browser.is_available("browser.page.read")
+                # Reconnect this isolated simulated extension for the existing checks.
+                sockets[0] = await stack.enter_async_context(extension(locals_[0].browser, capabilities=list(CAPABILITY_NAMES)))
                 pending = asyncio.create_task(client.call_tool("capability_execute", {
                     "device": "first", "capability": "browser.page.click",
                     "arguments": {"tab": {"tab_id": 7}, "target": {"name": "Duplicate"}},
                 }))
                 request = json.loads(await sockets[0].recv())
                 await sockets[0].send(response(request, error={"code": "ambiguous_target", "message": "PRIVATE",
-                    "details": {"candidates": [{"name": "Duplicate", "role": "button", "extra": "PRIVATE"}]}}))
+                    "details": {"candidates": [{"ref": "el_candidate", "name": "Duplicate", "role": "button", "extra": "PRIVATE"}]}}))
                 error = decode(await pending)["error"]
-                assert error["details"]["candidates"] == [{"role": "button", "name": "Duplicate"}]
+                assert error["details"]["candidates"] == [{"ref": "el_candidate", "role": "button", "name": "Duplicate"}]
                 assert "PRIVATE" not in json.dumps(error)
                 await sockets[0].close()
                 await eventually(lambda: not locals_[0].browser.is_available("browser.page.click"))
