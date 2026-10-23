@@ -62,11 +62,13 @@
       && optional(args.wait_ms, (v) => integer(v, 0, 5000));
     const inspect = name === "browser.page.inspect", fill = name === "browser.page.fill";
     const select = name === "browser.page.select", checked = name === "browser.page.set_checked", key = name === "browser.page.press_key";
-    return keys(args, ["tab", "target", "wait_ms", ...(inspect ? ["limit"] : []), ...(fill ? ["value"] : []),
+    return keys(args, ["tab", "target", "wait_ms", ...(inspect ? ["limit", "select_options"] : []), ...(fill ? ["value"] : []),
       ...(select ? ["options"] : []), ...(checked ? ["checked"] : []), ...(key ? ["key", "modifiers"] : [])])
       && validTab(args.tab) && (inspect ? optional(args.target, validTarget) : validTarget(args.target))
       && optional(args.wait_ms, (v) => integer(v, 0, 5000))
       && (!inspect || optional(args.limit, (v) => integer(v, 1, 20)))
+      && (!inspect || optional(args.select_options, (v) => validTarget(args.target) && keys(v, ["offset", "limit"])
+        && optional(v.offset, (n) => integer(n, 0, 9999)) && optional(v.limit, (n) => integer(n, 1, 50))))
       && (!fill || (typeof args.value === "string" && Array.from(args.value).length <= 8192))
       && (!select || (Array.isArray(args.options) && args.options.length <= 50 && args.options.every(validOption)))
       && (!checked || typeof args.checked === "boolean")

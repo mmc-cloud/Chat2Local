@@ -246,6 +246,7 @@ css、text、tag 条件取 AND；tag 是普通 HTML 标签名，大小写不敏�
 scope 本身可直接通过 css 查询。没有匹配返回 target_not_found；不返回整页 outerHTML。
 
 每项返回 tag、id、class、role、text、visible、disabled、attributes、children、parents、css、ref、truncated。
+Phase 3 第二组在此基础上增加 read_only、state、scroll，详见 [PHASE3.md](PHASE3.md)。
 其中 css 是临时的原生 DOM 位置路径，路径过长时返回 null；后续执行优先使用 ref。
 独立已知的稳定类名、id 和文本仍可形成明确的 AND 定位，位置路径不保证跨请求期间的 DOM 稳定性。
 摘要文本会裁剪，不能总是将裁剪后的文字直接用作完整精确匹配条件。
@@ -263,7 +264,8 @@ click 返回 clicked 仅表示 DOM 调用完成，不代表消息发送等业务
 只读探查的边界：
 
 - 仅访问已授权的顶层 DOM；不读 Cookie API，不执行网页 JS，不穿透 iframe、Shadow DOM。
-- 属性使用白名单，最多 6 项、每值 80 字符；排除 value、data-*、on*、style、href/src、content 等可能带凭据或脚本的属性。
+- 属性使用固定白名单，当前最多 20 项、每值 80 字符；关键 ARIA 状态/关联不再被前六项截断。
+  排除 value、data-*、on*、style、href/src、content 等可能带凭据或脚本的属性。
 - input、textarea、select/option、contenteditable、script/style/template 等内容不读取；由 id/name/autocomplete 标记为密码、Token、Cookie 等的节点内容也隐藏。
   隐藏节点不返回文本，其后代文本不会汇总进父节点；不返回输入当前值、默认值或原始 HTML。
 - 结构 id/class、文本与允许属性还会过滤常见 Bearer/JWT、长不透明串及显式凭据键值。此过滤不是任意业务文本的秘密检测器；已授权页面的普通可见文案仍属于探查内容。
@@ -296,6 +298,7 @@ click 返回 clicked 仅表示 DOM 调用完成，不代表消息发送等业务
   或使用页面已有的 aria-label/关联 label。普通 button 的正文名称继续支持。
   默认语义检查支持普通 button、a[href]、input、textarea、select、summary 和部分显式 role 控件；不宣称完整 WAI-ARIA 算法。
 - inspect 返回 ref、role、name、id、href、aria_label、placeholder、visible、disabled、read_only、input_type、truncated，**不返回输入框值**。
+  Phase 3 增加共享 state/scroll 及可选 select_options，后者只按需分页读取一个原生 select 的选项，不读取其他字段值。
   文本摘要最多 160 字符（URL 2048）；字段均先脱敏再裁剪，长名称不完整时不返回可误用的前缀，优先使用 ref 定位。
 - click / fill 复用 visible 判定，在可见匹配中要求唯一目标；隐藏的同名元素不参与歧义判定。
   无匹配返回 target_not_found，全部隐藏返回 target_hidden，多个可见匹配返回 ambiguous_target。

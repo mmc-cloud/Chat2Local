@@ -64,8 +64,8 @@
       throw error;
     }
   }
-  const protectedNode = (element) => element.matches(protectedTags)
-    || secretHint.test(`${element.id} ${element.getAttribute("name") || ""} ${element.getAttribute("autocomplete") || ""}`);
+  const secretMarked = (element) => secretHint.test(`${element.id} ${element.getAttribute("name") || ""} ${element.getAttribute("autocomplete") || ""}`);
+  const protectedNode = (element) => element.matches(protectedTags) || secretMarked(element);
   function protectedContent(element) {
     for (let node = element; node; node = node.parentElement) if (protectedNode(node)) return true;
     return false;
@@ -158,6 +158,7 @@
     if (tag === "textarea" || (tag === "input" && ["text", "search", "email", "tel", "url", "password"].includes(type))) return "textbox";
     if (tag === "input" && ["checkbox", "radio"].includes(type)) return type;
     if (tag === "select") return element.multiple ? "listbox" : "combobox";
+    if (tag === "option") return "option";
     return "";
   }
   function name(element, budget = textBudget()) {
@@ -188,6 +189,86 @@
     return element.getClientRects().length > 0;
   }
   const disabled = (element) => element.matches(":disabled") || Boolean(element.closest('[aria-disabled="true"],[inert],.disable,.disabled,.is-disabled'));
+  const readOnly = (element) => Boolean(element.readOnly) || element.getAttribute("aria-readonly") === "true";
+  const nativeCheck = (element) => element instanceof HTMLInputElement && ["checkbox", "radio"].includes(element.type);
+  function checkState(element) {
+    if (nativeCheck(element)) return element.type === "checkbox" && element.indeterminate ? "mixed" : element.checked ? "checked" : "unchecked";
+    const value = element.getAttribute("aria-checked");
+    return value === "true" ? "checked" : value === "false" ? "unchecked"
+      : value === "mixed" && role(element) === "checkbox" ? "mixed" : "unknown";
+  }
+  const scrollOverflow = (value) => ["auto", "scroll", "overlay", "hidden"].includes(value);
+  function scrollState(element) {
+    const style = getComputedStyle(element), page = element === document.scrollingElement;
+    const verticalWriting = /^(vertical|sideways)/.test(style.writingMode);
+    const flex = style.display === "flex" || style.display === "inline-flex";
+    const rowReverse = flex && style.flexDirection === "row-reverse";
+    const columnReverse = flex && style.flexDirection === "column-reverse";
+    const wrapReverse = flex && style.flexWrap === "wrap-reverse", column = style.flexDirection.startsWith("column");
+    const inlineNegative = (style.direction === "rtl") !== (style.writingMode === "sideways-lr");
+    const inlineReverse = rowReverse !== (wrapReverse && column), blockReverse = columnReverse !== (wrapReverse && !column);
+    const negativeX = verticalWriting ? /-rl$/.test(style.writingMode) !== blockReverse : inlineNegative !== inlineReverse;
+    const negativeY = verticalWriting ? inlineNegative !== inlineReverse : blockReverse;
+    const axis = (overflow, position, extent, size, negative) => {
+      const range = Math.max(0, extent - size), offset = negative ? -position : position;
+      return { overflow: overflow || "visible", position, min: negative ? -range : 0, max: negative ? 0 : range,
+        scrollable: size > 0 && range > 0 && (page || scrollOverflow(overflow)),
+        at_start: offset <= 1, at_end: offset >= range - 1 };
+    };
+    return { is_page: page, x: axis(style.overflowX, element.scrollLeft, element.scrollWidth, element.clientWidth, negativeX),
+      y: axis(style.overflowY, element.scrollTop, element.scrollHeight, element.clientHeight, negativeY) };
+  }
+  function controlState(element, present, expiresAt) {
+    const state = { disabled: disabled(element), read_only: readOnly(element) };
+    if (nativeCheck(element) || ["checkbox", "radio", "switch"].includes(role(element))) {
+      state.check_state = checkState(element);
+      state.checked = nativeCheck(element) ? element.checked : ["checked", "unchecked"].includes(state.check_state) ? state.check_state === "checked" : null;
+      state.indeterminate = state.check_state === "mixed";
+    }
+    for (const [attribute, field] of [["aria-expanded", "expanded"], ["aria-selected", "selected"]]) {
+      const value = element.getAttribute(attribute);
+      if (["true", "false"].includes(value)) state[field] = value === "true";
+    }
+    for (const [attribute, field] of [["aria-controls", "controls"], ["aria-owns", "owns"], ["aria-activedescendant", "active_descendant"]]) {
+      if (element.hasAttribute(attribute)) state[field] = present(element.getAttribute(attribute), 256);
+    }
+    if (element instanceof HTMLOptionElement) state.selected = element.selected;
+    if (element instanceof HTMLSelectElement) {
+      const options = nativeOptions(element), indices = [];
+      let count = 0;
+      for (const option of options) {
+        if (Date.now() >= expiresAt) throw new QueryError("request_expired");
+        if (option.selected) { count++; if (indices.length < 20) indices.push(option.index); }
+      }
+      state.selection = { multiple: element.multiple, total_options: options.length, selected_count: count,
+        selected_indices: indices, has_more: count > indices.length };
+    }
+    return state;
+  }
+  function observation(element, expiresAt) {
+    let truncated = false;
+    const present = (value, max) => { const info = redactedText(value, max); truncated ||= info.truncated; return info.text; };
+    return { state: controlState(element, present, expiresAt), scroll: scrollState(element), truncated };
+  }
+  function actionable(element) {
+    if (!(element instanceof HTMLElement) || !visible(element) || disabled(element)
+      || getComputedStyle(element).pointerEvents === "none" || typeof document.elementFromPoint !== "function") return false;
+    const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
+    // Sample multiple visible rectangles and points, including edges: a covered
+    // center, inline wrapping or a partly offscreen box need not block input.
+    let count = 0;
+    for (const rect of element.getClientRects()) {
+      if (++count > 20) break;
+      const left = Math.max(0, rect.left), right = Math.min(width, rect.right);
+      const top = Math.max(0, rect.top), bottom = Math.min(height, rect.bottom);
+      if (right <= left || bottom <= top) continue;
+      for (const x of [0.5, 0.1, 0.9]) for (const y of [0.5, 0.1, 0.9]) {
+        const hit = document.elementFromPoint(left + (right - left) * x, top + (bottom - top) * y);
+        if (hit === element || (hit && element.contains(hit))) return true;
+      }
+    }
+    return false;
+  }
   function matches(element, target, budget = textBudget()) {
     const values = { role: () => role(element), aria_label: () => normalize(element.getAttribute("aria-label")),
       placeholder: () => normalize(element.getAttribute("placeholder")), href: () => element.href || "",
@@ -253,8 +334,9 @@
   }
   function domSnapshot(elements, root, args, expiresAt) {
     const budget = { nodes: 40, bytes: 32 * 1024, reads: 8000, expiresAt, truncated: false };
-    const allowed = ["id", "class", "role", "type", "name", "aria-label", "aria-disabled", "aria-hidden", "aria-expanded",
-      "aria-checked", "aria-selected", "placeholder", "disabled", "readonly", "tabindex", "for"];
+    const critical = ["aria-disabled", "aria-readonly", "aria-hidden", "aria-expanded", "aria-checked", "aria-selected",
+      "aria-controls", "aria-owns", "aria-activedescendant"];
+    const allowed = [...critical, "id", "class", "role", "type", "name", "aria-label", "placeholder", "disabled", "readonly", "tabindex", "for"];
     function describe(element, depth) {
       if (Date.now() >= expiresAt) throw new QueryError("request_expired");
       if (budget.nodes <= 0 || budget.bytes < 2048) { budget.truncated = true; return null; }
@@ -267,14 +349,15 @@
         return info.text;
       };
       const attributes = {};
-      if (!sensitive) for (const key of allowed) {
+      for (const key of sensitive ? critical : allowed) {
         if (!element.hasAttribute(key)) continue;
-        if (Object.keys(attributes).length >= 6) { clipped = true; break; }
         attributes[key] = present(element.getAttribute(key), 80);
       }
+      const state = controlState(element, present, expiresAt);
       const item = { tag: present(element.localName, 64), id: present(element.id), class: present(element.getAttribute("class")),
         role: present(role(element), 64), text: text.truncated ? "" : present(text.text),
-        visible: isVisible, disabled: disabled(element), attributes, children: [], truncated: clipped };
+        visible: isVisible, disabled: disabled(element), read_only: readOnly(element), state, scroll: scrollState(element),
+        attributes, children: [], truncated: clipped };
       budget.nodes--;
       budget.bytes -= new TextEncoder().encode(JSON.stringify(item)).length + 64;
       if (depth > 0 && !sensitive) {
@@ -321,7 +404,7 @@
     return { ref: reference(element), role: present(role(element), 64), name: info.truncated ? "" : present(info.text), id: present(element.id),
       href: element.href ? href.url : "", aria_label: present(element.getAttribute("aria-label")),
       placeholder: present(element.getAttribute("placeholder")), visible: visible(element),
-      disabled: disabled(element), read_only: Boolean(element.readOnly), input_type: present(element.type || "", 32), truncated };
+      disabled: disabled(element), read_only: readOnly(element), input_type: present(element.type || "", 32), truncated };
   }
   function readUrl(value) {
     return Chat2LocalSafety.url(value, document.baseURI);
@@ -472,8 +555,8 @@
       if (referenced(pinnedRef) !== element) throw new QueryError("stale_target");
       const current = eventsStarted ? [element] : candidates(args.target, message.expires_at);
       if (!current.includes(element)) throw new QueryError("stale_target");
-      if (!visible(element)) throw new QueryError("target_hidden");
-      const eligible = current.filter(visible);
+      if (!visible(element) && !(operation === "set_checked" && nativeCheck(element))) throw new QueryError("target_hidden");
+      const eligible = operation === "set_checked" ? current : current.filter(visible);
       if (eligible.length !== 1) throw new QueryError("ambiguous_target", { candidates: eligible.slice(0, 5).map(summary) });
       if (disabled(element)) throw new QueryError("target_disabled");
       if (!(element instanceof HTMLElement)) throw new QueryError("unsupported_element");
@@ -485,7 +568,7 @@
         && ["text", "search", "email", "url", "tel"].includes(element.type))) throw new QueryError("unsupported_element");
       if (operation === "select" && !(element instanceof HTMLSelectElement)) throw new QueryError("unsupported_element");
       if (operation === "set_checked") {
-        if (!(element instanceof HTMLInputElement) || !["checkbox", "radio"].includes(element.type)) throw new QueryError("unsupported_element");
+        if (!nativeCheck(element) && !["checkbox", "switch"].includes(role(element))) throw new QueryError("unsupported_element");
         if (element.type === "radio" && element.checked && !args.checked) throw new QueryError("unsupported_state");
       }
       checkRequest(message);
@@ -494,6 +577,91 @@
   function nativeOptions(element) {
     if (element.options.length > 10000) throw new QueryError("page_too_large");
     return [...element.options];
+  }
+  function optionPage(element, args, expiresAt) {
+    if (!(element instanceof HTMLSelectElement)) throw new QueryError("unsupported_element");
+    // Native select is deliberately protected from text extraction. This one
+    // opt-in projection reads only its options, never unrelated field values.
+    for (let node = element; node; node = node.parentElement) {
+      if (secretMarked(node)
+        || (node !== element && protectedNode(node))) throw new QueryError("protected_input");
+    }
+    const all = nativeOptions(element), offset = args.offset ?? 0, limit = args.limit ?? 20;
+    const options = [];
+    let bytes = 0, clipped = false;
+    for (const option of all.slice(offset, offset + limit)) {
+      if (Date.now() >= expiresAt) throw new QueryError("request_expired");
+      for (let node = option; node !== element; node = node.parentElement) {
+        if (secretMarked(node)) throw new QueryError("protected_input");
+      }
+      const label = redactedText(option.label, 256), value = redactedText(option.value, 256);
+      const item = { index: option.index, label: label.text, value: value.text, selected: option.selected,
+        disabled: disabled(option) || Boolean(option.closest("optgroup[disabled]")), truncated: label.truncated || value.truncated };
+      const size = new TextEncoder().encode(JSON.stringify(item)).length;
+      if (bytes + size > 16 * 1024) break;
+      options.push(item); bytes += size; clipped ||= item.truncated;
+    }
+    const hasMore = offset + options.length < all.length;
+    return { options, total: all.length, offset, has_more: hasMore, next_offset: hasMore ? offset + options.length : null,
+      truncated: hasMore || clipped };
+  }
+  function checkedActivation(element) {
+    if (visible(element)) return element;
+    if (!nativeCheck(element)) throw new QueryError("target_hidden");
+    if (element.labels.length > 10000) throw new QueryError("page_too_large");
+    const labels = [...element.labels].filter((label) => label.control === element && label.ownerDocument === document
+      && label.isConnected && visible(label));
+    if (!labels.length) throw new QueryError("target_hidden");
+    if (labels.length !== 1) throw new QueryError("ambiguous_target", { candidates: labels.slice(0, 5).map(summary) });
+    if (disabled(labels[0])) throw new QueryError("target_disabled");
+    return labels[0];
+  }
+  async function setChecked(message, element, check) {
+    const wanted = message.arguments.checked ? "checked" : "unchecked";
+    check();
+    let target = summary(element);
+    const result = (changed) => ({ ok: true, result: { status: "checked", target,
+      checked: message.arguments.checked, changed, event_is_trusted: false } });
+    if (checkState(element) === wanted) return result(false);
+    if (checkState(element) === "unknown") throw new QueryError("state_not_reached");
+    const activation = checkedActivation(element), activationRef = reference(activation), targetRef = reference(element);
+    const native = nativeCheck(element), kind = native ? element.type : role(element);
+    const verifyIdentity = () => {
+      checkRequest(message);
+      if (referenced(targetRef) !== element || nativeCheck(element) !== native
+        || (native ? element.type : role(element)) !== kind) throw new QueryError("stale_target");
+      if (referenced(activationRef) !== activation || (activation !== element && activation.control !== element)) throw new QueryError("stale_target");
+    };
+    const guard = () => {
+      check();
+      verifyIdentity();
+      if (!visible(activation)) throw new QueryError("target_hidden");
+      if (disabled(activation)) throw new QueryError("target_disabled");
+      if (readOnly(activation)) throw new QueryError("target_readonly");
+      // Preparation must not replace or disambiguate the chosen label for us.
+      if (checkedActivation(element) !== activation) throw new QueryError("stale_target");
+    };
+    guard();
+    activation.scrollIntoView?.({ block: "center", inline: "nearest" });
+    guard();
+    activation.focus({ preventScroll: true });
+    guard();
+    target = summary(element);
+    const changed = checkState(element) !== wanted;
+    if (changed) activation.click();
+    // Let common reactive microtask updates settle, with read-only verification
+    // for at most 250ms. The click is never retried or redirected to a new node.
+    const deadline = Math.min(message.expires_at - 100, Date.now() + 250);
+    do {
+      // Post-click readiness can legitimately change. Verify identity and
+      // consent before accepting state, without requiring another activation.
+      verifyIdentity();
+      await authorize(message);
+      verifyIdentity();
+      if (checkState(element) === wanted) return result(changed);
+      if (Date.now() >= deadline) throw new QueryError("state_not_reached");
+      await pause(deadline);
+    } while (true);
   }
   function selectOptions(element, selectors, expiresAt) {
     const options = nativeOptions(element);
@@ -619,7 +787,7 @@
       const element = elements[0];
       const matched = state === "detached" ? !element : state === "hidden" ? !element || !visible(element)
         : !element ? false : state === "attached" ? true : state === "visible" ? visible(element)
-        : state === "actionable" ? element instanceof HTMLElement && visible(element) && !disabled(element)
+        : state === "actionable" ? actionable(element)
         : state === "disabled" ? disabled(element) : !disabled(element);
       checkRequest(message);
       return { element, matched, at: Date.now() };
@@ -667,9 +835,9 @@
     check();
     const dx = args.delta_x || 0, dy = args.delta_y || 0;
     if (!page) {
-      const style = getComputedStyle(element), overflow = (value) => ["auto", "scroll", "overlay", "hidden"].includes(value);
-      if ((dx && (!overflow(style.overflowX) || element.scrollWidth <= element.clientWidth))
-        || (dy && (!overflow(style.overflowY) || element.scrollHeight <= element.clientHeight))) throw new QueryError("target_not_scrollable");
+      const style = getComputedStyle(element);
+      if ((dx && (!scrollOverflow(style.overflowX) || element.scrollWidth <= element.clientWidth))
+        || (dy && (!scrollOverflow(style.overflowY) || element.scrollHeight <= element.clientHeight))) throw new QueryError("target_not_scrollable");
     }
     const position = () => ({ x: element.scrollLeft, y: element.scrollTop });
     const target = page ? null : summary(element), before = position();
@@ -693,7 +861,7 @@
     const find = () => reading ? [] : domInspect ? domCandidates(args, message.expires_at).elements : candidates(args.target, message.expires_at);
     let elements = await findWithWait(message, find);
     if (!elements.length && (args.target || domInspect || !inspect)) return fail("target_not_found");
-    if (!inspect) {
+    if (!inspect && message.operation !== "set_checked") {
       elements = elements.filter(visible);
       if (!elements.length) return fail("target_hidden");
     }
@@ -718,7 +886,17 @@
       elements = find();
       if (elements === null) return fail("page_too_large");
       if (args.target && !elements.length) return fail("target_not_found");
-      const summaries = elements.slice(0, args.limit ?? 20).map(summary);
+      if (args.select_options && elements.length !== 1) throw new QueryError("ambiguous_target", { candidates: elements.slice(0, 5).map(summary) });
+      const summaries = elements.slice(0, args.limit ?? 20).map((element) => {
+        const item = summary(element), observed = observation(element, message.expires_at);
+        item.state = observed.state; item.scroll = observed.scroll; item.truncated ||= observed.truncated;
+        if (args.select_options) {
+          item.select_options = optionPage(element, args.select_options, message.expires_at);
+          item.truncated ||= item.select_options.truncated;
+        }
+        return item;
+      });
+      checkRequest(message);
       return { ok: true, result: { elements: summaries,
         total: elements.length, truncated: elements.length > (args.limit ?? 20) || summaries.some((item) => item.truncated) } };
     }
@@ -726,9 +904,7 @@
     const check = actionGuard(message, element);
     check();
     if (message.operation === "scroll") return scroll(message, element, check);
-    if (message.operation === "set_checked" && element.checked === args.checked) {
-      return { ok: true, result: { status: "checked", target: summary(element), checked: args.checked, changed: false, event_is_trusted: false } };
-    }
+    if (message.operation === "set_checked") return setChecked(message, element, check);
     const options = message.operation === "select" ? selectOptions(element, args.options, message.expires_at) : null;
     check();
     element.scrollIntoView?.({ block: "center", inline: "nearest" });
@@ -757,14 +933,6 @@
     if (message.operation === "press_key") {
       const result = await pressKey(message, element, check);
       return { ok: true, result: { status: "key_pressed", target, event_is_trusted: false, ...result } };
-    }
-    if (message.operation === "set_checked") {
-      // Focus handlers may already have achieved the desired state.
-      const changed = element.checked !== args.checked;
-      if (changed) element.click();
-      check(true);
-      if (element.checked !== args.checked) throw new QueryError("state_not_reached");
-      return { ok: true, result: { status: "checked", target, checked: element.checked, changed, event_is_trusted: false } };
     }
     if (message.operation === "select") {
       const current = selectOptions(element, args.options, message.expires_at);

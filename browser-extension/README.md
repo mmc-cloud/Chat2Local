@@ -185,7 +185,7 @@ Origin 与 token 保护来自普通网页的调用；同一 OS 用户下的恶�
 在仓库根目录运行：
 
 ```powershell
-uv run pytest -q
+uv run pytest -q tests/test_browser_capabilities.py tests/test_browser_phase2.py tests/test_browser_phase3.py tests/test_browser_contract.py tests/test_browser_bridge.py tests/test_browser_integration.py
 npm ci --prefix browser-extension
 npm test --prefix browser-extension
 ```
@@ -227,6 +227,10 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 合成双击、悬停和按键不等价于真实输入，不保证 CSS :hover、原生键盘默认动作或浏览器快捷键。
 动作错误也可能发生在部分事件之后；第三阶段的受控浏览器验收与剩余覆盖边界见 [Phase 3](PHASE3.md)。
+inspect/dom.inspect 现提供统一控件状态、ARIA 关联及滚动信息；inspect 的 select_options 支持原生选项有界分页。
+set_checked 支持 ARIA checkbox/switch 与可靠关联 label 的隐藏原生 input；混合态单独核验，不反复点击或伪造状态。
+自定义下拉框使用观察、click、wait_for、dom.inspect、选择和再观察的明确组合；select 仍仅支持原生控件。
+actionable 增加只读几何/命中采样，不保证可信输入或业务成功。隔离原生 Chromium 测试方法与限制见 Phase 3 第二组章节。
 
 实现依据：Chrome 官方 [WebSocket worker 生命周期说明](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)、
 [alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms)、

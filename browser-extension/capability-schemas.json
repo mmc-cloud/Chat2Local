@@ -420,7 +420,7 @@
     },
     {
       "name": "browser.page.inspect",
-      "description": "Read-only semantic control summaries, including hidden/disabled controls and safe refs, on an authorized top-level page. Use to locate controls before acting; use page.read for prose or dom.inspect for custom structure. No field values.",
+      "description": "Read-only semantic control discovery with safe refs, control state/ARIA relations and scroll axes/positions. Optional select_options pages list native select choices. No other field values; use page.read for prose or dom.inspect for custom structure.",
       "input_schema": {
         "$defs": {
           "ElementTarget": {
@@ -703,6 +703,29 @@
             "title": "ElementTarget",
             "type": "object"
           },
+          "InspectSelectOptions": {
+            "additionalProperties": false,
+            "properties": {
+              "offset": {
+                "default": 0,
+                "description": "Zero-based native option offset. Follow next_offset for bounded live-DOM pages; options can change between calls, so re-inspect after page changes.",
+                "maximum": 9999,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              },
+              "limit": {
+                "default": 20,
+                "description": "Maximum options in this page; the shared byte budget may return fewer. Includes sanitized label/value/index/selected/disabled, never unrelated field values.",
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "title": "InspectSelectOptions",
+            "type": "object"
+          },
           "TabSelector": {
             "additionalProperties": false,
             "anyOf": [
@@ -795,6 +818,38 @@
           }
         },
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "select_options": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "select_options"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "target": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
         "properties": {
           "tab": {
             "$ref": "#/$defs/TabSelector",
@@ -827,6 +882,18 @@
             "minimum": 0,
             "title": "Wait Ms",
             "type": "integer"
+          },
+          "select_options": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/InspectSelectOptions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Opt-in native option discovery, requiring target to match exactly one native select including hidden matches. Returned on that element as select_options with total/offset/has_more/next_offset/truncated. {} starts at 0 with limit 20; no automatic expansion or selection."
           }
         },
         "required": [
@@ -837,7 +904,7 @@
       },
       "result_contract": {
         "tab": "object: selected native tab and sanitized display metadata.",
-        "elements": "array: ref, role/name/id/href/aria_label/placeholder, visible/disabled/read_only/input_type/truncated; no field values. Data is sanitized; use target={ref: element.ref}, not redacted display fields.",
+        "elements": "array: existing safe summaries plus state and scroll (see observation convention). Optional select_options on a single native select contains bounded options {label,value,index,selected,disabled,truncated}, total/offset/has_more/next_offset/truncated. No other input values. Use safe refs, not sanitized display text, as locators.",
         "total": "integer: matching candidates including hidden elements, before limit.",
         "truncated": "boolean: omitted candidates or clipped summary fields."
       }
@@ -1076,7 +1143,7 @@
       },
       "result_contract": {
         "tab": "object: selected native tab and sanitized display metadata.",
-        "elements": "array: local roots with ref, positional css, filtered attributes/text, visible/disabled, children and bounded parents. Use ref for identity; css alone may target a different node after DOM changes. Non-semantic custom text does not prove clickability.",
+        "elements": "array: local roots with ref, positional css, filtered attributes/text, visible/disabled/read_only, state/scroll, children and bounded parents. Interaction ARIA attributes have a fixed whitelist independent of incidental attribute count. Never exports field values. Use refs for identity; CSS may retarget after DOM changes.",
         "total": "integer: matching roots before limit; not total descendant nodes.",
         "truncated": "boolean: resource/candidate clipping; per-node truncated marks affected nodes. Requested depth and privacy exclusions are intentional projections."
       }
@@ -3486,7 +3553,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Exact whitespace-normalized option label, including empty string; not a substring. No option values or labels are returned.",
+                "description": "Exact whitespace-normalized option label, including empty string; not a substring. Use inspect.select_options for bounded option discovery; sanitized display text may require selecting by current index.",
                 "title": "Label"
               },
               "index": {
@@ -3645,7 +3712,7 @@
     },
     {
       "name": "browser.page.set_checked",
-      "description": "Set an explicit native checkbox/radio state; matching calls are no-ops, otherwise click once and verify. Checked radios cannot be unchecked directly. Not custom ARIA checkbox widgets.",
+      "description": "Set native checkbox/radio or ARIA checkbox/switch state. Mixed is distinct from unchecked; matching calls are no-ops, otherwise click once and verify the same node for up to 250ms. Hidden native inputs use only a unique visible associated label. Never writes aria-checked or retries; checked radios cannot be unchecked directly.",
       "input_schema": {
         "$defs": {
           "ElementTarget": {
@@ -4027,7 +4094,7 @@
           },
           "target": {
             "$ref": "#/$defs/ElementTarget",
-            "description": "At least one non-null condition; all are ANDed. Exactly one visible match is required. Prefer a freshly observed ref; hidden, disabled or stale targets never execute."
+            "description": "Unique native checkbox/radio or role=checkbox/switch across all matches, including hidden ones. Hidden native inputs require one visible associated label to activate; no heuristic appearance-control fallback. Disabled/inert/read-only or stale targets are refused."
           },
           "wait_ms": {
             "default": 0,
@@ -4038,7 +4105,7 @@
             "type": "integer"
           },
           "checked": {
-            "description": "Desired native checkbox/radio state. Already matching state is a no-op; otherwise click once and verify. A checked radio cannot be unchecked directly (unsupported_state); select another radio in its group.",
+            "description": "Explicit desired state. Mixed/indeterminate is distinct from unchecked. Matching calls are no-ops; otherwise click once (a unique associated label for hidden native input), then verify the same node for at most 250ms without another click. Never writes aria-checked. A checked radio cannot be unchecked directly; select another radio in its group.",
             "title": "Checked",
             "type": "boolean"
           }
@@ -4053,7 +4120,7 @@
       },
       "result_contract": {
         "tab": "object: selected native tab and sanitized display metadata.",
-        "status": "'checked': Desired native checkbox/radio state verified after at most one HTMLElement.click().",
+        "status": "'checked': Explicit native checkbox/radio or ARIA checkbox/switch state verified on the same node after at most one click (associated label for hidden native input). Mixed is not unchecked.",
         "target": "object: sanitized pre-action node summary/ref. Ref survives unrelated/text/attribute changes, but removal/navigation/eviction invalidates it; re-observe business state.",
         "changed": "boolean: click was needed; matching state is a no-op.",
         "checked": "boolean: verified requested state; no toggle on repeated matching calls.",
@@ -5005,7 +5072,7 @@
     },
     {
       "name": "browser.page.wait_for",
-      "description": "Read-only bounded wait for a unique locator to be attached/detached/visible/hidden/enabled/disabled/actionable. actionable means visible enabled HTML, not business success or bypass of operation-specific protections. Hidden/detached allow absence, never stale refs. No click/scroll/focus/navigation; wait_timeout if unmet.",
+      "description": "Read-only bounded wait for attached/detached/visible/hidden/enabled/disabled/actionable. actionable also checks pointer-events, positive viewport geometry and sampled self/descendant hits; no scrolling, physical-input or business-success guarantee. Hidden/detached allow absence, never stale refs; wait_timeout if unmet.",
       "input_schema": {
         "$defs": {
           "ElementTarget": {
@@ -5391,7 +5458,7 @@
           },
           "state": {
             "default": "visible",
-            "description": "attached: exists; detached: absent; visible: exists and visible; hidden: absent or hidden; enabled/disabled: exists with that shared disabled state, regardless of visibility. actionable: unique visible enabled HTML element, only basic DOM readiness; operation-specific password/read-only/type protections still apply. Multiple matches are ambiguous_target.",
+            "description": "attached: exists; detached: absent; visible: exists and visible; hidden: absent or hidden; enabled/disabled: exists with that shared disabled state, regardless of visibility. actionable: visible enabled HTML, pointer-events not none, positive viewport geometry and a sampled elementFromPoint hit on self/descendant. Read-only, never scrolls/focuses; finite sampling cannot prove physical-input or business success. Operation-specific protections still apply. Multiple matches are ambiguous_target.",
             "enum": [
               "attached",
               "detached",
@@ -5435,7 +5502,8 @@
     "display": "All returned text/URLs are sanitized display data, possibly clipped. Keep original exact href/CSS semantics only for independently known inputs; use native tab_id and fresh element ref to act from observations.",
     "retry": "read/inspect/wait_for are read-only. Tab creation and all DOM actions may have side effects, including preparation (scroll/focus) and partially dispatched event sequences. Errors/timeouts/disconnections do not prove no action occurred. Observe actual state before retrying; never blindly repeat.",
     "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass.",
-    "keyboard_completion": "press_key succeeds only after both events and safety confirmations. Errors may include details.events_dispatched={keydown:boolean,keyup:boolean} when known; true/false means partial, true/true can still fail final authorization. Missing details after timeout/disconnection means unknown, not no events. Never replay automatically."
+    "keyboard_completion": "press_key succeeds only after both events and safety confirmations. Errors may include details.events_dispatched={keydown:boolean,keyup:boolean} when known; true/false means partial, true/true can still fail final authorization. Missing details after timeout/disconnection means unknown, not no events. Never replay automatically.",
+    "observation": "inspect/dom.inspect add state={disabled,read_only,check_state?,checked?,indeterminate?,selected?,expanded?,controls?,owns?,active_descendant?,selection?}. check_state is checked/unchecked/mixed/unknown; native checked retains its boolean even when indeterminate, ARIA mixed/unknown uses null. Native selection={multiple,total_options,selected_count,selected_indices (first 20),has_more}; opt-in inspect.select_options pages disclose sanitized option label/value, not other field values. scroll={is_page,x,y}; each axis has computed overflow, position, min/max native CSS coordinates, scrollable, at_start/at_end (1px tolerance). hidden can scroll, clip cannot. Observations never focus or scroll. Custom dropdown recipe: inspect combobox/relations, click, wait_for listbox/options, dom.inspect the portal anywhere in the same top document, click option ref, inspect expanded/selected/active_descendant again. No auto-select state machine."
   },
   "error_guidance": {
     "invalid_arguments": "Input/schema/URL error: correct arguments before retrying; no action dispatched by the rejecting validator.",
@@ -5449,14 +5517,14 @@
     "target_hidden": "Target is hidden: stop and observe; preparation or an earlier event in a sequence may already have run.",
     "target_disabled": "Target or ancestor is disabled/inert: stop. Do not bypass disabled state; preparation or an earlier event may already have run.",
     "target_readonly": "Field is read-only: fill or state-setting is refused; press_key may dispatch supported events without editing the value. Re-observe if preparation already ran.",
-    "protected_input": "Protected password input: stop; fill/press_key is refused.",
+    "protected_input": "Protected password input or sensitive select/ancestor metadata: stop; do not bypass this protection.",
     "stale_target": "Node removed/replaced, document/URL changed, reference evicted or preparation locator no longer matched: observe again. Unrelated DOM/text/attribute updates do not invalidate node identity. Never substitute positional CSS automatically.",
     "page_changed": "Navigation, readable content or tab selection changed: discard old cursor/ref and observe again; start read without cursor.",
     "permission_denied": "User must grant website access in extension options; MCP cannot grant it. Re-observe after authorization.",
     "unsupported_page": "Use an authorized HTTP(S) top-level page; browser internal pages and embedded documents are unsupported.",
-    "unsupported_element": "Choose a supported HTML target: select and set_checked require native select and checkbox/radio, fill requires supported text inputs. No custom widget or focusability bypass.",
+    "unsupported_element": "select/option discovery require native select; set_checked supports native checkbox/radio and ARIA checkbox/switch; fill requires supported text inputs. Custom dropdowns use explicit inspect/click/wait/dom.inspect/verify steps, no auto-selection fallback.",
     "unsupported_state": "A checked radio cannot be directly unchecked; select another radio in its group. An already unchecked radio requested false is a no-op.",
-    "state_not_reached": "Focus/selection/checked state was prevented, reverted or changed by page handlers. Side effects may have occurred; inspect state before deciding any next action.",
+    "state_not_reached": "Focus/selection/checked state was unreadable, prevented, reverted or did not reach the explicit target (mixed is not unchecked). set_checked clicks at most once; inspect state before any next action.",
     "option_not_found": "No option matches all conditions: inspect the control and correct known option conditions; no selection changed by this operation.",
     "ambiguous_option": "More than one option matches: refine value/label/index, never choose the first implicitly. No selection changed by this operation.",
     "option_disabled": "Requested option or optgroup is disabled: stop; do not bypass it. No selection changed by this operation.",

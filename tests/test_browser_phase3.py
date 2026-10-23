@@ -10,6 +10,41 @@ from conftest import run
 from test_browser_bridge import browser_config, running_bridge, extension, response
 
 
+@pytest.mark.parametrize("options", [
+    {"offset": -1}, {"offset": 10000}, {"limit": 0}, {"limit": 51},
+    {"limit": True}, {"offset": "0"}, {"limit": 1.5}, {"unexpected": True}, [],
+])
+def test_native_option_page_arguments_are_rejected_before_transport(tmp_path, options):
+    from chat2local.browser.bridge import BrowserBridge
+    registry = CapabilityRegistry(BrowserBridge(browser_config(tmp_path)))
+    result = run(registry.execute("browser.page.inspect", {
+        "tab": {"tab_id": 1}, "target": {"id": "choices"}, "select_options": options}))
+    assert result["error"]["code"] == "invalid_arguments"
+
+
+def test_option_discovery_defaults_and_control_observations_cross_actual_bridge_once(tmp_path):
+    async def scenario():
+        async with running_bridge(browser_config(tmp_path)) as bridge:
+            registry = CapabilityRegistry(bridge)
+            async with extension(bridge, capabilities=["browser.page.inspect"]) as ws:
+                pending = asyncio.create_task(registry.execute("browser.page.inspect", {
+                    "tab": {"tab_id": 1}, "target": {"ref": "el_select"}, "select_options": {"offset": 20}}))
+                request = json.loads(await ws.recv())
+                assert request["arguments"]["select_options"] == {"offset": 20, "limit": 20}
+                assert request["arguments"]["target"] == {"ref": "el_select"}
+                result = {"elements": [{"ref": "el_select", "state": {"selection": {
+                    "multiple": False, "selected_count": 1, "selected_indices": [21], "total_options": 22, "has_more": False}},
+                    "select_options": {"options": [{"index": 21, "label": "Last", "value": "last", "selected": True, "disabled": False}],
+                                       "total": 22, "offset": 20, "has_more": False, "next_offset": None, "truncated": False},
+                    "scroll": {"y": {"scrollable": False, "at_start": True, "at_end": True}}}], "total": 1, "truncated": False}
+                await ws.send(response(request, result=result))
+                assert (await pending)["result"] == result
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0.05):
+                        await ws.recv()
+    run(scenario())
+
+
 @pytest.mark.parametrize("operation,extra", [
     ("select", {"options": [{"value": None, "index": None}]}),
     ("select", {"options": [{"index": True}]}),

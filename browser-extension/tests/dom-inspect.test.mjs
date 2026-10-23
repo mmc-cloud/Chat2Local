@@ -199,7 +199,7 @@ test("DOM probe caps results, depth, children, attributes, text and UTF-8 size",
     const visit = (node, depth) => {
       nodes++;
       assert.ok(node.text.length <= 160);
-      assert.ok(Object.keys(node.attributes).length <= 6);
+      assert.ok(Object.keys(node.attributes).length <= 20); // Fixed interaction metadata whitelist, including ARIA relations.
       assert.ok(node.children.length <= 5);
       assert.ok(depth <= 3);
       node.children.forEach((child) => visit(child, depth + 1));

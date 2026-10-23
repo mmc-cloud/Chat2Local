@@ -54,13 +54,14 @@ detail 仅允许 summary/full，显式 null、其他字符串或类型均拒绝�
 | `hover` | 同上 | 一次从文档外进入：pointerover 发给目标；pointerenter 给祖先至目标逐层各一次；然后 mouseover、同样的 mouseenter 链、pointermove/mousemove。enter 不冒泡；不聚焦、不维护跨调用指针状态、不派发离开事件。`status=hovered`、`event_is_trusted=false`、`css_hover_guaranteed=false`。 |
 | `focus` | 同上 | 滚动到目标后原生 focus，并验证 activeElement；不添加 tabindex。不能实际聚焦时返回 state_not_reached；`status=focused`。 |
 | `select` | 同上，加必填 `options` 数组，最多 50 项 | 仅原生 select；完整替换选中项。每项可带 `value`、`label`、`index` 中至少一个，条件取 AND。单选必须一项；多选允许 `[]` 清空。改变后各发一次冒泡 input/change，未改变时不发；返回 `status=selected`、`changed`、`selected_count`。 |
-| `set_checked` | 同上，加必填严格布尔 `checked` | 仅原生 checkbox/radio。已匹配状态不滚动、不聚焦、不点击；否则准备后再判断，最多 click 一次并验证结果。返回 `status=checked`、`checked`、`changed`、`event_is_trusted=false`。 |
+| `set_checked` | target、wait_ms，加必填严格布尔 `checked` | 原生 checkbox/radio 与 ARIA checkbox/switch；全部匹配（含隐藏项）必须唯一。已匹配状态不滚动、不聚焦、不点击；否则最多 click 一次，原节点只读核验最多 250ms。隐藏原生 input 必要时只用唯一可见关联 label。返回 `status=checked`、`checked`、`changed`、`event_is_trusted=false`。 |
 | `scroll` | 必填 `container=page\|element`；`delta_x=0`、`delta_y=0`；可选 target、`wait_ms=0` | 明确容器上的相对 CSS 像素滚动；每轴范围 ±100000，不能同时为 0。element 必须有 target，page 不接受 target。返回 `status=scrolled`、container、target（页面为 null）、before/after 的 x/y 与 changed。 |
 | `press_key` | target、wait_ms，加必填 `key`；`modifiers=[]` | 先聚焦并向原目标发 keydown，复核授权后向当前焦点发 keyup；失去焦点时使用 body/root。返回 `status=key_pressed`、原 target、`keyup_target`、`event_is_trusted=false`、`default_prevented={keydown,keyup}`。不插入文本、不模拟 Tab 遍历、Enter 提交或浏览器默认快捷键。 |
 | `wait_for` | target、`state=visible`、`timeout_ms=5000`，0–10000 | 只读等待状态；返回 `status=matched`、state、target（不存在时为 null）、elapsed_ms。0 立即检查。失败区分 wait_timeout、stale_target、page_changed、权限和请求期限错误。 |
 
 所有成功结果还含选中的 `tab` 及脱敏展示元信息；除 page scroll/不存在的等待目标外，均包含脱敏 target 摘要。
-状态设置操作不回显输入值、选项 value/label 或键盘输入参数；select 只读取必要原生选项字段来验证调用者明确提供的选择条件。
+状态设置操作不回显输入值、选项 value/label 或键盘输入参数；select 的操作接口保持兼容。
+选项发现由 inspect 的可选 select_options 提供，见下方第二组说明；其他表单输入值仍不读取。
 任何成功状态都不证明业务完成，需重新 read/inspect 观察结果。
 
 ### 原生选择和勾选
@@ -77,7 +78,9 @@ detail 仅允许 summary/full，显式 null、其他字符串或类型均拒绝�
 避免重复翻转。已选中 radio 请求 false 返回 `unsupported_state`，应选择同组另一项；
 尚未选中 radio 请求 false 是无操作成功。这遵循 [HTML radio 的原生语义](https://html.spec.whatwg.org/multipage/input.html#radio-button-state-(type=radio))。
 页面 preventDefault 或事件处理器撤回状态时返回 `state_not_reached`，不再点击一次。
-自定义 ARIA checkbox/dropdown 不由这两个能力强行设置，返回 unsupported_element。
+set_checked 也支持有可读 aria-checked 的 role=checkbox/switch，只点击并观察，不写 ARIA 属性。
+原生 indeterminate 与 ARIA mixed 都单独表示，不按 checked=false 提前报告未选中成功。
+自定义 dropdown 继续通过基础能力组合完成，page.select 仍仅支持原生 select。
 
 ### 键盘与合成指针语义
 
@@ -121,9 +124,9 @@ wait_for 的定位在**包括隐藏元素的全部匹配中**要求唯一；多�
 | hidden | 不存在，或者唯一元素不可见 |
 | enabled | 存在且共享 disabled 判断为 false，与可见性无关 |
 | disabled | 存在且共享 disabled 判断为 true，与可见性无关 |
-| actionable | 唯一 HTML 元素存在、可见，且共享 disabled/inert/禁用类判断为 false；只表示基础 DOM 条件 |
+| actionable | 唯一可见、未禁用的 HTML 元素，pointer-events 非 none；有正尺寸视口内矩形，且采样点能命中自身或后代 |
 
-actionable 完全只读，不执行 click/focus/scroll，不保证业务成功、命中测试或网站接受合成事件。
+actionable 完全只读，不执行 click/focus/scroll；DOM 命中采样不保证后续可信输入、浏览器默认行为或网站业务成功。
 它不把密码、只读或特殊类型控件变为可填写：等待基础条件成功后，具体操作仍检查自己的保护条件。
 例如隐藏但未禁用的元素可满足 enabled，却不满足 actionable；只读框可以满足 actionable 的基础条件，fill 仍报 target_readonly。
 
@@ -216,7 +219,7 @@ capability_unavailable，自动重连后明确发起的新请求可重新注入�
 
 不在日常 Windows 电脑执行完整 Python 进程压力测试；跨平台完整回归交给 CI。
 未声称覆盖全部 React/Vue 版本、复杂组件库、浏览器原生 OS 快捷键、真实用户手势、IME、真实 pointer 命中、
-长时间休眠/系统重启及其他浏览器版本。iframe、Shadow DOM、富文本/自定义 ARIA 控件仍保持既有边界。
+长时间休眠/系统重启及其他浏览器版本。iframe、Shadow DOM、富文本和未提供可靠状态/关联的自定义控件仍保持既有边界。
 下述第一组修复已调整引用失效粒度；浏览器版本矩阵和复杂控件覆盖仍需继续完善，不扩展权限或输入后端。
 
 ### 第一组问题修复：#1、#2、#3、#4、#5、#12
@@ -248,9 +251,101 @@ ref 聚焦更新、键盘隐藏/移除/焦点转移/readonly、双击改文案�
 隔离浏览器已关闭，正式 Core/Hub/Chrome 扩展未重启、部署或重载。
 
 仍保留 DOM-only 限制：合成事件不保证可信输入、原生默认行为、CSS :hover、真实命中、文本选择或用户手势；
-hover 每次均表达从外部进入，不支持跨调用离开/停留状态。自定义控件、选项发现、三态/状态读取、滚动容器发现、
-actionable 命中检测等第二组问题未纳入；复杂组件库、其他浏览器版本及真实业务流程仍需后续受控验收。
+hover 每次均表达从外部进入，不支持跨调用离开/停留状态。第一组当时未包含第二组问题；下节记录后续完善。
+复杂组件库、其他浏览器版本及真实业务流程仍需后续受控验收。
 本轮改动仅留本地，待独立复审后统一更新，不执行 Commit/Push/Tag/Release。
+
+### 第二组功能完善：#6、#7、#8、#9、#10、#11、#13、#14
+
+保留 12 个公共 Tool、16 个 Browser Capability；没有新增权限、生产依赖或输入后端。
+继续由内容脚本处理 DOM、引用和状态核验；后台做参数校验、授权和分发，Python 注册和导出的 Schema 同步。
+没有引入组件库专用适配器，也没有给 select 添加自定义下拉框状态机。
+
+| 问题 | 实现与安全边界 |
+| --- | --- |
+| #6 原生选项发现 | inspect 新增可选 select_options={offset,limit}，必须显式 target 且含隐藏项唯一匹配原生 select；返回 label/value/index/selected/disabled。每页最多 50 项、选项字节预算 16 KiB；按实际 next_offset 继续。沿用文本/URL 脱敏、10000 项上限及请求期限；select、option、optgroup 或祖先的凭据标记会返回 protected_input，不读其他输入值。 |
+| #7 自定义下拉框 | 统一读取 expanded/controls/owns/active_descendant/selected；dom.inspect 保留关键 ARIA 属性。可在顶层文档其他位置读取 Portal/Teleport 的 listbox/option。Agent 明确执行六步组合操作，每步结果可检查，无自动展开/选择。 |
+| #8 ARIA Checkbox/Switch | 支持 role=checkbox/switch 且当前 aria-checked 可读。匹配目标状态时无操作；否则仅正常 DOM click 一次，原节点只读核验最多 250ms。未知或未达状态返回 state_not_reached，不写 aria-checked、不重放。 |
+| #9 隐藏原生 Input | 使用原生 input.labels / label.control 关联。需要激活时必须唯一可见 label，分别固定 input 和 label 引用；准备检查连接、关联、可见、disabled/inert/readonly，点击后保留身份/关联核验，允许正常隐藏或禁用。没有可靠 label 返回 target_hidden，多 label 或多目标返回 ambiguous_target，不猜测外观节点。 |
+| #10 三态 Checkbox | 原生 indeterminate 优先于 checked；ARIA checkbox 支持 mixed。混合态不等于未选中，不能零操作成功。一次原生激活仍无法到达明确 true/false 时返回 state_not_reached，不做第二次点击。radio 仍不能直接取消已选中状态。 |
+| #11 统一状态 | inspect 与 dom.inspect 共用状态投影；保留旧摘要字段。DOM 属性改为固定 20 项白名单，关键 ARIA 属性不再被前六项挤掉。输入值、data-*、on*、style 等不导出，原有文本/节点/响应预算继续生效。 |
+| #13 滚动发现 | 两种观察都返回每轴计算 overflow、position、min/max、scrollable、at_start/at_end；支持 auto/scroll/hidden，clip 按实际计算样式识别。读取不滚动、不聚焦；scroll 接口不变，也不寻找其他容器。坐标遵循原生 RTL、writing-mode 和 flex reverse 方向。页面根节点沿用 document.scrollingElement 的特殊滚动语义。 |
+| #14 actionable | 检查共享可见/禁用状态、pointer-events、有效视口交集及 elementFromPoint；最多 20 个矩形，每个最多 9 个采样点。允许后代命中、部分出屏和中心被遮而边缘可达；完全遮挡、clip 裁剪等不通过。不自动移动视口或聚焦。 |
+
+接口增加一个可选参数，已有操作参数及默认值保持不变：
+
+```json
+{"device":"laptop","capability":"browser.page.inspect","arguments":{"tab":{"tab_id":123},"target":{"ref":"el_copy_from_latest_result"},"select_options":{"offset":0,"limit":20}}}
+```
+
+offset 默认 0、范围 0–9999；limit 默认 20、范围 1–50；省略 select_options 不读取选项 label/value。
+返回元素上的 select_options 包含 options、total、offset、has_more、next_offset、truncated。
+options 项含 index、脱敏 label/value、selected、disabled、truncated。页内字节预算可能让实际项数少于 limit，
+始终按 next_offset 继续；has_more 表示仍有选项，truncated 也可表示字段裁剪。此分页读取当前 DOM，不提供跨请求冻结快照。
+脱敏/裁剪后的 label/value 不一定能精确匹配原值，应使用当前 index 或重新观察后的已知条件，动态重排后重新读取。
+
+两个观察接口都给每个元素添加 state、scroll，dom.inspect 还补齐 read_only：
+
+- state 基础字段为 disabled、read_only；按控件类型附 check_state（checked/unchecked/mixed/unknown）、checked、indeterminate、selected、expanded。
+  原生 mixed 时 checked 保留底层布尔值；ARIA mixed/unknown 的 checked 为 null。不要单独用 checked 判断三态。
+- controls / owns / active_descendant 对应经过脱敏裁剪的 aria-controls / aria-owns / aria-activedescendant。
+  input combobox 也能读取关联信息，但仍不读其用户输入值。ARIA 状态只是页面声明，不证明业务状态。
+- 原生 select 的 selection={multiple,total_options,selected_count,selected_indices,has_more}，最多给出前 20 个选中索引；
+  全量选项及各项选中状态用 select_options 分页查看，不自动读取所有 label/value。
+- scroll={is_page,x,y}，每轴含 overflow、position、min、max、scrollable、at_start、at_end；边界容差 1 CSS px。
+  scrollable 表示可程序滚动且有溢出区域，不承诺懒加载成功。计算 overflow 为 hidden 可程序滚动，为 clip 的普通元素不可。
+
+自定义下拉框的实际验证流程为 inspect combobox → click 原 ref → wait_for listbox/option → dom.inspect Portal/Teleport 选项 →
+click 选项 ref → inspect 原 combobox ref 验证展开、活动项及选择文案。React Portal 与 Vue Teleport 的隔离真实 Chromium 测试均通过，
+选项卸载后旧 ref 仍返回 stale_target，没有把它当作 detached 成功或定位另一项。
+
+本轮专项测试：`phase3-controls.test.mjs`、`phase3-geometry.test.mjs`；旧测试只更新新增字段、固定属性白名单和布局桩。
+重点验证分页/脱敏/预算、三态、幂等、单次点击/延迟状态核验、实际 React/Vue 模型、隐藏 input 关联/重复 ID/多 label、
+准备时节点或关联变化、不支持目标不回退、关键 ARIA 保留、滚动信息和只读命中判断。
+Python 增加分页参数严格校验、Schema/模型/JS 边界一致性及真实 BrowserBridge 的参数默认值/状态传输、不自动重放检查。
+
+范围内测试命令（不要在日常电脑改成完整 pytest/压力测试）：
+
+```powershell
+node --test browser-extension/tests/*.test.mjs
+.venv/Scripts/python.exe -m pytest -q tests/test_browser_capabilities.py tests/test_browser_phase2.py tests/test_browser_phase3.py tests/test_browser_contract.py tests/test_browser_bridge.py tests/test_browser_integration.py tests/test_capability_discovery.py tests/test_mcp_metadata.py tests/test_mcp_surface.py tests/test_mcp_factory.py
+.venv/Scripts/python.exe browser-extension/tests/chromium_controls.py --chromium "<已有 Chromium 可执行文件>" --report .test-tmp-phase3/group2-native.json
+```
+
+真实浏览器 helper 只使用 Chromium 命令行和标准库 loopback 服务，单个临时 profile，资源仅来自本地白名单。
+不使用 CDP、Playwright、debugger 或真实输入后端；运行实际打包 Content Script，授权使用受控桩，**不代表新一轮 MV3→Core 验收**。
+不会重载日常扩展或读取已有标签页，结束后关闭测试实例与本地服务。
+
+本轮最终验证：扩展 JavaScript **476 passed**，上述改动范围内 Python **275 passed**，Chromium 148 隔离页面 **14 组通过**，无失败或跳过。
+Chromium 检查包含后代命中、完全/中心遮挡、pointer-events/零尺寸/出屏/裁剪、动态移除遮罩、真实 overflow/根节点滚动、
+RTL/writing-mode/flex reverse 原生坐标范围、原生选项、三态/隐藏 input label、React Portal/Vue Teleport 六步流程和实际框架状态模型。
+JS/Python 语法、跨语言契约与导出 Schema、一致性及 `git diff --check` 通过；未执行完整 pytest、压力测试或业务网站操作。
+自审核对了每项需求、单次激活及失败后不重放、原目标/label 关联保护、敏感 option/optgroup 读取保护与观察只读性，
+修复勾选返回摘要保持操作前快照、label 资源/readonly 边界，并用实际 Chromium 验证反向滚动坐标；当前回归未发现第一组修复受损。
+改动保留工作区，未 Commit/Push/Tag/Release，正式 Core、腾讯云 Hub 与日常 Chrome 扩展均未重启或更新。
+
+仍未支持：无可靠 ARIA 状态的组件、任意外观代理、ARIA radio 的状态设置、跨 iframe/Shadow DOM、未加载的虚拟化选项。
+只把选择写入 input.value 且不提供可观察 ARIA/文案的自定义 combobox 无法通过这套隐私投影确认选择，需要网站提供可观察状态。
+需要可信用户手势或原生键盘默认行为的控件仍可能拒绝合成事件。250ms 核验只覆盖常见响应式更新，更慢业务更新应显式重新 inspect，不能盲目再点。
+actionable 的有限采样可能保守拒绝极窄可点击区域、复杂 transform 或超过 20 个碎片的元素；采样成功也不保证下一时刻没有遮挡，
+不承诺真实事件、浏览器默认行为或业务成功。选项分页不强制懒加载，ARIA 关系不跨文档或自动寻找替代控件。
+第一组引用、键盘、双击、hover、hidden 滚动专项仍纳入全部 JS 回归；read/click/fill 的执行路径保持兼容。
+
+### set_checked 最终修复：区分准备检查与结果核验
+
+点击后曾复用完整操作 guard，导致“已选中后正常隐藏、禁用或变只读”误报失败。
+现在点击前保持完整唯一性、可见性、disabled/readonly、节点及 label 关联检查；点击后的核验仅检查原节点/控件身份、
+激活节点和 label.control 关联、文档/URL/期限及授权，再读取目标状态。正常隐藏、禁用或只读不再否定已达到的状态。
+节点删除/替换/重插、控件身份改变或 label 改绑仍拒绝，不改指其他节点；未达到目标仍为 state_not_reached。
+权限撤销不能因状态已匹配而返回成功。250ms 核验窗口和现有安全复核耗时规则不变，最多点击一次。
+
+新增 `set-checked-completion.test.mjs` 的 30 项功能测试覆盖原生/ARIA 控件成功后的状态变化、未达目标、
+节点生命周期、label 安全性、权限/页面/期限检查和不重放；真实 Chromium 补充同样的成功场景。
+不改敏感 select 状态策略、其他能力、Schema 或公共 Tool；本轮仍保留工作区改动，等待独立复审。
+最终验证：扩展 JavaScript **506 passed**（含新增 30 项）、相关 Python Browser/MCP 契约 **275 passed**，
+受控 Chromium **15 组通过**；语法检查与 `git diff --check` 通过。高并发首轮一项原有 200ms 动态等待测试超时，
+降低为 `node --test --test-concurrency=2 browser-extension/tests/*.test.mjs` 后全部通过，未修改该能力或测试条件。
+未运行全量 pytest、未重启或更新正式服务/扩展；当前回归未发现第一组或第二组其他能力受损。
 
 ## 复审后的统一部署
 

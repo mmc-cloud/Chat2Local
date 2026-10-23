@@ -8,9 +8,23 @@ export function page(html, { url = "https://test.example/", authorize = async ()
   let listener;
   window.chrome = { runtime: { id: "test-extension", sendMessage: authorize,
     onMessage: { addListener(fn) { listener = fn; } } } };
-  // jsdom has no layout engine. Visibility logic still runs the real style/
-  // ancestry checks; only rectangle presence is supplied by this test adapter.
-  window.HTMLElement.prototype.getClientRects = function () { return this.isConnected ? [{ width: 100, height: 20 }] : []; };
+  // jsdom has no layout/hit testing. Give nodes separate deterministic boxes;
+  // geometry/occlusion cases additionally run in real headless Chromium.
+  const boxes = new WeakMap();
+  let sequence = 0;
+  Object.defineProperties(window.document.documentElement, { clientWidth: { value: 1024, configurable: true }, clientHeight: { value: 1000000, configurable: true } });
+  window.HTMLElement.prototype.getClientRects = function () {
+    if (!this.isConnected) return [];
+    if (!boxes.has(this)) {
+      const top = sequence++ * 25;
+      boxes.set(this, { x: 0, y: top, left: 0, top, right: 100, bottom: top + 20, width: 100, height: 20 });
+    }
+    return [boxes.get(this)];
+  };
+  window.document.elementFromPoint = (x, y) => [...window.document.querySelectorAll("*")].find((node) => {
+    const box = boxes.get(node);
+    return box && x >= box.left && x < box.right && y >= box.top && y < box.bottom;
+  }) ?? null;
   window.eval(readFileSync(new URL("../browser-safety.js", import.meta.url), "utf8"));
   window.eval(source);
   const dispatch = (message, sender = { id: "test-extension" }) => new Promise((resolve) => {
