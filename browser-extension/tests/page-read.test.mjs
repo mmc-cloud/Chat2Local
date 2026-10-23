@@ -157,7 +157,58 @@ test("reader reserves metadata space and handles heavy UTF-8 / escaped responses
   } finally { p.window.close(); }
 });
 
-for (const change of ["text", "title", "visibility", "disabled", "document", "url"]) {
+for (const change of ["attribute", "hidden-node", "identical-replacement"]) {
+  test(`pagination survives ref renewal after ${change} without reusing stale action targets`, async () => {
+    const p = browserPage('<button>First</button><p>' + 'Visible text '.repeat(250) + '</p><button>Last</button>');
+    let clicks = 0;
+    p.document.addEventListener("click", () => clicks++);
+    const readAll = async (response) => {
+      response ??= await p.read({ max_chars: 1000 });
+      assert.equal(response.ok, true, JSON.stringify(response));
+      const first = response.result, blocks = [];
+      let pages = 0;
+      while (true) {
+        assert.equal(response.ok, true, JSON.stringify(response));
+        blocks.push(...response.result.blocks);
+        assert.ok(++pages < 20);
+        if (!response.result.has_more) break;
+        response = await p.read({ max_chars: 1000, cursor: response.result.next_cursor });
+      }
+      return { first, blocks };
+    };
+    const content = (value) => JSON.stringify(value, (key, value) => key === "ref" ? undefined : value);
+    try {
+      const before = await readAll();
+      assert.equal(before.first.has_more, true);
+      const oldRef = before.blocks[0].ref;
+      const button = p.document.querySelector("button");
+      if (change === "attribute") button.setAttribute("data-layout-tick", "1");
+      if (change === "hidden-node") {
+        const hidden = p.document.createElement("span");
+        hidden.hidden = true; hidden.textContent = "Unrelated hidden update";
+        p.document.body.append(hidden);
+      }
+      if (change === "identical-replacement") button.replaceWith(button.cloneNode(true));
+      const after = await readAll();
+      assert.equal(content(after.blocks), content(before.blocks), "all readable blocks must be unchanged");
+      assert.equal(content(after.first.page), content(before.first.page));
+      assert.equal(content(after.first.overview), content(before.first.overview));
+      assert.equal(after.first.total_blocks, before.first.total_blocks);
+      assert.notEqual(after.blocks[0].ref, oldRef);
+      assert.equal(after.first.next_cursor, before.first.next_cursor, "ref renewal must not change the content cursor");
+      const continued = await readAll(await p.read({ max_chars: 1000, cursor: before.first.next_cursor }));
+      assert.equal(continued.first.offset, before.first.blocks.length);
+      assert.equal(content([...before.first.blocks, ...continued.blocks]), content(before.blocks), "continuation must not skip or repeat content");
+      assert.deepEqual(continued.blocks, after.blocks.slice(before.first.blocks.length), "continuation must return the current refs");
+      assert.equal((await p.f.call("browser.page.click", { tab: { tab_id: 1 }, target: { ref: oldRef } })).error.code, "stale_target");
+      assert.equal(clicks, 0);
+      assert.equal((await p.f.call("browser.page.click", { tab: { tab_id: 1 }, target: { ref: after.blocks[0].ref } })).ok, true);
+      assert.equal(clicks, 1);
+    } finally { p.window.close(); }
+  });
+}
+
+for (const change of ["text", "order", "title", "description", "visibility", "disabled", "document", "url"]) {
   test(`old reading cursor fails after ${change} changes`, async () => {
     const p = browserPage('<h1>Stable</h1><p>' + 'Visible text '.repeat(500) + '</p><button>Send</button>');
     try {
@@ -165,7 +216,12 @@ for (const change of ["text", "title", "visibility", "disabled", "document", "ur
       const cursor = first.result.next_cursor;
       assert.ok(cursor);
       if (change === "text") p.document.querySelector("p").firstChild.data += "Changed";
+      if (change === "order") p.document.body.prepend(p.document.querySelector("button"));
       if (change === "title") { p.document.title = "Changed"; p.f.tabs[0].title = "Changed"; }
+      if (change === "description") {
+        const meta = p.document.createElement("meta");
+        meta.name = "description"; meta.content = "Changed"; p.document.head.append(meta);
+      }
       if (change === "visibility") p.document.querySelector("button").hidden = true;
       if (change === "disabled") p.document.querySelector("button").disabled = true;
       if (change === "document") p.f.chrome.scripting.executeScript = async () => [{ frameId: 0, documentId: "doc-2" }];

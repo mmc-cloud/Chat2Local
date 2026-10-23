@@ -8,6 +8,7 @@
 发现结果同时提供各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`，说明成功字段、隐私展示及错误恢复。
 读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
 任意 DOM 变更会使旧 ref 失效，返回 stale_target 后重新观察，不自动回退位置型 CSS。
+分页内容版本排除临时 ref：可读内容未变时仍可续读，并返回当前 ref；真正内容变化或导航仍使旧游标失效。
 Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。
 Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影响原有 10 个 Tool。

@@ -100,7 +100,10 @@
     });
   }
   async function paginateRead(snapshot, args, documentId, url) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ url, snapshot })));
+    // Action refs may renew without any readable content changing. Exclude them
+    // only from the content version; return the original blocks with current refs.
+    const content = { ...snapshot, blocks: snapshot.blocks.map(({ ref, ...block }) => block) };
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ url, snapshot: content })));
     const version = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
     let offset = 0;
     if (args.cursor) {
