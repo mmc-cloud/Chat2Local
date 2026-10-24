@@ -43,6 +43,30 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+      - name: Package Chrome extension
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          names = (
+              "manifest.json", "background.js", "browser-operations.js",
+              "browser-safety.js", "content-script.js", "capability-schemas.json",
+              "options.html", "options.js",
+          )
+          output = Path("release-assets") / f"Chat2Local-{os.environ['GITHUB_REF_NAME']}-chrome-extension.zip"
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+              for name in names:
+                  archive.write(Path("browser-extension") / name, arcname=name)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chrome-extension
+          path: release-assets/*-chrome-extension.zip
+          if-no-files-found: error
+
   windows-portable:
     runs-on: windows-latest
     permissions:
@@ -121,6 +145,10 @@ jobs:
         with:
           name: windows-portable
           path: release-assets/windows
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chrome-extension
+          path: release-assets/chrome
       - name: Create GitHub Release with handwritten notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -131,6 +159,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             release-assets/python/* \
             release-assets/windows/*.zip \
+            release-assets/chrome/*.zip \
             --title "Chat2Local $GITHUB_REF_NAME" \
             --notes-file "$notes" \
             --verify-tag

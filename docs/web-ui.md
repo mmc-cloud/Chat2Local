@@ -132,7 +132,7 @@ pnpm build
 cd ../../..
 uv run pytest -q
 uv build --no-sources
-python scripts/check_web_ui_package.py dist/chat2local-0.1.3-py3-none-any.whl dist/chat2local-0.1.3.tar.gz
+python scripts/check_web_ui_package.py dist/chat2local-0.2.0-py3-none-any.whl dist/chat2local-0.2.0.tar.gz
 ```
 
 同一次 Vite 构建从一套源码输出桌面 `gui/pywebview/frontend/dist/` 和包内

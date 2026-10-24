@@ -17,13 +17,15 @@ Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影
 
 ## 安装与配对
 
-1. 使用 **Chrome 120+**。在 `chrome://extensions` 打开开发者模式，选择“加载已解压的扩展程序”，
-   指向仓库根目录的 `browser-extension/`。复制 Chrome 显示的 32 位扩展 ID。
-2. 在**运行目标 Agent 的本机**生成独立随机凭据。以下命令在项目目录执行，不输出凭据，
+1. 使用 **Chrome 120+**。从 [GitHub Releases](https://github.com/mmc-cloud/Chat2Local/releases) 下载
+   `Chat2Local-v<version>-chrome-extension.zip`，解压到固定目录（也可直接使用源码仓库的 `browser-extension/`）。
+   打开 `chrome://extensions` 的开发者模式，选择“加载已解压的扩展程序”，
+   指向包含 `manifest.json` 的目录。复制 Chrome 显示的 32 位扩展 ID。
+2. 在**运行目标 Agent 的本机**生成独立随机凭据（也可通过 Core Web UI 或桌面 GUI 管理 Token）。以下命令不要求克隆仓库，也不输出凭据，
    并以独占创建方式避免覆盖现有文件；文件已存在时应复用原配对，或自行备份后轮换。
 
    ```powershell
-   uv run python -c "import os,secrets; from pathlib import Path; p=Path.home()/'.chat2local'/'browser.token'; p.parent.mkdir(parents=True,exist_ok=True); fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600); os.write(fd,secrets.token_urlsafe(32).encode('ascii')); os.close(fd)"
+   python -c "import os,secrets; from pathlib import Path; p=Path.home()/'.chat2local'/'browser.token'; p.parent.mkdir(parents=True,exist_ok=True); fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600); os.write(fd,secrets.token_urlsafe(32).encode('ascii')); os.close(fd)"
    ```
 
    凭据文件放在私有用户目录，限制为当前 OS 用户可读。POSIX 使用 `0600`；Windows 依赖用户目录 ACL，
@@ -43,7 +45,7 @@ Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影
 4. 点击扩展图标打开设置（或在扩展详情中选择“扩展程序选项”），勾选“启用连接”，填入同一端口。
    在本机文本编辑器中读取 `browser.token`，复制到密码输入框并保存。凭据只保存在当前 Chrome profile 的
    `chrome.storage.local`，不使用 `storage.sync`。只向可信扩展上下文开放存储。
-5. 重启既有 Agent，例如 `uv run chat2local agent --workspace 'D:\Projects\example'`，
+5. 重启既有 Agent，例如 `chat2local agent --workspace 'D:\Projects\example'`（源码运行可用 `uv run chat2local agent`），
    Hub URL 和 Hub token 沿用原配置。也支持本机 standalone / Hub 模式，浏览器端点同样只在 loopback 上启动。
    扩展设置页状态应变为 `connected`。
 

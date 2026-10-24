@@ -28,6 +28,7 @@ Chat2Local 是一个面向单用户、自托管场景的轻量 MCP Agent。它�
 - 查看长时间运行进程的输出，并继续与进程交互
 - 在多台电脑或服务器之间选择目标设备执行操作
 - 通过 Handoff 保存项目工作线或个人研究、计划和想法，让新的 Chat 继续之前的上下文
+- 通过可选 Chrome 扩展读取和操作网页，支持 DOM 探查、点击、输入和滚动
 
 Chat2Local 主要围绕 **ChatGPT + MCP** 的实际工作流开发和测试。其他支持 MCP 的客户端也可以连接，但目前不是主要测试目标。
 
@@ -188,7 +189,7 @@ Chat2Local 当前公开 12 个 MCP tools，覆盖文件读取与搜索、patch �
 `capability_discover` 默认以 summary 查询指定设备的能力概览和实时可用状态；选中能力后用 `detail: "full"` 查询参数 JSON Schema、结果契约和恢复指导，再通过 `capability_execute` 执行。
 浏览器提供 16 个内部能力，包括标签页创建/查询/选择、网页读取/定位，以及点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键和状态等待。
 这些能力均通过按网站授权的可选 Chrome 扩展执行，默认不启动浏览器监听；扩展未连接不会影响原有工具。
-安装和配对见 [浏览器扩展说明](browser-extension/README.md)，读取与授权基线见 [Phase 2](browser-extension/PHASE2.md)，完整 DOM 交互和验收见 [Phase 3](browser-extension/PHASE3.md)。
+Chrome 扩展 ZIP 可从 [GitHub Releases](https://github.com/mmc-cloud/Chat2Local/releases) 下载；安装与配对见 [浏览器扩展说明](browser-extension/README.md)。
 
 当前公开的 Tool：
 

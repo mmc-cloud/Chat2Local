@@ -28,6 +28,7 @@ You can ask ChatGPT to:
 - Read output from long-running processes and continue interacting with them
 - Select target devices across multiple computers or servers
 - Save project workstreams or personal research, plans, and ideas with Handoff so a new Chat can continue from them
+- Read and interact with websites through an optional Chrome extension, including DOM inspection, clicks, input, and scrolling
 
 Chat2Local is developed and tested primarily around practical **ChatGPT + MCP** workflows. Other MCP-compatible clients may also connect, but they are not currently the main test target.
 
@@ -183,13 +184,15 @@ After connecting, you can verify the setup by asking ChatGPT to read the current
 
 ## MCP Tools
 
-Chat2Local currently exposes 10 MCP tools covering file reading and search, patch-based modification, Shell / Process operations, multi-device routing, and Handoff.
+Chat2Local exposes 12 MCP tools covering files, processes, multi-device routing, Handoff, and optional capabilities.
+Browser Use adds 16 Chrome capabilities through `capability_discover` and `capability_execute`. Download the extension ZIP from [GitHub Releases](https://github.com/mmc-cloud/Chat2Local/releases) and follow the [extension setup guide](browser-extension/README.md).
 
 Current tools:
 
 ```text
 read · search · apply_patch · exec_command · interact_process
 kill_process · list_devices · handoff_list · handoff_get · handoff_save
+capability_discover · capability_execute
 ```
 
 Remote calls can specify a target device through `device`. If omitted, the MCP Server's local device is used.
