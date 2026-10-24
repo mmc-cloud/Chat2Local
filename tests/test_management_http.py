@@ -1,32 +1,31 @@
 """Local browser boundary, adapter reuse, and three-mode HTTP shutdown."""
 
 import asyncio
+import json
+import socket
 from contextlib import ExitStack, contextmanager
 from importlib import import_module
-import json
-from pathlib import Path
-import socket
 from types import SimpleNamespace
 
 import httpx2 as httpx
 import pytest
+from conftest import run
 from fastapi.testclient import TestClient
+from test_devices import eventually
 
 from chat2local.agent.client import AgentClient
 from chat2local.app import create_app
 from chat2local.device.registry import DeviceRegistry
 from chat2local.dispatch.local import LocalToolDispatcher
 from chat2local.hub.router import DeviceRouter
-from chat2local.management.adapter import CoreAdapter
 from chat2local.management import http as management_http
+from chat2local.management.adapter import CoreAdapter
 from chat2local.management.autostart import StartupCommand
 from chat2local.management.http import KEEP_PROXY, MAX_BODY_BYTES, create_management_app
 from chat2local.management.runtime import ManagementError, RuntimeClient
 from chat2local.runtime import config
 from chat2local.runtime.supervisor import RuntimeSupervisor
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import run
-from test_devices import eventually
 
 main = import_module("chat2local.main")
 ORIGIN = "http://127.0.0.1:18766"
@@ -195,45 +194,106 @@ def reserved_port_block(count):
 
 
 @pytest.mark.parametrize("mode", ["standalone", "hub", "agent"])
-def test_default_web_ui_binds_next_available_port_and_reports_it_everywhere(tmp_path, caplog, mode):
+def test_default_web_ui_binds_next_available_port_and_reports_it_everywhere(
+    tmp_path, monkeypatch, caplog, mode
+):
     caplog.set_level("INFO", logger="chat2local.main")
     with reserved_port_block(10) as (first, listeners):
-        for listener in listeners[2:]:
-            listener.close()
         port = first + 2
         path = tmp_path / "config.yaml"
         path.write_text("{}")
+
         async def scenario():
-            supervisor = RuntimeSupervisor(mode, "device", tmp_path, state=lambda: "running")
+            supervisor = RuntimeSupervisor(
+                mode, "device", tmp_path, state=lambda: "running"
+            )
             # An implicit default in a private range keeps this test off real Core ports.
-            settings = config.ManagementConfig.model_construct(port=first, _fields_set=set())
-            main._attach_management(supervisor, settings, path, StartupCommand(("python",), tmp_path))
+            settings = config.ManagementConfig.model_construct(
+                port=first, _fields_set=set()
+            )
+            main._attach_management(
+                supervisor, settings, path, StartupCommand(("python",), tmp_path)
+            )
             assert supervisor.management_ports == tuple(range(first, first + 10))
+            start_control = supervisor.control.start
+
+            async def start_control_before_releasing_candidates():
+                # Keep every candidate reserved until the real IPC listener has
+                # bound port=0, so the OS cannot give it our expected Web UI port.
+                control_port = await start_control()
+                assert control_port not in supervisor.management_ports
+                for listener in listeners[2:]:
+                    listener.close()
+                return control_port
+
+            monkeypatch.setattr(
+                supervisor.control, "start", start_control_before_releasing_candidates
+            )
+
             async def core():
                 await asyncio.Event().wait()
-            task = asyncio.create_task(supervisor.run(core, lambda owner: owner.cancel()))
+
+            task = asyncio.create_task(
+                supervisor.run(core, lambda owner: owner.cancel())
+            )
             try:
                 await eventually(lambda: supervisor.management.started)
                 assert supervisor.management.config.port == port
+                assert {
+                    sock.getsockname()[1]
+                    for server in supervisor.management.servers
+                    for sock in server.sockets
+                } == {port}
                 assert f"Local Web UI: http://127.0.0.1:{port}/" in caplog.text
                 assert f"Local Web UI: http://127.0.0.1:{first}/" not in caplog.text
-                async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", trust_env=False) as http:
+                async with httpx.AsyncClient(
+                    base_url=f"http://127.0.0.1:{port}", trust_env=False
+                ) as http:
                     assert (await http.get("/")).status_code == 200
-                    http.headers["X-Chat2Local-CSRF"] = (await http.get("/api/session")).json()["csrf"]
+                    http.headers["X-Chat2Local-CSRF"] = (
+                        await http.get("/api/session")
+                    ).json()["csrf"]
+                    http.headers["Origin"] = f"http://127.0.0.1:{port}"
                     for method in ("runtime_status", "read_config"):
-                        result = (await http.post(f"/api/{method}", json={})).json()["result"]
-                        assert result["management_listener"] == {"host": "127.0.0.1", "port": port, "source": "automatic"}
-                    assert (await http.post("/api/read_config", json={}, headers={"Host": f"127.0.0.1:{first}"})).status_code == 403
-                    assert (await http.post("/api/read_config", json={}, headers={"Origin": f"http://127.0.0.1:{first}"})).status_code == 403
-                    result = await http.post("/api/save_config", json={"candidate": {"read": {"max_lines": 9}}})
-                    assert result.json()["result"]["management_listener"]["port"] == port
-                    assert config.read_persisted_config(path) == {"read": {"max_lines": 9}}
+                        result = (await http.post(f"/api/{method}", json={})).json()[
+                            "result"
+                        ]
+                        assert result["management_listener"] == {
+                            "host": "127.0.0.1",
+                            "port": port,
+                            "source": "automatic",
+                        }
+                    assert (
+                        await http.post(
+                            "/api/read_config",
+                            json={},
+                            headers={"Host": f"127.0.0.1:{first}"},
+                        )
+                    ).status_code == 403
+                    assert (
+                        await http.post(
+                            "/api/read_config",
+                            json={},
+                            headers={"Origin": f"http://127.0.0.1:{first}"},
+                        )
+                    ).status_code == 403
+                    result = await http.post(
+                        "/api/save_config",
+                        json={"candidate": {"read": {"max_lines": 9}}},
+                    )
+                    assert (
+                        result.json()["result"]["management_listener"]["port"] == port
+                    )
+                    assert config.read_persisted_config(path) == {
+                        "read": {"max_lines": 9}
+                    }
             finally:
                 supervisor.request_stop()
                 await asyncio.wait_for(task, 5)
             with pytest.raises(OSError):
                 await asyncio.open_connection("127.0.0.1", port)
             assert not (supervisor.directory / "runtime.json").exists()
+
         run(scenario())
 
 
