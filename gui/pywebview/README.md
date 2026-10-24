@@ -1,6 +1,9 @@
 # Chat2Local pywebview desktop GUI
 
 Local management shell for the existing Core. Core auto-start is optional and off by default.
+The React pages are also shared by the independent Core's [local Web UI](../../docs/web-ui.md).
+`pnpm build` emits both the desktop build and package-local browser assets. Desktop Core launches
+pass `--no-web-ui`, retaining the existing GUI/IPC lifecycle and Browser Bridge ports.
 On Windows, the tray exists throughout the GUI session. Closing the window hides it to the
 tray by default; Settings > Desktop can change X to exit. Minimize still uses the taskbar.
 Tray > Exit Chat2Local always exits the GUI. A started Core continues running.

@@ -3,6 +3,7 @@ export interface PingResult {
   app: string;
   version: string;
   backend: string;
+  platform?: string;
 }
 export interface CoreStatus {
   instance_id: string;
@@ -21,6 +22,12 @@ export interface RuntimeSnapshot {
   restart_required?: boolean;
   message?: string;
   desktop_error?: string | null;
+  management_listener?: ManagementListener;
+}
+export interface ManagementListener {
+  host: string;
+  port: number;
+  source: "default" | "configured" | "cli" | "automatic";
 }
 export interface DesktopPreferences {
   schema_version: 1;
@@ -57,12 +64,22 @@ export interface CredentialInfo {
 export interface BrowserStatus {
   state: "disabled" | "restart_required" | "listening" | "connected" | "failed" | "starting" | "core_stopped" | "configuration_error" | "unavailable";
 }
+export interface AutostartSnapshot {
+  supported: boolean;
+  enabled: boolean | null;
+  backend: string;
+  scope?: string;
+  service?: string;
+  path?: string;
+  state: string;
+}
 export type ConfigMap = Record<string, Record<string, ConfigValue>>;
 export interface ConfigSnapshot {
   persisted: ConfigMap;
   effective: ConfigMap;
   defaults: ConfigMap;
   restart_required?: boolean;
+  management_listener?: ManagementListener;
 }
 export interface Device {
   device_id: string;

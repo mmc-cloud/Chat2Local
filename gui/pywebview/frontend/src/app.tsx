@@ -7,7 +7,7 @@ import { Overview } from "@/pages/overview";
 import { Devices } from "@/pages/devices";
 import { Settings } from "@/pages/settings";
 import { Logs } from "@/pages/logs";
-import { coreApi, desktopApi, useBridge } from "@/lib/bridge";
+import { coreApi, desktopApi, isWebUi, useBridge } from "@/lib/bridge";
 import { usePoll } from "@/lib/poll";
 import { initializeLanguage, useLocale } from "@/lib/locale";
 export function App() {
@@ -16,19 +16,21 @@ export function App() {
   const [mode, setMode] = useState("standalone");
   const [workspace, setWorkspace] = useState("");
   const [busy, setBusy] = useState("");
+  const [stopped, setStopped] = useState(false);
   const discoveredInstance = useRef<string | null>(null);
   const bridge = useBridge();
   useEffect(() => {
     if (bridge.status === "connected") void initializeLanguage();
   }, [bridge.status]);
   const loadRuntime = useCallback(async () => {
+    if (stopped) return { lifecycle: "Stopped" as const, core: null };
     const [snapshot, navigation] = await Promise.all([
       coreApi.status(),
       desktopApi.takeNavigation(),
     ]);
     if (navigation === "Logs") setPage("Logs");
     const core = snapshot.core;
-    if (snapshot.lifecycle !== "Running" || core?.mode !== "hub") {
+    if (snapshot.lifecycle !== "Running" || (!isWebUi && core?.mode !== "hub")) {
       setPage((current) => (current === "Devices" ? "Overview" : current));
     }
     if (
@@ -41,7 +43,7 @@ export function App() {
       setWorkspace(core.workspace);
     }
     return snapshot;
-  }, []);
+  }, [stopped]);
   const { data: runtime, error } = usePoll(
     loadRuntime,
     1000,
@@ -50,13 +52,16 @@ export function App() {
   const currentMode =
     runtime?.lifecycle === "Running" && runtime.core ? runtime.core.mode : mode;
   const showDevices =
-    runtime?.lifecycle === "Running" && runtime.core?.mode === "hub";
+    runtime?.lifecycle === "Running" && (isWebUi || runtime.core?.mode === "hub");
   const currentPage = page === "Devices" && !showDevices ? "Overview" : page;
   const perform = async (action: "start" | "stop" | "restart") => {
     setBusy(action);
     try {
       if (action === "start") await coreApi.start(mode, workspace);
-      else if (action === "stop") await coreApi.stop();
+      else if (action === "stop") {
+        await coreApi.stop();
+        if (isWebUi) { setStopped(true); setPage("Overview"); }
+      }
       else await coreApi.restart();
     } finally {
       setBusy("");
@@ -68,7 +73,7 @@ export function App() {
         <AppSidebar
           page={currentPage}
           onNavigate={setPage}
-          bridge={bridge}
+          bridge={error || stopped ? { ...bridge, status: "failed" } : bridge}
           showDevices={showDevices}
         />
         <div className="main-shell">
@@ -93,7 +98,7 @@ export function App() {
                 {t(runtime.desktop_error)}
               </div>
             )}
-            {currentPage === "Overview" ? (
+            {stopped ? <div className="info-note" role="status">{t("Core stopped. This Web UI is now disconnected. Start Core from your terminal or service manager, then reload this page.")}</div> : currentPage === "Overview" ? (
               <Overview
                 runtime={runtime}
                 error={error}

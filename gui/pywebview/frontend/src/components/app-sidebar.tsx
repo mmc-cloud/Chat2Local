@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { BridgeState } from "@/lib/bridge";
+import { isWebUi } from "@/lib/bridge";
 import { useLocale } from "@/lib/locale";
 export type Page = "Overview" | "Devices" | "Settings" | "Logs";
 const navigation = [
@@ -93,11 +94,11 @@ export function AppSidebar({
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            {t("Live connection to the local Python shell.")}
+            {t(isWebUi ? "Connected to the local Core Web UI." : "Live connection to the local Python shell.")}
           </TooltipContent>
         </Tooltip>
         <div className="version-line">
-          <span>{t("GUI Stage 2")}</span>
+          <span>{isWebUi ? "Web UI" : t("GUI Stage 2")}</span>
           <span>Core {bridge.info?.version ?? "—"}</span>
         </div>
       </div>

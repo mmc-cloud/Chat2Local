@@ -193,6 +193,7 @@ class RuntimeClient:
             *([] if mode == "standalone" else [mode]),
             "--workspace",
             workspace,
+            "--no-web-ui",
         ]
 
     async def _start(self, mode: str, workspace: str) -> dict:

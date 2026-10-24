@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const React = require("react");
 const ts = require("typescript");
 
-async function fixture(language = "en") {
+async function fixture(language = "en", { web = false, platform = "win32", backend = "windows-run", startupState = "disabled", startupError, listener } = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://gui.test/" });
   globalThis.window = dom.window; globalThis.document = dom.window.document;
   globalThis.HTMLElement = dom.window.HTMLElement;
@@ -18,28 +18,43 @@ async function fixture(language = "en") {
   dom.window.localStorage.setItem("chat2local.gui.language.cache", language);
   const calls = [], notifications = [];
   const persisted = { security: { allowed_roots: ["C:/kept"] }, agent: { token_file: "C:/private/existing.token" } };
-  const defaults = { browser: { enabled: false, port: 8766, extension_id: null, token_file: null }, hub: {}, agent: {} };
+  if (startupError) persisted.autostart = { service: "missing.service", scope: "system" };
+  const defaults = { management: { enabled: true, port: 8767 }, autostart: { service: null, scope: null },
+    browser: { enabled: false, port: 8766, extension_id: null, token_file: null }, hub: {}, agent: {} };
+  const startup = { supported: true, backend, enabled: startupState === "stale" ? null : false, state: startupState };
   const api = {
     credentialInfo: async () => ({ path: "C:/private/browser.token", state: "ready" }),
     manageToken: async (...args) => { calls.push(["manage", ...args]); return { path: "C:/private/new.token", state: "ready" }; },
     copyToken: async (...args) => { calls.push(["copy", ...args]); return { copied: true }; },
     browserStatus: async () => ({ state: "connected" }),
-    readConfig: async () => ({ persisted, defaults, effective: defaults }),
+    readConfig: async () => ({ persisted, defaults, effective: defaults, management_listener: listener }),
     validateConfig: async (candidate) => { calls.push(["validate", candidate]); return { valid: true }; },
-    saveConfig: async (candidate) => { calls.push(["save", candidate]); return { persisted: candidate, defaults, effective: defaults, restart_required: true }; },
+    saveConfig: async (candidate) => { calls.push(["save", candidate]); return { persisted: candidate, defaults, effective: defaults, restart_required: true, management_listener: listener }; },
   };
   const native = (tag) => (props) => React.createElement(tag, props, props.children);
   const mocks = {
-    "@/lib/bridge": { coreApi: api, errorMessage: () => "Backend unavailable", desktopApi: {} },
+    "@/lib/bridge": { coreApi: api, isWebUi: web, connectBridge: async () => ({ platform }),
+      errorMessage: (error) => error instanceof Error ? error.message : "Backend unavailable", desktopApi: {},
+      autostartApi: { status: async () => {
+        if (startupError) throw new Error(startupError);
+        return { ...startup };
+      }, setEnabled: async (enabled) => {
+        calls.push(["autostart", enabled]);
+        Object.assign(startup, { enabled, state: enabled ? "enabled" : "disabled" });
+        return { ...startup };
+      } } },
     "sonner": { toast: { success: (text) => notifications.push(text), error() {} } },
     "@/components/ui/button": { Button: native("button") },
     "@/components/ui/input": { Input: native("input") },
     "@/components/ui/switch": { Switch: ({ checked, onCheckedChange, ...props }) => React.createElement("button", {
       ...props, type: "button", role: "switch", "aria-checked": checked, onClick: () => onCheckedChange(!checked),
     }) },
-    "@/components/desktop-settings": { DesktopSettings: () => null },
-    "@/components/ui/select": Object.fromEntries(["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"].map((name) => [name, ({ children }) => React.createElement("div", null, children)])),
-    "lucide-react": Object.fromEntries(["Save", "RotateCcw", "Plus", "X"].map((key) => [key, () => null])),
+    "@/components/desktop-settings": { DesktopSettings: () => React.createElement("p", null, "Desktop settings") },
+    "@/components/status-badge": { StatusBadge: ({ label }) => React.createElement("span", null, label) },
+    "@/components/ui/badge": { Badge: native("span") },
+    "@/components/ui/card": Object.fromEntries(["Card", "CardContent", "CardHeader", "CardTitle"].map((name) => [name, native("div")])),
+    "@/components/ui/select": Object.fromEntries(["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"].map((name) => [name, ({ children, id }) => React.createElement("div", { id }, children)])),
+    "lucide-react": Object.fromEntries(["Save", "RotateCcw", "Plus", "X", "Activity", "Folder", "Play", "RotateCw", "Square", "Cable"].map((key) => [key, () => null])),
   };
   const cache = {};
   function load(name) {
@@ -129,5 +144,88 @@ test("new Browser controls and confirmation messages are translated to Chinese",
     await f.click(f.button("重新生成 Token"));
     assert.ok(f.button("确认重新生成"));
     assert.ok(globalThis.document.body.textContent.includes("重新配对 Chrome 扩展"));
+  } finally { await f.close(); }
+});
+
+for (const [platform, backend] of [["linux", "systemd"], ["win32", "windows-run"], ["darwin", "launchd"]]) test(`Web settings show systemd fields only on ${platform}`, async () => {
+  const f = await fixture("en", { web: true, platform, backend });
+  try {
+    await f.render("@/pages/settings", { currentMode: "agent" });
+    assert.equal(Boolean(globalThis.document.getElementById("autostart-service")), backend === "systemd");
+    assert.equal(Boolean(globalThis.document.getElementById("autostart-scope")), backend === "systemd");
+    assert.ok(globalThis.document.getElementById("core-autostart"));
+    assert.equal(globalThis.document.body.textContent.includes("Desktop settings"), false);
+  } finally { await f.close(); }
+});
+
+for (const platform of ["linux", "win32", "darwin"]) test(`${platform} settings retain platform-specific fields when startup status fails`, async () => {
+  const startupError = "Configured systemd service was not found";
+  const f = await fixture("en", { web: true, platform, startupError });
+  try {
+    await f.render("@/pages/settings", { currentMode: "agent" });
+    const service = globalThis.document.getElementById("autostart-service");
+    const scope = globalThis.document.getElementById("autostart-scope");
+    assert.equal(Boolean(service), platform === "linux");
+    assert.equal(Boolean(scope), platform === "linux");
+    assert.ok(globalThis.document.querySelector('[role="alert"]').textContent.includes(startupError));
+    assert.equal(globalThis.document.getElementById("core-autostart").disabled, true);
+    if (platform === "linux") {
+      assert.equal(service.value, "missing.service");
+      assert.equal(service.disabled, false);
+      assert.equal(scope.closest("fieldset").disabled, false);
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(f.dom.window.HTMLInputElement.prototype, "value").set.call(service, "chat2local-core.service");
+        service.dispatchEvent(new f.dom.window.Event("input", { bubbles: true }));
+      });
+      await f.click(f.button("Save changes"));
+      const candidate = f.calls.find(([name]) => name === "save")[1];
+      assert.equal(candidate.autostart.service, "chat2local-core.service");
+      assert.equal(candidate.autostart.scope, "system");
+      assert.deepEqual(f.calls.find(([name]) => name === "validate")[1], candidate);
+      assert.ok(globalThis.document.querySelector('[role="alert"]').textContent.includes(startupError));
+    }
+    assert.equal(f.calls.some(([name]) => name === "autostart"), false);
+  } finally { await f.close(); }
+});
+
+test("desktop settings retain the desktop controls and hide independent Core fields", async () => {
+  const f = await fixture();
+  try {
+    await f.render("@/pages/settings", { currentMode: "standalone" });
+    assert.ok(globalThis.document.body.textContent.includes("Desktop settings"));
+    for (const id of ["management-port", "autostart-service", "autostart-scope", "core-autostart"])
+      assert.equal(globalThis.document.getElementById(id), null);
+  } finally { await f.close(); }
+});
+
+for (const [port, source] of [[8767, "default"], [8768, "automatic"], [19766, "cli"]]) test(`Settings and Overview show actual port ${port} separately from the saved/default field`, async () => {
+  const listener = { host: "127.0.0.1", port, source };
+  const f = await fixture("en", { web: true, listener });
+  try {
+    await f.render("@/pages/settings", { currentMode: "standalone" });
+    assert.equal(globalThis.document.getElementById("management-port").value, "8767");
+    assert.ok(globalThis.document.body.textContent.includes(`http://127.0.0.1:${port}/`));
+    assert.ok(globalThis.document.body.textContent.includes(`Port source: ${source}`));
+    await f.click(globalThis.document.getElementById("browser-enabled"));
+    await f.click(f.button("Save changes"));
+    assert.equal(f.calls.find(([name]) => name === "save")[1].management, undefined);
+    assert.ok(globalThis.document.body.textContent.includes(`http://127.0.0.1:${port}/`));
+    await f.render("@/pages/overview", { runtime: { lifecycle: "Running", core: { mode: "standalone", state: "running" }, management_listener: listener },
+      error: "", mode: "standalone", workspace: "C:/workspace", onMode() {}, onWorkspace() {}, busy: "", onAction() {}, connected: true });
+    assert.ok(globalThis.document.body.textContent.includes(`http://127.0.0.1:${port}/`));
+    assert.ok(globalThis.document.body.textContent.includes(`Port source: ${source}`));
+  } finally { await f.close(); }
+});
+
+for (const enabled of [true, false]) test(`stale Windows startup can be ${enabled ? "repaired" : "removed"} through the existing API`, async () => {
+  const f = await fixture("en", { web: true, startupState: "stale" });
+  try {
+    await f.render("@/components/autostart-settings", {});
+    assert.ok(globalThis.document.querySelector('[role="alert"]'));
+    assert.equal(globalThis.document.getElementById("core-autostart").disabled, true);
+    await f.click(f.button(enabled ? "Repair startup entry" : "Remove startup entry"));
+    assert.deepEqual(f.calls, [["autostart", enabled]]);
+    assert.equal(globalThis.document.getElementById("core-autostart").getAttribute("aria-checked"), String(enabled));
+    assert.equal(f.button("Repair startup entry"), undefined);
   } finally { await f.close(); }
 });

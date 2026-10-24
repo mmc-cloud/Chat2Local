@@ -41,6 +41,9 @@ Issues = "https://github.com/mmc-cloud/Chat2Local/issues"
 requires = ["uv_build>=0.9.21,<0.10.0"]
 build-backend = "uv_build"
 
+# uv_build includes package data under src/chat2local automatically, including
+# management/static (the compiled shared React UI). No frontend build at install time.
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

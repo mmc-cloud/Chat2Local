@@ -29,6 +29,8 @@ jobs:
           test -s "$notes" || { echo "::error::Missing release notes: $notes"; exit 1; }
       - name: Build distribution
         run: uv build --no-sources
+      - name: Verify packaged Web UI resources
+        run: python scripts/check_web_ui_package.py dist/*.whl dist/*.tar.gz
       - name: Check distribution metadata
         run: uvx --from twine twine check dist/*
       - name: Smoke test wheel

@@ -4,9 +4,12 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import asdict, replace
+import errno
 import logging
 from pathlib import Path
 import signal
+import socket
+import sys
 import threading
 
 import uvicorn
@@ -20,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class CoreServer(uvicorn.Server):
     _shutdown_started = False
+    on_started: Callable[[], None] | None = None
 
     @contextmanager
     def capture_signals(self):
@@ -29,6 +33,8 @@ class CoreServer(uvicorn.Server):
     async def startup(self, sockets=None):
         try:
             await super().startup(sockets=sockets)
+            if self.started and self.on_started is not None:
+                self.on_started()
         except BaseException:
             # Uvicorn handles bind OSError itself, but e.g. an out-of-range
             # port can fail after lifespan startup without sending shutdown.
@@ -88,6 +94,10 @@ class RuntimeSupervisor:
         self._shutdown = asyncio.Event()
         self.control = ControlServer(self.status, self.request_stop, devices, browser)
         self.lock = InstanceLock(self.directory)
+        # Optional local HTTP listener. It shares this supervisor's signals,
+        # instance lock and shutdown; the Core's own cleanup stays unchanged.
+        self.management: CoreServer | None = None
+        self.management_ports: tuple[int, ...] | None = None
 
     def request_stop(self) -> None:
         if not self.stopping:
@@ -155,27 +165,76 @@ class RuntimeSupervisor:
             self.lock.release()
 
     async def _run_core(self, core, stop_core) -> None:
-        async def execute():
+        async def execute(operation):
             # SystemExit from Uvicorn startup must return through our finally,
             # rather than escaping a child task and aborting the asyncio runner.
             try:
-                await core()
+                await operation()
             except BaseException as error:
                 return error
             return None
-        task = asyncio.create_task(execute(), name="chat2local-core")
+        task = asyncio.create_task(execute(core), name="chat2local-core")
+        web = (asyncio.create_task(self._run_management(), name="chat2local-management")
+               if self.management is not None else None)
         shutdown = asyncio.create_task(self._shutdown.wait())
         try:
             await asyncio.wait((task, shutdown), return_when=asyncio.FIRST_COMPLETED)
         finally:
             self.request_stop()
+            if self.management is not None:
+                self.management.should_exit = True
             if not task.done():
                 stop_core(task)
             shutdown.cancel()
             error = await _settle(task)
+            if web:
+                await _settle(web)
             await _settle(asyncio.gather(shutdown, return_exceptions=True))
         if error is not None and not isinstance(error, asyncio.CancelledError):
             raise error
+
+    async def _run_management(self) -> None:
+        """Try bounded startup binds; never restart a failed running listener."""
+        server = self.management
+        listener = None
+        try:
+            if self.management_ports is None:
+                await server.serve()
+            else:
+                for index, port in enumerate(self.management_ports):
+                    candidate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        if sys.platform != "win32":
+                            candidate.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        candidate.bind(("127.0.0.1", port))
+                        candidate.listen()
+                        candidate.setblocking(False)
+                    except OSError as error:
+                        candidate.close()
+                        if error.errno != errno.EADDRINUSE and getattr(error, "winerror", None) != 10048:
+                            raise
+                        if index + 1 == len(self.management_ports):
+                            raise OSError(errno.EADDRINUSE, "All candidate Web UI ports are in use") from error
+                        logger.warning("Web UI port %s is in use; trying %s", port, self.management_ports[index + 1])
+                    else:
+                        listener = candidate
+                        server.config.port = port
+                        break
+                if listener is None:
+                    raise OSError(errno.EADDRINUSE, "No candidate Web UI ports are available")
+                await server.serve(sockets=[listener])
+        except asyncio.CancelledError:
+            return
+        except BaseException as error:
+            logger.error("Local Web UI at http://127.0.0.1:%s/ failed (%s: %s); Core continues running",
+                         server.config.port, type(error).__name__, error)
+        else:
+            if not self.stopping:
+                logger.error("Local Web UI at http://127.0.0.1:%s/ %s; Core continues running",
+                             server.config.port, "exited unexpectedly" if server.started else "failed to start; see server errors")
+        finally:
+            if listener is not None:
+                listener.close()
 
     async def _cleanup(self) -> None:
         try:

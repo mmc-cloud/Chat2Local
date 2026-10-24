@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
-import { coreApi, errorMessage } from "@/lib/bridge";
+import { coreApi, errorMessage, isWebUi } from "@/lib/bridge";
 import { useLocale } from "@/lib/locale";
 import type { RuntimeSnapshot } from "@/types/pywebview";
 interface Props {
@@ -46,7 +46,7 @@ export function Overview({
     : (runtime?.lifecycle ?? "Connecting");
   const running = Boolean(core);
   const locked =
-    running ||
+    isWebUi || running ||
     Boolean(busy) ||
     runtime?.lifecycle === "Starting" ||
     runtime?.lifecycle === "Stopping";
@@ -84,6 +84,7 @@ export function Overview({
               "Restart required. Saved configuration will apply when Core restarts.",
             )}
           </p>
+          {isWebUi && <p>{t("Restart Core from your terminal or service manager to apply saved changes.")}</p>}
         </div>
       )}
       <div className="overview-grid">
@@ -123,6 +124,10 @@ export function Overview({
                     : undefined,
                 ],
                 ["Core state", core?.state ? t(core.state) : undefined],
+                ...(isWebUi && runtime?.management_listener ? [
+                  ["Current Web UI address", `http://${runtime.management_listener.host}:${runtime.management_listener.port}/`],
+                  ["Management port source", t(`Port source: ${runtime.management_listener.source}`)],
+                ] : []),
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt>{t(String(label))}</dt>
@@ -142,7 +147,7 @@ export function Overview({
                     <Square />
                     {t("Stop")}
                   </Button>
-                  <Button
+                  {!isWebUi && <Button
                     variant="outline"
                     size="sm"
                     disabled={Boolean(busy)}
@@ -150,10 +155,10 @@ export function Overview({
                   >
                     <RotateCw />
                     {t("Restart")}
-                  </Button>
+                  </Button>}
                 </>
               ) : (
-                <Button
+                !isWebUi && <Button
                   size="sm"
                   disabled={!connected || locked || !workspace.trim()}
                   onClick={() => perform("start")}
@@ -203,7 +208,7 @@ export function Overview({
                     disabled={locked}
                     placeholder={t("Choose a workspace folder")}
                   />
-                  <Button
+                  {!isWebUi && <Button
                     variant="outline"
                     size="sm"
                     disabled={locked || !connected}
@@ -211,12 +216,12 @@ export function Overview({
                   >
                     <Folder />
                     {t("Browse")}
-                  </Button>
+                  </Button>}
                 </div>
               </label>
               <p>
                 {t(
-                  locked
+                  isWebUi ? "Current startup context is read-only in Web UI." : locked
                     ? "Stop Core before switching mode or workspace."
                     : "Used for the next Core start. Configuration comes from config.yaml.",
                 )}
@@ -247,7 +252,7 @@ export function Overview({
         <Cable size={17} />
         <p>
           {t(
-            connected
+            isWebUi ? "Core runs in this process. Stopping it also disconnects this Web UI." : connected
               ? "Connected to the local Python shell. Core continues running when this window closes."
               : "Waiting for the desktop Python bridge.",
           )}

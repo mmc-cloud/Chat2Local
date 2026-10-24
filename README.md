@@ -80,6 +80,12 @@ portable 版本已经包含 Python runtime、Core 和 Desktop GUI，不要求系
 
 Core 要求 Python 3.12+。
 
+独立 Core 在 Windows、Linux、macOS 上均自带本地 Web UI。启动后可在浏览器访问
+[http://127.0.0.1:8767/](http://127.0.0.1:8767/)（实际地址也会写入日志），管理配置、日志、设备、Token 和自启。
+Browser Bridge 固定使用用户配置的端口（默认 `8766`）。Web UI 未指定端口时从 `8767` 起最多尝试 10 个端口，
+成功后显示实际地址；通过配置或 CLI 显式指定端口时不自动回退。
+运行时无需 Node.js；详见[本地 Web UI 与跨平台自启](docs/web-ui.md)。原 Windows ZIP / EXE 使用方式保持不变。
+
 推荐使用 `uv tool` 安装到独立环境：
 
 ```powershell

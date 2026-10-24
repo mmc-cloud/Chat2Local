@@ -14,6 +14,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from chat2local.runtime import windows_startup
+
 
 class ClosingEvent(list):
     def __iadd__(self, handler):
@@ -250,6 +252,7 @@ class FakeRegistry:
 def registry(modules, monkeypatch):
     registry = FakeRegistry()
     monkeypatch.setitem(sys.modules, "winreg", registry)
+    monkeypatch.setattr(windows_startup, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setattr(
         modules.autostart,
         "sys",
@@ -338,6 +341,7 @@ def test_reconcile_migrates_old_python_command_to_pythonw_or_frozen(
 
 def test_non_windows_reconcile_is_a_noop(modules, monkeypatch):
     monkeypatch.setattr(modules.autostart, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(windows_startup, "sys", SimpleNamespace(platform="linux"))
     registry = Mock(side_effect=AssertionError("No Windows registry on this platform"))
     autostart = modules.autostart.WindowsAutostart()
     monkeypatch.setattr(autostart, "_registry", registry)
@@ -448,6 +452,7 @@ def test_windows_startup_command_spaces_and_explicit_startup(
 
 def test_non_windows_unsupported_no_winreg_import(modules, monkeypatch):
     monkeypatch.setattr(modules.autostart, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(windows_startup, "sys", SimpleNamespace(platform="linux"))
     monkeypatch.setitem(sys.modules, "winreg", None)
     autostart = modules.autostart.WindowsAutostart()
     assert not autostart.supported

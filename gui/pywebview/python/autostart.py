@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 from desktop_logging import log_exception_safe
+from chat2local.runtime.windows_startup import RUN_KEY, WindowsRunEntry
 
-RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "Chat2Local"
 logger = logging.getLogger("chat2local.desktop.autostart")
 
@@ -43,43 +43,9 @@ def startup_command() -> str:
     return subprocess.list2cmdline([*args, "--startup"])
 
 
-class WindowsAutostart:
-    @property
-    def supported(self) -> bool:
-        return sys.platform == "win32"
-
-    def _registry(self):
-        if not self.supported:
-            raise ValueError("Windows login startup is not supported on this platform")
-        import winreg
-
-        return winreg
-
-    def read(self) -> tuple[str, int] | None:
-        registry = self._registry()
-        try:
-            with registry.OpenKey(
-                registry.HKEY_CURRENT_USER, RUN_KEY, 0, registry.KEY_READ
-            ) as key:
-                return registry.QueryValueEx(key, VALUE_NAME)
-        except FileNotFoundError:
-            return None
-
-    def restore(self, value: tuple[str, int] | None) -> None:
-        registry = self._registry()
-        if value is None:
-            try:
-                with registry.OpenKey(
-                    registry.HKEY_CURRENT_USER, RUN_KEY, 0, registry.KEY_SET_VALUE
-                ) as key:
-                    registry.DeleteValue(key, VALUE_NAME)
-            except FileNotFoundError:
-                pass
-        else:
-            with registry.CreateKeyEx(
-                registry.HKEY_CURRENT_USER, RUN_KEY, 0, registry.KEY_SET_VALUE
-            ) as key:
-                registry.SetValueEx(key, VALUE_NAME, 0, value[1], value[0])
+class WindowsAutostart(WindowsRunEntry):
+    def __init__(self) -> None:
+        super().__init__(VALUE_NAME)
 
     def set_enabled(self, enabled: bool) -> None:
         registry = self._registry()

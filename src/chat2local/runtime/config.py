@@ -163,6 +163,17 @@ class BrowserConfig(_ConfigModel):
         return self
 
 
+class ManagementConfig(_ConfigModel):
+    enabled: bool = Field(default=True, strict=True)
+    port: int = Field(default=8767, ge=1, le=65535, strict=True)
+
+
+class AutostartConfig(_ConfigModel):
+    # An existing systemd deployment can select its actual unit and manager.
+    service: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@\\:-]*\.service$")
+    scope: Literal["user", "system"] | None = None
+
+
 class AppConfig(_ConfigModel):
     read: ReadConfig = Field(default_factory=ReadConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
@@ -172,6 +183,29 @@ class AppConfig(_ConfigModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    management: ManagementConfig = Field(default_factory=ManagementConfig)
+    autostart: AutostartConfig = Field(default_factory=AutostartConfig)
+
+
+def management_ports(settings: AppConfig, *, mode: str,
+                     cli_port: int | None = None) -> tuple[int, ...]:
+    """Explicit ports are strict; an implicit default has at most ten candidates.
+
+    Exclude this Core's Browser/MCP/Hub listeners before attempting OS binds.
+    Agent has no MCP/Hub listener; --port overrides Hub's configured port.
+    """
+    management = settings.management
+    if not management.enabled:
+        return ()
+    reserved = {settings.browser.port: "browser.port"} if settings.browser.enabled else {}
+    if mode != "agent":
+        port = cli_port if cli_port is not None else settings.hub.port if mode == "hub" else None
+        reserved[8765 if port is None else port] = "Hub listener port" if mode == "hub" else "MCP listener port"
+    if "port" in management.model_fields_set:
+        if management.port in reserved:
+            raise ConfigError(f"management.port conflicts with {reserved[management.port]}; choose another management port")
+        return (management.port,)
+    return tuple(port for port in range(management.port, min(management.port + 10, 65536)) if port not in reserved)
 
 
 def read_persisted_config(path: Path | str | None = None) -> dict[str, Any]:

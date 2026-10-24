@@ -1,10 +1,45 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { desktopApi } from "@/lib/bridge";
+import { desktopApi, isWebUi } from "@/lib/bridge";
 
 export type Language = "zh-CN" | "en";
 const legacyStorageKey = "chat2local.gui.language";
 const cacheStorageKey = "chat2local.gui.language.cache";
 const chinese: Record<string, string> = {
+  "Current Web UI address": "当前 Web UI 地址",
+  "Management port source": "管理端口来源",
+  "Port source: default": "内置默认值",
+  "Port source: configured": "启动时的持久化配置",
+  "Port source: cli": "命令行覆盖",
+  "Port source: automatic": "默认端口占用，已自动选择可用端口",
+  "Startup entry is outdated or invalid. Repair it for the current Core, or remove it.": "自启项已过期或失效，请修复为当前 Core 的启动命令，或移除此项。",
+  "Repair startup entry": "修复自启项",
+  "Remove startup entry": "移除自启项",
+  "Startup Python environment or working directory is missing": "自启使用的 Python 环境或工作目录不存在",
+  "Core autostart": "Core 自启",
+  "Saved immediately. Changes future startup without stopping the current Core.": "立即保存，仅更改后续自启行为，不会停止当前 Core。",
+  "Start independent Core at login or boot": "登录或开机时启动独立 Core",
+  "Refresh startup state": "刷新自启状态",
+  "This service has no editable persistent startup state.": "此服务没有可通过开关修改的持久自启状态。",
+  Management: "管理界面",
+  Autostart: "开机自启",
+  "Enable Web UI": "启用 Web UI",
+  "Management port": "管理端口",
+  "Systemd service": "systemd 服务名称",
+  "Systemd scope": "systemd 服务范围",
+  "Local Web UI listener. Restart Core to apply listener changes.": "本机 Web UI 监听配置，重启 Core 后生效。",
+  "Select an existing Linux systemd service when automatic detection is unavailable.": "无法自动识别 Linux systemd 服务时，可指定实际使用的服务名称与范围。",
+  "Core stopped. This Web UI is now disconnected. Start Core from your terminal or service manager, then reload this page.": "Core 已停止，Web UI 已断开。请从终端或服务管理器启动 Core，然后刷新此页面。",
+  "Restart Core from your terminal or service manager to apply saved changes.": "请从终端或服务管理器重启 Core，以应用已保存的更改。",
+  "Core runs in this process. Stopping it also disconnects this Web UI.": "Web UI 与 Core 同进程运行，停止 Core 后此页面会断开连接。",
+  "Connected to the local Core Web UI.": "已连接本机 Core Web UI。",
+  "Current startup context is read-only in Web UI.": "Web UI 中的当前启动设置仅供查看。",
+  "Startup service manager is unavailable or timed out": "自启服务管理器不可用或操作超时",
+  "Startup operation failed; check service permissions and service configuration": "自启操作失败，请检查服务权限和配置",
+  "Could not read startup configuration; check permissions": "无法读取自启配置，请检查权限",
+  "Could not change startup configuration; check permissions": "无法修改自启配置，请检查权限",
+  "Select an existing Chat2Local systemd service using autostart.service and autostart.scope": "请通过 autostart.service 和 autostart.scope 指定实际的 Chat2Local systemd 服务",
+  "Save the current Hub/Agent token in its configured token_file before enabling login startup": "启用自启前，请将当前 Hub/Agent Token 保存到配置中的 token_file",
+  "Invalid management CSRF token; reload the page": "管理界面验证已失效，请刷新页面",
   Browser: "浏览器",
   "Loading browser state...": "正在读取 Browser 状态…",
   "Desktop window unavailable": "桌面窗口不可用",
@@ -313,6 +348,7 @@ function subscribe(listener: () => void) {
   };
 }
 export async function initializeLanguage() {
+  if (isWebUi) return;
   try {
     const snapshot = await desktopApi.readPreferences();
     const legacy = readStoredLanguage(legacyStorageKey);
@@ -335,6 +371,11 @@ export async function initializeLanguage() {
 }
 
 async function setLanguage(next: Language) {
+  if (isWebUi) {
+    applyLanguage(next);
+    cacheLanguage(next);
+    return;
+  }
   const previous = language;
   applyLanguage(next);
   try {

@@ -1,6 +1,7 @@
 """Supervisor order, real Core cleanup, signals and isolated CLI smoke tests."""
 
 import asyncio
+import errno
 from contextlib import asynccontextmanager
 from dataclasses import replace
 import importlib
@@ -11,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 import uvicorn
@@ -24,6 +26,7 @@ from chat2local.hub.router import DeviceRouter
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.instance import AlreadyRunningError, InstanceLock, RuntimeDescriptor
 from chat2local.runtime.supervisor import CoreServer, RuntimeSupervisor
+from chat2local.runtime import supervisor as supervisor_module
 from chat2local.runtime.workspace import WorkspaceManager
 from conftest import run
 from test_devices import eventually, running_server
@@ -77,6 +80,115 @@ def test_actual_uvicorn_bind_failure_preserves_exit_and_cleans_lifespan(tmp_path
         run(scenario())
     finally:
         listener.close()
+
+
+@pytest.mark.parametrize("failure", ["startup", "startup-return", "runtime", "runtime-return"])
+def test_optional_management_exit_does_not_stop_core_or_retry(tmp_path, caplog, failure):
+    async def scenario():
+        supervisor = RuntimeSupervisor("agent", "device", tmp_path, state=lambda: "running", directory=tmp_path / "data")
+        calls, cleaned = [], []
+        web = SimpleNamespace(config=SimpleNamespace(port=18766), started=False, should_exit=False)
+        async def serve():
+            calls.append(True)
+            try:
+                web.started = failure.startswith("runtime")
+                if failure.endswith("return"):
+                    return
+                raise RuntimeError("simulated management failure")
+            finally:
+                cleaned.append(True)
+        web.serve = serve
+        supervisor.management = web
+        async def core():
+            await asyncio.Event().wait()
+        task = asyncio.create_task(supervisor.run(core, lambda owner: owner.cancel()))
+        try:
+            await eventually(lambda: "Core continues running" in caplog.text)
+            assert not task.done() and not supervisor.stopping
+            assert calls == [True] and cleaned == [True]
+            assert (await request(supervisor.descriptor.control["port"], "status"))["ok"]
+        finally:
+            supervisor.request_stop()
+            await asyncio.wait_for(task, 5)
+        assert web.should_exit
+        assert_released(supervisor.directory)
+    run(scenario())
+
+
+@pytest.mark.parametrize("reason", [errno.EACCES, errno.EADDRNOTAVAIL])
+def test_management_only_retries_address_in_use_and_closes_failed_socket(tmp_path, monkeypatch, caplog, reason):
+    attempts, closed = [], []
+    class Listener:
+        def setsockopt(self, *args):
+            pass
+        def bind(self, address):
+            attempts.append(address[1])
+            raise OSError(reason, "simulated bind failure")
+        def close(self):
+            closed.append(True)
+    monkeypatch.setattr(supervisor_module, "socket", SimpleNamespace(
+        socket=lambda *args: Listener(), AF_INET=socket.AF_INET, SOCK_STREAM=socket.SOCK_STREAM,
+        SOL_SOCKET=socket.SOL_SOCKET, SO_REUSEADDR=socket.SO_REUSEADDR,
+    ))
+    supervisor = RuntimeSupervisor("agent", "device", tmp_path, state=lambda: "running", directory=tmp_path)
+    supervisor.management = SimpleNamespace(config=SimpleNamespace(port=18766))
+    supervisor.management_ports = (18766, 18767)
+    run(supervisor._run_management())
+    assert attempts == [18766] and closed == [True]
+    assert "simulated bind failure" in caplog.text and "Core continues running" in caplog.text
+
+
+def test_management_runtime_exception_closes_listener_and_lifespan_without_stopping_core(tmp_path, monkeypatch, caplog):
+    from fastapi import FastAPI
+    async def scenario():
+        cleanup = []
+        @asynccontextmanager
+        async def lifespan(app):
+            yield
+            cleanup.append(True)
+        web = CoreServer(uvicorn.Config(FastAPI(lifespan=lifespan), host="127.0.0.1", port=0, log_config=None))
+        async def fail():
+            raise RuntimeError("management runtime failure")
+        monkeypatch.setattr(web, "main_loop", fail)
+        supervisor = RuntimeSupervisor("standalone", "device", tmp_path, state=lambda: "running", directory=tmp_path / "data")
+        supervisor.management = web
+        async def core():
+            await asyncio.Event().wait()
+        task = asyncio.create_task(supervisor.run(core, lambda owner: owner.cancel()))
+        try:
+            await eventually(lambda: "management runtime failure" in caplog.text)
+            assert web.started and cleanup == [True]
+            assert all(not server.is_serving() for server in web.servers)
+            assert not task.done() and not supervisor.stopping
+        finally:
+            supervisor.request_stop()
+            await asyncio.wait_for(task, 5)
+        assert cleanup == [True]
+        assert_released(supervisor.directory)
+    run(scenario())
+
+
+def test_business_failure_is_preserved_and_closes_pending_management(tmp_path):
+    async def scenario():
+        supervisor = RuntimeSupervisor("hub", "device", tmp_path, state=lambda: "starting", directory=tmp_path / "data")
+        started, closed = asyncio.Event(), asyncio.Event()
+        web = SimpleNamespace(config=SimpleNamespace(port=18766), started=False, should_exit=False)
+        async def serve():
+            web.started = True
+            started.set()
+            while not web.should_exit:
+                await asyncio.sleep(0)
+            closed.set()
+        web.serve = serve
+        supervisor.management = web
+        async def core():
+            await started.wait()
+            raise ValueError("original business failure")
+        with pytest.raises(ValueError, match="original business failure"):
+            await supervisor.run(core, lambda task: task.cancel())
+        assert web.should_exit and closed.is_set()
+        assert_released(supervisor.directory)
+    run(scenario())
 
 
 def test_unexpected_listener_startup_failure_cleans_lifespan_before_unlock(tmp_path, monkeypatch):
@@ -435,7 +547,7 @@ from chat2local.runtime import config
 data, workspace, mode = sys.argv[1:]
 config.user_data_directory = lambda: Path(data)
 config.DEFAULT_CONFIG_PATH = Path(data) / 'config.yaml'
-sys.argv = ['chat2local', '--workspace', workspace, '--device-id', 'smoke', '--port', '0']
+sys.argv = ['chat2local', '--workspace', workspace, '--device-id', 'smoke', '--port', '0', '--no-web-ui']
 if mode != 'standalone':
     sys.argv += [mode, '--token', 'SECRET-SMOKE-TOKEN']
 if mode == 'agent':

@@ -80,6 +80,14 @@ The portable build already includes the Python runtime, Core, and the Desktop GU
 
 Core requires Python 3.12+.
 
+Independent Core includes a local Web UI on Windows, Linux, and macOS. After starting Core, open
+[http://127.0.0.1:8767/](http://127.0.0.1:8767/) (the actual address is also logged) to manage settings,
+logs, devices, credentials, and login startup. Node.js is not required at runtime.
+Use `--management-port 8770` to select another port or `--no-web-ui` to disable it.
+Browser Bridge keeps its configured port (default 8766). Without an explicit port, Web UI tries up to ten ports
+starting at 8767 and logs the actual URL. A port explicitly set in configuration or CLI never falls back.
+See [Web UI and cross-platform startup](docs/web-ui.md). The Windows ZIP / EXE workflow is preserved.
+
 Using `uv tool` is recommended because it installs Chat2Local into an isolated environment:
 
 ```powershell

@@ -6,6 +6,7 @@ test can inspect the runtime state the process would have launched with.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 from pathlib import Path
 from typing import Any
@@ -34,10 +35,16 @@ def launched(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     calls: dict[str, Any] = {}
 
     async def fake_serve(server) -> None:
+        if server.config.app.title == "Chat2Local Management":
+            while not server.should_exit:
+                await asyncio.sleep(0)
+            return
         calls["app"] = server.config.app
         calls.update(host=server.config.host, port=server.config.port, reload=server.config.reload)
 
     monkeypatch.setattr(main_module.CoreServer, "serve", fake_serve)
+    # Management listeners have their own isolated integration tests.
+    monkeypatch.setattr(main_module, "_attach_management", lambda *args, **kwargs: None)
 
     yield calls
 

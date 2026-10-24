@@ -12,11 +12,12 @@ from chat2local.runtime import config
 
 
 class CoreAdapter:
-    def __init__(self, runtime: RuntimeClient | None = None) -> None:
+    def __init__(self, runtime: RuntimeClient | None = None, *, config_path: Path | None = None) -> None:
         self.runtime = runtime or RuntimeClient()
+        self.config_path = config_path
         self.logs = LogReader(self.runtime.directory / "logs/chat2local.log")
         self._restart_instance: str | None = None
-        self.credentials = CredentialStore()
+        self.credentials = CredentialStore(config_path=config_path)
 
     async def runtime_status(self) -> dict:
         result = await self.runtime.status()
@@ -27,7 +28,7 @@ class CoreAdapter:
         return result
 
     def read_config(self) -> dict:
-        persisted = config.read_persisted_config()
+        persisted = config.read_persisted_config(self.config_path)
         effective = config.validate_persisted_config(persisted)
         return {
             "persisted": persisted,
@@ -57,7 +58,7 @@ class CoreAdapter:
     async def save_config(self, candidate: dict) -> dict:
         self.validate_config(candidate)
         before = await self.runtime.discover()
-        config.save_persisted_config(candidate)
+        config.save_persisted_config(candidate, self.config_path)
         if before["core"]:
             self._restart_instance = before["core"]["instance_id"]
         else:
@@ -79,7 +80,7 @@ class CoreAdapter:
 
     async def browser_status(self) -> dict:
         try:
-            saved = config.load_config().browser.model_dump()
+            saved = config.load_config(self.config_path).browser.model_dump()
         except config.ConfigError:
             return {"state": "configuration_error"}
         try:

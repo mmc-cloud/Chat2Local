@@ -43,6 +43,9 @@ def _private_file(path: Path) -> None:
 
 
 class CredentialStore:
+    def __init__(self, *, config_path: Path | None = None) -> None:
+        self.config_path = config_path
+
     def path(self, purpose: str, path: str | None = None) -> Path:
         if purpose not in _PURPOSES or (path is not None and not isinstance(path, str)):
             raise ManagementError("Invalid credential purpose or path")
@@ -89,7 +92,7 @@ class CredentialStore:
         return {"path": str(target), "state": "ready"}
 
     def _independent(self, purpose: str, target: Path, value: str) -> None:
-        settings = config.load_config()
+        settings = config.load_config(self.config_path)
         peers = ("hub", "agent") if purpose == "browser" else ("browser",)
         for peer in peers:
             peer_path = self.path(peer, getattr(settings, peer).token_file)

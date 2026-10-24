@@ -163,6 +163,7 @@ def test_start_args_and_detached_stdio(tmp_path, monkeypatch, mode, subcommand):
         *subcommand,
         "--workspace",
         str(workspace),
+        "--no-web-ui",
     ]
     assert options["cwd"] == workspace.resolve()
     assert (
@@ -193,6 +194,7 @@ def test_frozen_start_args_reenter_desktop_executable(
         *subcommand,
         "--workspace",
         str(tmp_path),
+        "--no-web-ui",
     ]
 
 

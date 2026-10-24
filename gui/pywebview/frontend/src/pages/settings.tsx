@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DesktopSettings } from "@/components/desktop-settings";
+import { AutostartSettings } from "@/components/autostart-settings";
 import { TokenManager } from "@/components/token-manager";
 import { BrowserStatus } from "@/components/browser-status";
 import { Switch } from "@/components/ui/switch";
@@ -14,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { coreApi, errorMessage } from "@/lib/bridge";
+import { connectBridge, coreApi, errorMessage, isWebUi } from "@/lib/bridge";
 import { useLocale } from "@/lib/locale";
 import type { ConfigMap, ConfigSnapshot, ConfigValue } from "@/types/pywebview";
 interface Field {
@@ -31,6 +32,20 @@ interface Section {
 }
 // UI labels and controls, not validation rules. Core owns the schema and defaults.
 const sections: Section[] = [
+  {
+    name: "management", description: "Local Web UI listener. Restart Core to apply listener changes.",
+    fields: [
+      { name: "enabled", label: "Enable Web UI", kind: "boolean" },
+      { name: "port", label: "Management port", kind: "number" },
+    ],
+  },
+  {
+    name: "autostart", description: "Select an existing Linux systemd service when automatic detection is unavailable.",
+    fields: [
+      { name: "service", label: "Systemd service", kind: "text", nullable: true },
+      { name: "scope", label: "Systemd scope", kind: "select", nullable: true, options: ["user", "system"] },
+    ],
+  },
   {
     name: "browser", description: "Optional Chrome connection. Available in every Core mode.",
     fields: [
@@ -168,7 +183,7 @@ function canonical(config: ConfigMap) {
     ),
   );
 }
-const advancedSections = ["security", "process", "read", "search"].flatMap(
+const advancedSections = ["management", "autostart", "security", "process", "read", "search"].flatMap(
   (name) => sections.filter((section) => section.name === name),
 );
 export function Settings({ currentMode }: { currentMode: string }) {
@@ -177,14 +192,15 @@ export function Settings({ currentMode }: { currentMode: string }) {
   const [candidate, setCandidate] = useState<ConfigMap>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [platform, setPlatform] = useState("");
   useEffect(() => {
     let active = true;
-    coreApi
-      .readConfig()
-      .then((data) => {
+    Promise.all([coreApi.readConfig(), isWebUi ? connectBridge() : Promise.resolve(null)])
+      .then(([data, info]) => {
         if (active) {
           setSnapshot(data);
           setCandidate(structuredClone(data.persisted));
+          setPlatform(info?.platform ?? "");
         }
       })
       .catch((error) => {
@@ -254,6 +270,10 @@ export function Settings({ currentMode }: { currentMode: string }) {
       <div className="settings-intro">
         <h2>{t(section.name[0].toUpperCase() + section.name.slice(1))}</h2>
         <p>{t(section.description)}</p>
+        {section.name === "management" && snapshot?.management_listener && <p>
+          {t("Current Web UI address")}: http://{snapshot.management_listener.host}:{snapshot.management_listener.port}/
+          {" · "}{t(`Port source: ${snapshot.management_listener.source}`)}
+        </p>}
       </div>
       <div className="settings-fields">
         {section.fields
@@ -367,7 +387,7 @@ export function Settings({ currentMode }: { currentMode: string }) {
                           aria-label={t("Custom proxy URL")}
                           type="password"
                           autoComplete="off"
-                          value={text}
+                          value={text === "__CHAT2LOCAL_KEEP_PROXY__" ? "" : text}
                           onChange={(event) => set(event.target.value)}
                           placeholder={t("HTTP / HTTPS / SOCKS proxy URL")}
                         />
@@ -514,7 +534,7 @@ export function Settings({ currentMode }: { currentMode: string }) {
           </Select>
         </div>
       </section>
-      <DesktopSettings />
+      {isWebUi ? <AutostartSettings /> : <DesktopSettings />}
       {error && (
         <div className="error-note" role="alert">
           {t("Configuration is invalid or unavailable")}: {t(error)}
@@ -539,7 +559,9 @@ export function Settings({ currentMode }: { currentMode: string }) {
               .map(renderSection)}
             <details className="settings-advanced">
               <summary>{t("Advanced")}</summary>
-              {advancedSections.map(renderSection)}
+              {advancedSections.filter((section) => section.name === "autostart"
+                ? isWebUi && platform.startsWith("linux")
+                : section.name !== "management" || isWebUi).map(renderSection)}
             </details>
             <div className="save-bar">
               <span role="status">

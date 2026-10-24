@@ -180,6 +180,9 @@ def main() -> None:
 
     target = DIST / "Chat2Local"
     if target.exists():
+        if (target.is_symlink() or target.is_junction()
+                or not target.resolve().is_relative_to(ROOT.resolve() / "dist" / "windows")):
+            raise SystemExit("Refusing to replace a portable build outside the repository output directory")
         shutil.rmtree(target)
     WORK.mkdir(parents=True, exist_ok=True)
     SPEC.mkdir(parents=True, exist_ok=True)
@@ -201,6 +204,7 @@ def main() -> None:
             f"--paths={GUI / 'python'}",
             f"--add-data={FRONTEND / 'dist'}:gui/pywebview/frontend/dist",
             f"--add-data={ASSETS}:gui/pywebview/assets",
+            "--collect-data=chat2local",
             f"--distpath={DIST}",
             f"--workpath={WORK}",
             f"--specpath={SPEC}",
