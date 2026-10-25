@@ -1,12 +1,12 @@
 """Keep Python models, the wire validator and published schemas in step."""
 import json
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
-from pydantic import ValidationError
-import pytest
 import jsonschema
+import pytest
+from pydantic import ValidationError
 
 from chat2local.browser.bridge import BrowserBridge
 from chat2local.browser.capabilities import CapabilityRegistry
@@ -36,7 +36,10 @@ def variants(value, schema, definitions, path="arguments"):
     for probe in (None, True, False, 1, 1.5, "", [], {}):
         yield f"{path}: {probe!r}", probe
     if isinstance(value, dict):
-        assert set(value) == set(schema["properties"]), f"Add samples for new fields at {path}"
+        if path == "arguments":  # Action-specific examples jointly cover the root fields below.
+            assert set(value) <= set(schema["properties"]), f"Unknown sample fields at {path}"
+        else:
+            assert set(value) == set(schema["properties"]), f"Add samples for new fields at {path}"
         yield f"{path}: unknown field", {**value, "unexpected_field": True}
         for key, child in value.items():
             yield f"{path}.{key}: missing", {k: v for k, v in value.items() if k != key}
@@ -73,6 +76,16 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
         "browser.tabs.create": {"url": "https://example.com/"},
         "browser.tabs.list": {"tab": tab, "limit": 20},
         "browser.tabs.resolve": {"tab": tab},
+        "browser.tabs.manage": [{"action": "activate", "tab": tab}, {"action": "close", "tab": tab},
+                                {"action": "move", "tab": tab, "index": 0, "window_id": 1},
+                                {"action": "set_pinned", "tab": tab, "pinned": True}],
+        "browser.windows.list": {"window_id": 1, "limit": 20, "tab_offset": 50, "tab_limit": 50,
+                                 "tab_snapshot": "a" * 64},
+        "browser.windows.manage": [{"action": "create", "url": "https://example.com/"},
+                                   {"action": "focus", "window_id": 1},
+                                   {"action": "close", "window_id": 1, "expected_tab_ids": [1]}],
+        "browser.navigation.go": [{"action": "navigate", "tab": tab, "url": "https://example.com/"},
+                                  *[{"action": action, "tab": tab} for action in ("reload", "back", "forward")]],
         "browser.page.read": {"tab": tab, "cursor": "example", "max_chars": 8000},
         "browser.page.inspect": {"tab": tab, "target": target, "limit": 20, "wait_ms": 0,
                                  "select_options": {"offset": 0, "limit": 20}},
@@ -96,22 +109,17 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
     for name, entry in entries.items():
         schema = entry.arguments.model_json_schema()
         jsonschema.Draft202012Validator.check_schema(schema)
-        probes = [("all fields", samples[name]), *variants(samples[name], schema, schema.get("$defs", {}))]
-        if name == "browser.tabs.create":
-            probes += [("URL rule", {"url": url}) for url in (
-                "file:///a", "javascript:alert(1)", "https://user:pass@example.com/",
-                "https://example.com:0/", "https://example.com/a b", "https://example.com/\u200b",
-            )]
+        examples = samples[name] if isinstance(samples[name], list) else [samples[name]]
+        assert set().union(*(set(example) for example in examples)) == set(schema["properties"])
+        probes = [(label, value) for example in examples for label, value in
+                  [("example", example), *variants(example, schema, schema.get("$defs", {}))]]
         for label, arguments in probes:
             try:
                 wire = entry.arguments.model_validate(arguments).model_dump(exclude_none=True)
                 accepted = True
             except ValidationError:
                 wire, accepted = arguments, False
-            # JSON Schema must express the nullable, nonempty selector relation too.
-            # URL parsing has additional semantic checks beyond the JSON pattern.
-            if name != "browser.tabs.create":
-                assert jsonschema.Draft202012Validator(schema).is_valid(arguments) == accepted, f"Schema/runtime drift: {name}: {label}"
+            assert jsonschema.Draft202012Validator(schema).is_valid(arguments) == accepted, f"Schema/runtime drift: {name}: {label}"
             cases.append({"name": name, "arguments": wire})
             expected.append(accepted)
             labels.append(f"{name}: {label}")
@@ -122,6 +130,36 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
     assert len(actual["accepted"]) == len(expected)
     mismatches = [label for label, py, js in zip(labels, expected, actual["accepted"]) if py != js]
     assert not mismatches, "Python/extension contract drift: " + "; ".join(mismatches)
+
+
+def test_url_semantics_are_additional_to_schema_without_exempting_action_contracts():
+    """Only URL parsing semantics exceed JSON Schema, never whole action branches."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed for the cross-language browser contract check")
+    entries = CapabilityRegistry(BrowserBridge(BrowserConfig()))._entries
+    cases = []
+    for name, base in (
+        ("browser.tabs.create", {}),
+        ("browser.windows.manage", {"action": "create"}),
+        ("browser.navigation.go", {"action": "navigate", "tab": {"tab_id": 1}}),
+    ):
+        schema = entries[name].arguments.model_json_schema()
+        for url, schema_valid in (
+            ("file:///a", False), ("javascript:alert(1)", False),
+            ("https://user:pass@example.com/", True), ("https://example.com:0/", True),
+            ("https://example.com/a b", False), ("https://example.com/\u200b", True),
+            ("https://", False), ("https:///example.com", True),
+            ("https://[invalid", True), ("http://example.com:65536/", True),
+        ):
+            arguments = {**base, "url": url}
+            assert jsonschema.Draft202012Validator(schema).is_valid(arguments) is schema_valid
+            with pytest.raises(ValidationError):
+                entries[name].arguments.model_validate(arguments)
+            cases.append({"name": name, "arguments": arguments})
+    completed = subprocess.run([node, str(ROOT / "browser-extension/tests/contract-helper.mjs")],
+                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, timeout=30, check=True)
+    assert json.loads(completed.stdout)["accepted"] == [False] * len(cases)
 
 
 @pytest.mark.parametrize("name,arguments,valid", [
@@ -163,13 +201,17 @@ def test_discovered_schema_expresses_non_null_selector_relations(name, arguments
 
 
 def test_discovery_agent_contracts_are_complete_compact_and_public():
-    from chat2local.browser.errors import ERROR_GUIDANCE, EXTENSION_ERROR_MESSAGES, extension_failure
-    from chat2local.mcp.output_schema import OUTPUT_SCHEMAS
+    from chat2local.browser.errors import (
+        ERROR_GUIDANCE,
+        EXTENSION_ERROR_MESSAGES,
+        extension_failure,
+    )
     from chat2local.mcp.metadata import TOOL_METADATA
+    from chat2local.mcp.output_schema import OUTPUT_SCHEMAS
     result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover(detail="full")
     jsonschema.validate(result, OUTPUT_SCHEMAS['capability_discover'])
     assert len(TOOL_METADATA) == 12
-    assert len(result['result']['capabilities']) == 16
+    assert len(result['result']['capabilities']) == 20
     for entry in result['result']['capabilities']:
         assert entry['description'] and entry['result_contract']
         schema = entry['input_schema']

@@ -43,7 +43,7 @@ def test_valid_http_urls_preserved(url):
 def test_discovery_and_unknown_unavailable_are_distinct(tmp_path):
     local = LocalToolDispatcher(WorkspaceManager(tmp_path), AppConfig())
     async def scenario():
-        for query in (CAPABILITY, "browser create"):
+        for query in (CAPABILITY, "create one chrome tab"):
             result = await local.execute("capability_discover", {"query": query})
             entries = result["result"]["capabilities"]
             assert len(entries) == 1

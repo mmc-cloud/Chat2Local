@@ -185,7 +185,7 @@ After connecting, you can verify the setup by asking ChatGPT to read the current
 ## MCP Tools
 
 Chat2Local exposes 12 MCP tools covering files, processes, multi-device routing, Handoff, and optional capabilities.
-Browser Use adds 16 Chrome capabilities through `capability_discover` and `capability_execute`. Download the extension ZIP from [GitHub Releases](https://github.com/mmc-cloud/Chat2Local/releases) and follow the [extension setup guide](browser-extension/README.md).
+Browser Use adds 20 Chrome capabilities through `capability_discover` and `capability_execute`, including tab activation/closing/moving/pinning, normal-window management, basic navigation, and existing page reading and DOM interactions. Window tab summaries support bounded pagination with an exact window ID and stateless snapshot to detect changed membership/order. Closing a window requires user confirmation in the Agent conversation and a separate check of the complete expected tab ID set; navigation revalidates its target before initiating the operation without waiting for page load. The paired extension handles browser operations, with additional per-site consent for page content and DOM access. Download the extension ZIP from [GitHub Releases](https://github.com/mmc-cloud/Chat2Local/releases) and follow the [extension setup guide](browser-extension/README.md).
 
 Current tools:
 

@@ -65,6 +65,7 @@ test("minimal manifest and private loopback connection, no page exposure", async
   const ws = w.open();
   assert.equal(ws.url, "ws://127.0.0.1:8766/browser/ws");
   assert.deepEqual(ws.sent[0].capabilities, [capability, "browser.tabs.list", "browser.tabs.resolve",
+    "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"]);

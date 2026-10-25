@@ -1,15 +1,33 @@
 # Chat2Local Browser Use
 
-可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择、独立网页读取与分段续读，以及授权网页的 DOM 定位、点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键与状态等待。
+可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择与管理、普通窗口管理、基础导航、独立网页读取与分段续读，以及授权网页的 DOM 定位、点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键与元素状态等待。
 **Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
 推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
-公共 MCP Tool 保持 12 个；浏览器能力为 16 个，统一通过 capability_discover / capability_execute 调用。
+公共 MCP Tool 保持 12 个；浏览器能力为 20 个，统一通过 capability_discover / capability_execute 调用。
 接口参数以 `capability_discover(detail="full")` 和 [capability-schemas.json](capability-schemas.json) 为准；
 阶段实现及历史验收记录可通过 Git 历史查阅。
 能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
 读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
 ref 固定同一文档/URL 中的节点身份，无关 DOM 和原节点文字/属性更新不会使它失效；节点移除（含移除后重插）、替换、导航或淘汰才失效。
 每次操作及滚动/聚焦准备后仍重新验证显式定位条件和控件状态。返回 stale_target 后重新观察，不自动回退位置型 CSS。
+
+标签页、窗口与导航使用已认证的 Browser Bridge；网页内容读取与 DOM 操作继续要求网站授权。
+
+| Capability | action / 参数 |
+| --- | --- |
+| `browser.tabs.manage` | `activate`、`close`；`move` 必须传 `index`（`-1` 表示末尾），可选目标 `window_id`；`set_pinned` 必须传布尔 `pinned`。均使用已有显式 `tab` 选择器，拒绝零匹配和多匹配。移动仅支持普通窗口，返回 Chrome 实际索引。 |
+| `browser.windows.list` | 可选精确 `window_id`；`limit` 只控制窗口数量（默认 20，上限 50）。`tab_offset` 默认 0，`tab_limit` 默认 50、范围 1–50，控制各窗口的标签概要分页。保留完整 `tab_ids` 和 `total_tabs`，每个窗口还返回 `has_more`、`next_offset`、`tab_snapshot`。超出字节预算返回 `result_too_large`，可缩小 `tab_limit` 或指定精确窗口，不返回部分关闭前置条件。 |
+| `browser.windows.manage` | `create`（可选 HTTP(S) `url`）、`focus`（必需 `window_id`）、`close`（必需 `window_id` 和唯一的 `expected_tab_ids`）。拒绝无关字段，包括显式 null。 |
+| `browser.navigation.go` | `navigate`（必需 HTTP(S) `url`）、`reload`、`back`、`forward`，均需显式 `tab`。执行前重新读取同一标签页，复核全部显式条件、ID、URL 和 pendingUrl；目标消失、身份/条件/URL 变化，或两次观察间 pendingUrl 增加、改变、消失时返回 `page_changed`。持续 loading、单纯 loading/complete 切换或稳定存在的 pendingUrl 均不阻止导航，不增加等待。返回 `status: "initiated"`、`navigation_waited: false`，不声称网页加载完成。 |
+
+读取超过 50 个标签的窗口时，先用 `{"window_id": 7}` 查询第一页；若 `has_more: true`，再传同一 `window_id`、该窗口的 `next_offset` 作为 `tab_offset`，以及原样的 `tab_snapshot`。例如 70 个标签默认分 50 / 20 两页读取。
+非零 `tab_offset` 必须同时提供精确窗口和快照；有快照时也必须提供精确窗口。`tab_offset == total_tabs` 返回空的末页，超过总数返回 `invalid_arguments`；末页 `has_more: false`、`next_offset: null`。
+每页包含 `tab_offset`、`tab_limit`；`tabs_truncated` 表示这一页之前或之后仍有被省略的概要，不等同于 `has_more`。未指定 `window_id` 时保留多窗口首页概览，每个窗口分别提供完整 ID 列表和续页参数。
+`tab_snapshot` 是窗口 ID 与有序标签页 ID 列表的 SHA-256，不保存服务端状态。续页发现集合或顺序变化时返回 `window_changed`，应丢弃已积累的页并从头读取，不能替换快照后继续拼接。它只标识观察到的集合/顺序，不冻结标题、URL 等元数据，也不能检测两次观察间已经恢复的短暂变化。
+
+关闭整个窗口前，上层 Agent 必须在对话中向用户展示目标窗口及其完整标签页集合并取得确认，随后将该次观察的 `window_id` / `tab_ids` 作为关闭前置条件；不新增扩展确认 UI。
+扩展在删除前重新读取窗口，集合顺序无关，但增加、删除、替换或移出标签页均返回 `window_changed`。此时应重新观察并重新取得确认，不能静默替换预期集合。
+Chrome 没有原子的“比较集合并关闭”接口，最后核验与 Chrome 执行删除间仍可能有并发变化；关闭返回的是操作前摘要，可能受 beforeunload 等原生行为影响，应重新查询实际状态。
 分页内容版本排除临时 ref：可读内容未变时仍可续读，并返回当前 ref；真正内容变化或导航仍使旧游标失效。
 Core 配置和凭据也可通过 [GUI Browser 设置](../gui/pywebview/CONFIGURATION.md) 完成，无需手动创建 Token 文件。
 不需要 Node 构建、前端框架或额外 Python 依赖，不随 Python 包或 EXE 自动安装。
@@ -139,8 +157,11 @@ detail 只接受 summary/full；显式 null、其他字符串或类型均拒绝�
 | `capability_unavailable` | 扩展未连接、已断开或没有同步该能力 |
 | `capability_timeout` | 浏览器 15 秒内没有返回；操作可能已经完成 |
 | `capability_busy` | 已达到 16 个本机并发请求上限 |
-| `request_expired` | 请求到达扩展时已超过执行期限，未执行浏览器操作 |
+| `request_expired` | 请求在入口、准备或操作后超过期限；可能已有副作用，先观察实际状态，不能自动重试 |
 | `browser_operation_failed` | Chrome 执行失败，返回固定诊断，避免泄露扩展错误内容 |
+| `window_not_found` / `unsupported_window` | 精确窗口不存在，或窗口类型不是 normal |
+| `window_changed` | 续页的标签页集合/顺序已变化，或关闭前完整标签页集合已变化。分页应丢弃旧页重新读取；关闭则重新观察并取得用户确认 |
+| `history_unavailable` | 后退或前进方向没有可用历史记录 |
 | `device_unavailable` | 设备离线、不支持新 Tool、Hub 请求超时等原设备路由错误 |
 | `capability_error` | 目标设备工具分发失败 |
 
@@ -230,7 +251,7 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-当前支持网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及状态等待；暂不包含窗口管理、标签组或书签。
+当前支持标签页管理、普通窗口管理、基础导航、网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及元素状态等待；暂不包含导航加载状态查询/等待、标签组或书签。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
 没有端到端 exactly-once 或页面加载完成保证。已有真实 Chrome 的代表性 MCP 调用链验收，

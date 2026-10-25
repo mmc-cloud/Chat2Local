@@ -1,6 +1,7 @@
 /* Packaged operations only. CSS selectors select DOM nodes, never execute code. */
 (() => {
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
+    "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"];
@@ -14,7 +15,7 @@
   const text = (value, max) => typeof value === "string" && value.length > 0 && Array.from(value).length <= max;
   const optional = (value, validate) => value === undefined || validate(value);
   function validUrl(value) {
-    if (!text(value, 8192) || !/^https?:\/\/[^\s\\]+$/.test(value) || /[\p{C}\p{Z}]/u.test(value)) return false;
+    if (!text(value, 8192) || !/^https?:\/\/[^/\s\\?#][^\s\\]*$/.test(value) || /[\p{C}\p{Z}]/u.test(value)) return false;
     try { const url = new URL(value); return Boolean(url.hostname) && !url.username && !url.password && url.port !== "0"; }
     catch { return false; }
   }
@@ -39,6 +40,34 @@
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
       && optional(args.tab, validTab) && optional(args.limit, (v) => integer(v, 1, 50));
     if (name === "browser.tabs.resolve") return keys(args, ["tab"]) && validTab(args.tab);
+    if (name === "browser.tabs.manage") {
+      if (!record(args) || !validTab(args.tab)) return false;
+      if (["activate", "close"].includes(args.action)) return keys(args, ["action", "tab"]);
+      if (args.action === "set_pinned") return keys(args, ["action", "tab", "pinned"]) && typeof args.pinned === "boolean";
+      return args.action === "move" && keys(args, ["action", "tab", "window_id", "index"])
+        && integer(args.index, -1, 2 ** 31 - 1) && optional(args.window_id, (v) => integer(v, 0, Number.MAX_SAFE_INTEGER));
+    }
+    if (name === "browser.windows.list") return keys(args, ["window_id", "limit", "tab_offset", "tab_limit", "tab_snapshot"])
+      && optional(args.window_id, (v) => integer(v, 0, Number.MAX_SAFE_INTEGER))
+      && optional(args.limit, (v) => integer(v, 1, 50))
+      && optional(args.tab_offset, (v) => integer(v, 0, 10000))
+      && optional(args.tab_limit, (v) => integer(v, 1, 50))
+      && optional(args.tab_snapshot, (v) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v))
+      && ((args.tab_offset ?? 0) === 0 || (args.window_id !== undefined && args.tab_snapshot !== undefined))
+      && (args.tab_snapshot === undefined || args.window_id !== undefined);
+    if (name === "browser.windows.manage") {
+      if (!record(args)) return false;
+      if (args.action === "create") return keys(args, ["action", "url"]) && optional(args.url, validUrl);
+      if (!integer(args.window_id, 0, Number.MAX_SAFE_INTEGER)) return false;
+      if (args.action === "focus") return keys(args, ["action", "window_id"]);
+      return args.action === "close" && keys(args, ["action", "window_id", "expected_tab_ids"])
+        && Array.isArray(args.expected_tab_ids) && args.expected_tab_ids.length <= 10000
+        && new Set(args.expected_tab_ids).size === args.expected_tab_ids.length
+        && args.expected_tab_ids.every((v) => integer(v, 0, Number.MAX_SAFE_INTEGER));
+    }
+    if (name === "browser.navigation.go") return record(args) && validTab(args.tab)
+      && (args.action === "navigate" ? keys(args, ["action", "tab", "url"]) && validUrl(args.url)
+        : ["reload", "back", "forward"].includes(args.action) && keys(args, ["action", "tab"]));
     if (name === "browser.page.read") return keys(args, ["tab", "cursor", "max_chars"]) && validTab(args.tab)
       && optional(args.cursor, (v) => text(v, 512) && /^[A-Za-z0-9_-]+$/.test(v))
       && optional(args.max_chars, (v) => integer(v, 1000, 12000));
@@ -93,6 +122,150 @@
     if (!tabs.length) return fail("tab_not_found");
     if (tabs.length !== 1) return fail("ambiguous_tab", { candidates: tabs.slice(0, 5).map(summary) });
     return { ok: true, result: tabs[0] };
+  }
+  const managedTab = (tab) => ({ ...summary(tab), index: tab.index, active: tab.active, pinned: tab.pinned });
+  function windowSummary(window) {
+    // A close precondition is always complete; never silently truncate its IDs.
+    if (!Array.isArray(window.tabs) || window.tabs.length > 10000) return null;
+    return { window_id: window.id, type: window.type, focused: window.focused,
+      tab_ids: window.tabs.map((tab) => tab.id), tabs: window.tabs.slice(0, 50).map(managedTab),
+      total_tabs: window.tabs.length, tabs_truncated: window.tabs.length > 50 };
+  }
+  async function normalWindow(id) {
+    let window;
+    try { window = await chrome.windows.get(id, { populate: true }); }
+    catch (error) {
+      if (/No window with id/i.test(error?.message ?? "")) return fail("window_not_found");
+      throw error;
+    }
+    return window.type === "normal" ? { ok: true, result: window } : fail("unsupported_window");
+  }
+  const expired = (expiresAt) => Date.now() >= expiresAt;
+  function boundedResult(result) {
+    // Leave room for the protocol envelope below the existing 48 KiB limit.
+    return new TextEncoder().encode(JSON.stringify(result)).length > 40 * 1024
+      ? fail("result_too_large") : { ok: true, result };
+  }
+  async function manageTab(args, expiresAt) {
+    const selected = await resolve(args.tab);
+    if (!selected.ok) return selected;
+    const tab = selected.result;
+    let destination;
+    if (args.action === "move") {
+      const source = await normalWindow(tab.windowId);
+      if (!source.ok) return source;
+      destination = args.window_id ?? tab.windowId;
+      if (destination !== tab.windowId) {
+        const target = await normalWindow(destination);
+        if (!target.ok) return target;
+      }
+    }
+    // Preserve every explicit selector after asynchronous window checks.
+    const current = await chrome.tabs.get(tab.id);
+    if (!matches(current, args.tab) || current.windowId !== tab.windowId) return fail("page_changed");
+    if (expired(expiresAt)) return fail("request_expired");
+    if (args.action === "close") {
+      await chrome.tabs.remove(tab.id);
+      return expired(expiresAt) ? fail("request_expired") : { ok: true, result: { action: args.action, tab: managedTab(current) } };
+    }
+    let moved;
+    if (args.action === "move") moved = await chrome.tabs.move(tab.id, { windowId: destination, index: args.index });
+    else await chrome.tabs.update(tab.id, args.action === "activate" ? { active: true } : { pinned: args.pinned });
+    const after = await chrome.tabs.get(tab.id);
+    if (expired(expiresAt)) return fail("request_expired");
+    if ((args.action === "activate" && after.active !== true)
+      || (args.action === "set_pinned" && after.pinned !== args.pinned)
+      || (args.action === "move" && (after.windowId !== destination || after.index !== moved?.index))) return fail("state_not_reached");
+    return { ok: true, result: { action: args.action, tab: managedTab(after) } };
+  }
+  async function listWindows(args, expiresAt) {
+    let windows;
+    if (args.window_id !== undefined) {
+      const selected = await normalWindow(args.window_id);
+      if (!selected.ok) return selected;
+      windows = [selected.result];
+    } else windows = (await chrome.windows.getAll({ populate: true, windowTypes: ["normal"] }))
+      .filter((window) => window.type === "normal");
+    if (expired(expiresAt)) return fail("request_expired");
+    const summaries = [], offset = args.tab_offset ?? 0, limit = args.tab_limit ?? 50;
+    for (const window of windows.slice(0, args.limit ?? 20)) {
+      const base = windowSummary(window);
+      if (!base) return fail("result_too_large");
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({
+        window_id: window.id, tab_ids: base.tab_ids,
+      })));
+      const snapshot = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (expired(expiresAt)) return fail("request_expired");
+      if (args.tab_snapshot !== undefined && args.tab_snapshot !== snapshot) return fail("window_changed");
+      if (offset > base.total_tabs) return fail("invalid_arguments");
+      const tabs = window.tabs.slice(offset, offset + limit).map(managedTab), next = offset + tabs.length;
+      summaries.push({ ...base, tabs, tabs_truncated: offset > 0 || next < base.total_tabs,
+        tab_offset: offset, tab_limit: limit, has_more: next < base.total_tabs,
+        next_offset: next < base.total_tabs ? next : null, tab_snapshot: snapshot });
+    }
+    return boundedResult({ windows: summaries, total: windows.length, truncated: windows.length > summaries.length });
+  }
+  async function manageWindow(args, expiresAt) {
+    if (args.action === "create") {
+      if (expired(expiresAt)) return fail("request_expired");
+      const created = await chrome.windows.create({ type: "normal", ...(args.url === undefined ? {} : { url: args.url }) });
+      const observed = await normalWindow(created.id);
+      if (!observed.ok) return observed;
+      if (expired(expiresAt)) return fail("request_expired");
+      const window = windowSummary(observed.result);
+      return window ? boundedResult({ action: args.action, window }) : fail("result_too_large");
+    }
+    const selected = await normalWindow(args.window_id);
+    if (!selected.ok) return selected;
+    const window = windowSummary(selected.result);
+    if (!window) return fail("result_too_large");
+    if (args.action === "close") {
+      const expected = new Set(args.expected_tab_ids);
+      if (window.tab_ids.length !== expected.size || !window.tab_ids.every((id) => expected.has(id))) return fail("window_changed");
+      // No asynchronous work between this final snapshot/check and removal.
+      const response = boundedResult({ action: args.action, window });
+      if (!response.ok) return response;
+      if (expired(expiresAt)) return fail("request_expired");
+      await chrome.windows.remove(args.window_id);
+      return expired(expiresAt) ? fail("request_expired") : response;
+    }
+    if (expired(expiresAt)) return fail("request_expired");
+    await chrome.windows.update(args.window_id, { focused: true });
+    const observed = await normalWindow(args.window_id);
+    if (!observed.ok) return observed;
+    if (expired(expiresAt)) return fail("request_expired");
+    if (!observed.result.focused) return fail("state_not_reached");
+    const after = windowSummary(observed.result);
+    return after ? boundedResult({ action: args.action, window: after }) : fail("result_too_large");
+  }
+  async function navigate(args, expiresAt) {
+    const selected = await resolve(args.tab);
+    if (!selected.ok) return selected;
+    if (expired(expiresAt)) return fail("request_expired");
+    const id = selected.result.id;
+    let current;
+    try { current = await chrome.tabs.get(id); }
+    catch (error) {
+      if (/No tab with id|closed/i.test(error?.message ?? "")) return fail("page_changed");
+      throw error;
+    }
+    if (expired(expiresAt)) return fail("request_expired");
+    // Revalidate the original ANDed selector, identity and pending destination
+    // once. Loading alone is not a race; never wait or substitute a new match.
+    if (current.id !== id || !matches(current, args.tab) || current.url !== selected.result.url
+      || current.pendingUrl !== selected.result.pendingUrl) return fail("page_changed");
+    try {
+      if (args.action === "navigate") await chrome.tabs.update(id, { url: args.url });
+      else if (args.action === "reload") await chrome.tabs.reload(id);
+      else if (args.action === "back") await chrome.tabs.goBack(id);
+      else await chrome.tabs.goForward(id);
+    } catch (error) {
+      // Chromium uses this same fixed error for both history directions.
+      if (["back", "forward"].includes(args.action) && error?.message === "Cannot find a next page in history.") return fail("history_unavailable");
+      return fail("browser_operation_failed");
+    }
+    return expired(expiresAt) ? fail("request_expired") : { ok: true, result: {
+      action: args.action, tab_id: id, status: "initiated", navigation_waited: false } };
   }
   function pagePattern(value) {
     const url = new URL(value);
@@ -245,6 +418,10 @@
         const result = await resolve(args.tab);
         return result.ok ? { ok: true, result: summary(result.result) } : result;
       }
+      if (request.capability === "browser.tabs.manage") return await manageTab(args, request.expires_at);
+      if (request.capability === "browser.windows.list") return await listWindows(args, request.expires_at);
+      if (request.capability === "browser.windows.manage") return await manageWindow(args, request.expires_at);
+      if (request.capability === "browser.navigation.go") return await navigate(args, request.expires_at);
       return await pageOperation(request.capability, args, request.expires_at);
     } catch { return fail("browser_operation_failed"); }
   }

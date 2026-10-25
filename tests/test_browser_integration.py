@@ -159,7 +159,7 @@ def test_server_lifespan_owns_optional_local_bridge(tmp_path, hub):
     run(scenario())
 
 
-def test_phase2_and_phase3_capabilities_route_to_only_the_selected_agent(tmp_path):
+def test_browser_capabilities_route_to_only_the_selected_agent(tmp_path):
     roots = [tmp_path / name for name in ("hub", "first", "second")]
     for root in roots:
         root.mkdir()
@@ -182,6 +182,10 @@ def test_phase2_and_phase3_capabilities_route_to_only_the_selected_agent(tmp_pat
                     for capability, arguments in (
                         ("browser.tabs.list", {}),
                         ("browser.tabs.resolve", {"tab": {"tab_id": 7}}),
+                        ("browser.tabs.manage", {"action": "activate", "tab": {"tab_id": 7}}),
+                        ("browser.windows.list", {}),
+                        ("browser.windows.manage", {"action": "close", "window_id": 3, "expected_tab_ids": [7]}),
+                        ("browser.navigation.go", {"action": "reload", "tab": {"tab_id": 7}}),
                         ("browser.page.read", {"tab": {"tab_id": 7}, "max_chars": 1000}),
                         ("browser.page.inspect", {"tab": {"tab_id": 7}, "target": {"role": "button"}}),
                         ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"name": "Go"}}),
