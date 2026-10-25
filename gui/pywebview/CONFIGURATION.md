@@ -18,7 +18,7 @@ GUI 继续编辑 `~/.chat2local/config.yaml`，通过既有 read / validate / sa
 - 测试：新增 `tests/test_management_credentials.py`、`test_management_browser.py`、`test_gui_clipboard.py`，
   更新 `tests/test_gui_bridge.py`；新增前端 `frontend/tests/management.test.mjs` 和 package.json 的 test 命令，
   扩展回归位于 `browser-extension/tests/options.test.mjs`、`operations.test.mjs`。
-- 文档：本文件、GUI README、扩展 README 和 PHASE2.md。
+- 文档：本文件、GUI README 和扩展 README。
 
 ## Windows 首次配对流程
 
@@ -107,4 +107,4 @@ TypeScript 类型检查、ESLint 与 `git diff --check` 通过。未构建 GUI/E
    Chrome 管理页和商店仍然不可操作。
 8. 检查真实 WebView2 的复制功能、剪贴板占用错误提示、用户账户下的文件 ACL 和 Chrome 原生权限弹窗。
 
-全站与逐站模式的详细边界、撤销行为见 [扩展说明](../../browser-extension/PHASE2.md)。
+全站与逐站模式的边界、撤销行为见 [扩展 README 的网站操作授权](../../browser-extension/README.md#网站操作授权)。

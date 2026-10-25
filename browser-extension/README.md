@@ -4,8 +4,8 @@
 **Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
 推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
 公共 MCP Tool 保持 12 个；浏览器能力为 16 个，统一通过 capability_discover / capability_execute 调用。
-第二阶段 Schema、语义定位、网站授权与完整验收步骤见 [PHASE2.md](PHASE2.md)。
-第三阶段八项 DOM 交互的参数、事件限制、错误与测试记录见 [PHASE3.md](PHASE3.md)。
+接口参数以 `capability_discover(detail="full")` 和 [capability-schemas.json](capability-schemas.json) 为准；
+阶段实现及历史验收记录可通过 Git 历史查阅。
 能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
 读取/检查结果提供安全 `ref` 时，后续用 `target: {"ref": "实际返回的ref"}` 定位；展示 URL/名称已脱敏，不能当作原始精确条件。
 ref 固定同一文档/URL 中的节点身份，无关 DOM 和原节点文字/属性更新不会使它失效；节点移除（含移除后重插）、替换、导航或淘汰才失效。
@@ -53,6 +53,15 @@ Core 默认关闭浏览器接入；未安装扩展、未连接或断线均不影
 Core / Hub / Agent 继续运行，能力显示不可用。修复后重启 Core。`enabled: false` 时不读取凭据、不绑定端口。
 如切换 Chrome profile、移动未打包扩展目录导致 ID 变化，请重新确认并更新 `extension_id`。
 一个本机端点只接纳一个已认证扩展连接；同机多实例应使用不同端口。
+
+## 网站操作授权
+
+在扩展选项页由用户主动点击“授权此网站”或“授权所有网站”；MCP 无法代替用户授予权限。
+单站授权按协议和精确主机生效（涵盖全部路径与端口，不自动包含子域名）；全站授权覆盖普通 HTTP/HTTPS 网站，
+但仍不支持 Chrome 内部页面、扩展页和商店等受限页面。即使已开启全站模式，也不意味着获得书签等独立的 Chrome API 权限。
+执行 DOM 操作时会同时检查扩展保存的授权状态与 Chrome 当前权限；全站模式不提供单站排除。
+用户可在选项页撤销全站授权或移除单站条目；撤销广域权限后，之前的单站记录可能需要重新向 Chrome 授权。
+已有请求在权限变化时会复核授权，操作结果不保证能够回滚。
 
 ## MCP 调用
 
@@ -221,18 +230,18 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-第二阶段的读取/定位/点击/填写见 [Phase 2](PHASE2.md)，第三阶段完整 DOM 交互见 [Phase 3](PHASE3.md)。不包含窗口管理、标签组或书签，GUI 和发布流程保持既有实现。
+当前支持网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及状态等待；暂不包含窗口管理、标签组或书签。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
-没有端到端 exactly-once 或页面加载完成保证。第二阶段已通过真实 Chrome 的本机 MCP→Hub→Agent 验收，
-覆盖普通 HTML、React / Vue 输入与点击等主要链路；详细覆盖及剩余人工检查见 [PHASE2.md](PHASE2.md)。
+没有端到端 exactly-once 或页面加载完成保证。已有真实 Chrome 的代表性 MCP 调用链验收，
+覆盖普通 HTML、React / Vue 等主要交互；不能据此保证所有第三方网站兼容。
 
 合成双击、悬停和按键不等价于真实输入，不保证 CSS :hover、原生键盘默认动作或浏览器快捷键。
-动作错误也可能发生在部分事件之后；第三阶段的受控浏览器验收与剩余覆盖边界见 [Phase 3](PHASE3.md)。
+动作错误也可能发生在部分事件之后；观察页面实际状态后再决定是否继续，不能自动重放动作。
 inspect/dom.inspect 现提供统一控件状态、ARIA 关联及滚动信息；inspect 的 select_options 支持原生选项有界分页。
 set_checked 支持 ARIA checkbox/switch 与可靠关联 label 的隐藏原生 input；混合态单独核验，不反复点击或伪造状态。
 自定义下拉框使用观察、click、wait_for、dom.inspect、选择和再观察的明确组合；select 仍仅支持原生控件。
-actionable 增加只读几何/命中采样，不保证可信输入或业务成功。隔离原生 Chromium 测试方法与限制见 Phase 3 第二组章节。
+actionable 增加只读几何/命中采样，不保证可信输入或业务成功。
 
 实现依据：Chrome 官方 [WebSocket worker 生命周期说明](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets)、
 [alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms)、
