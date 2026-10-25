@@ -64,6 +64,19 @@ def publish_bytes(path: Path, data: bytes) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def read_workspace_metadata(directory: Path) -> dict:
+    """Read ownership without resolving or accessing the original workspace."""
+    metadata_path = checked_path(directory, "workspace.json")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        owner = metadata["canonical_path"]
+        if not isinstance(owner, str) or not Path(owner).is_absolute():
+            raise ValueError("canonical_path must be an absolute path")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise InvalidHandoffError(f"invalid workspace.json: {metadata_path}: {error}") from error
+    return metadata
+
+
 def storage_directory(root: Path, user_data: Path, *, create: bool = False) -> Path:
     """Resolve ownership from workspace.json, without caching workspace state."""
     canonical = str(root)
@@ -94,13 +107,7 @@ def storage_directory(root: Path, user_data: Path, *, create: bool = False) -> P
                 raise
         if not directory.is_dir():
             raise InvalidHandoffError(f"handoff storage must be a directory: {directory}")
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            owner = metadata["canonical_path"]
-            if not isinstance(owner, str) or not Path(owner).is_absolute():
-                raise ValueError("canonical_path must be an absolute path")
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            raise InvalidHandoffError(f"invalid workspace.json: {metadata_path}: {error}") from error
+        owner = read_workspace_metadata(directory)["canonical_path"]
         if os.path.normcase(owner) == os.path.normcase(canonical):
             return directory
     raise InvalidHandoffError(f"workspace-key collision at {directory}")

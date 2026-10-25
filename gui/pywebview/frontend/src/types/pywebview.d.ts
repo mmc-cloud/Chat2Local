@@ -106,6 +106,8 @@ export interface LogBatch {
 export type Envelope<T> =
   { ok: true; result: T } | { ok: false; error: { message: string } };
 export interface CoreApi {
+  list_local_handoffs: () => Promise<Envelope<HandoffSnapshot>>;
+  get_local_handoff: (handoff_id: string) => Promise<Envelope<HandoffDetail>>;
   browser_status: () => Promise<Envelope<BrowserStatus>>;
   credential_info: (purpose: TokenPurpose, path: string | null) => Promise<Envelope<CredentialInfo>>;
   manage_token: (purpose: TokenPurpose, path: string | null, value: string | null, regenerate: boolean, confirmed: boolean) => Promise<Envelope<CredentialInfo>>;
@@ -132,6 +134,29 @@ export interface CoreApi {
   read_logs: (cursor: LogCursor | null) => Promise<Envelope<LogBatch>>;
   list_devices: () => Promise<Envelope<DeviceSnapshot>>;
 }
+export interface HandoffProject {
+  key: string;
+  scope: "workspace" | "personal";
+  name: string;
+  path: string | null;
+}
+export interface LocalHandoff {
+  id: string;
+  project: HandoffProject;
+  workstream: string;
+  title: string;
+  summary: string;
+  revision: number;
+  updated_at: string;
+}
+export interface HandoffDetail extends LocalHandoff {
+  content: string;
+}
+export interface HandoffSnapshot {
+  handoffs: LocalHandoff[];
+  issues: { location: string; message: string }[];
+}
+
 declare global {
   interface Window {
     pywebview?: { api?: CoreApi };

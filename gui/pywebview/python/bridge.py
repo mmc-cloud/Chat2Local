@@ -128,6 +128,12 @@ class GuiBridge:
     def list_devices(self):
         return self._call(self._adapter.runtime.devices)
 
+    def list_local_handoffs(self):
+        return self._call(self._adapter.list_local_handoffs)
+
+    def get_local_handoff(self, handoff_id: str):
+        return self._call(self._adapter.get_local_handoff, handoff_id)
+
     def browser_status(self):
         return self._call(self._adapter.browser_status)
 

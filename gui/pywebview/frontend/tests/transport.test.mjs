@@ -85,3 +85,29 @@ test("HTTP startup switch uses only the fixed boolean management API", async () 
     assert.deepEqual(JSON.parse(options.body), { enabled: false });
   } finally { f.dom.window.close(); }
 });
+
+test("Handoff browsing transports send identities through the two read-only operations", async () => {
+  for (const web of [true, false]) {
+    const f = fixture(web);
+    const calls = [];
+    try {
+      if (!web) f.dom.window.pywebview = { api: {
+        ping: async () => ({ ok: true, app: "Chat2Local", version: "test", backend: "pywebview" }),
+        list_local_handoffs: async () => { calls.push(["list"]); return { ok: true, result: {} }; },
+        get_local_handoff: async (id) => { calls.push(["get", id]); return { ok: true, result: {} }; },
+      } };
+      await f.coreApi.localHandoffs();
+      await f.coreApi.localHandoff("6162:design");
+      if (web) {
+        const request = f.calls.at(-1);
+        assert.equal(request[0], "/api/get_local_handoff");
+        assert.deepEqual(JSON.parse(request[1].body), { handoff_id: "6162:design" });
+        assert.equal(request[1].headers["X-Chat2Local-CSRF"], "SESSION-CSRF");
+        assert.equal(f.calls[1][0], "/api/list_local_handoffs");
+      } else {
+        assert.deepEqual(calls, [["list"], ["get", "6162:design"]]);
+        assert.equal(f.calls.length, 0);
+      }
+    } finally { f.dom.window.close(); }
+  }
+});

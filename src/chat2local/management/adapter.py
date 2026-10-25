@@ -4,6 +4,8 @@ from __future__ import annotations
 import hmac
 from pathlib import Path
 
+from chat2local.handoff.models import HandoffError
+from chat2local.handoff.store import HandoffStore
 from chat2local.management.logs import LogReader
 from chat2local.management.runtime import RuntimeClient
 from chat2local.management.runtime import ManagementError
@@ -18,6 +20,15 @@ class CoreAdapter:
         self.logs = LogReader(self.runtime.directory / "logs/chat2local.log")
         self._restart_instance: str | None = None
         self.credentials = CredentialStore(config_path=config_path)
+
+    async def list_local_handoffs(self) -> dict:
+        return await HandoffStore().list_local()
+
+    async def get_local_handoff(self, handoff_id: str) -> dict:
+        try:
+            return await HandoffStore().get_local(handoff_id)
+        except (HandoffError, OSError) as error:
+            raise ManagementError(str(error)) from error
 
     async def runtime_status(self) -> dict:
         result = await self.runtime.status()

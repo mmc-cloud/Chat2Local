@@ -3,6 +3,7 @@ import {
   Monitor,
   Settings2,
   ScrollText,
+  BookOpen,
   Terminal,
   FlaskConical,
 } from "lucide-react";
@@ -16,10 +17,11 @@ import {
 import type { BridgeState } from "@/lib/bridge";
 import { isWebUi } from "@/lib/bridge";
 import { useLocale } from "@/lib/locale";
-export type Page = "Overview" | "Devices" | "Settings" | "Logs";
+export type Page = "Overview" | "Devices" | "Handoffs" | "Settings" | "Logs";
 const navigation = [
   { name: "Overview", Icon: LayoutDashboard },
   { name: "Devices", Icon: Monitor },
+  { name: "Handoffs", Icon: BookOpen },
   { name: "Settings", Icon: Settings2 },
   { name: "Logs", Icon: ScrollText },
 ] as const;

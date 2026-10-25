@@ -47,6 +47,12 @@ Device IDs, workspace paths and original log entries are not translated.
   and displays lifecycle plus Core state. Choose Standalone/Hub/Agent and a startup workspace
   (native Browse or typed path), then Start. Stop uses local control IPC; Restart stops before
   starting the same mode/workspace. No PID killing. Running mode/workspace cannot be edited.
+- **Handoffs** browses all workspace and Personal handoffs stored on this device, grouped by
+  project with title/summary/project search, manual refresh and a read-only Markdown preview.
+  The desktop GUI works even when Core is stopped or the original project directory no longer
+  exists; the Web UI uses the same page while Core is running. Invalid files are reported
+  individually. HTML is not executed, images are not fetched and external links are inactive.
+  This page does not create, edit, save or delete handoffs.
 - **Settings** edits the real `~/.chat2local/config.yaml`. The current mode shows Agent,
   Hub plus Auth, or no role section for Standalone. Security, Process, Read and Search
   remain available under Advanced (collapsed by default). Running Core determines the mode;

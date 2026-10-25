@@ -135,6 +135,10 @@ class AutostartRequest(_Request):
     enabled: bool
 
 
+class HandoffRequest(_Request):
+    handoff_id: str
+
+
 def _redact_snapshot(snapshot: dict) -> dict:
     snapshot = deepcopy(snapshot)
     for part in ("persisted", "effective"):
@@ -200,6 +204,8 @@ def create_management_app(adapter: CoreAdapter, *, port: int, stop: Callable[[],
         "save_config": (ConfigRequest, save),
         "read_logs": (LogsRequest, lambda req: adapter.logs.read(req.cursor.model_dump() if req.cursor else None)),
         "list_devices": (_Request, lambda _: adapter.runtime.devices()),
+        "list_local_handoffs": (_Request, lambda _: adapter.list_local_handoffs()),
+        "get_local_handoff": (HandoffRequest, lambda req: adapter.get_local_handoff(req.handoff_id)),
         "browser_status": (_Request, lambda _: adapter.browser_status()),
         "credential_info": (CredentialRequest, lambda req: adapter.credential_info(req.purpose, req.path)),
         "manage_token": (TokenRequest, lambda req: adapter.manage_token(**req.model_dump())),

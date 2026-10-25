@@ -49,6 +49,8 @@ def test_bridge_exposes_only_transport_methods(bridge_module):
             "save_config",
             "read_logs",
             "list_devices",
+            "list_local_handoffs",
+            "get_local_handoff",
             "read_desktop_preferences",
             "save_desktop_preferences",
             "take_desktop_navigation",

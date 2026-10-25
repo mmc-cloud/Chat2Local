@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +10,7 @@ import { Logs } from "@/pages/logs";
 import { coreApi, desktopApi, isWebUi, useBridge } from "@/lib/bridge";
 import { usePoll } from "@/lib/poll";
 import { initializeLanguage, useLocale } from "@/lib/locale";
+const Handoffs = lazy(() => import("@/pages/handoffs").then((module) => ({ default: module.Handoffs })));
 export function App() {
   const { t } = useLocale();
   const [page, setPage] = useState<Page>("Overview");
@@ -114,6 +115,8 @@ export function App() {
               <Devices />
             ) : currentPage === "Settings" ? (
               <Settings currentMode={currentMode} />
+            ) : currentPage === "Handoffs" ? (
+              <Suspense fallback={<p role="status">{t("Loading handoffs...")}</p>}><Handoffs /></Suspense>
             ) : (
               <Logs />
             )}

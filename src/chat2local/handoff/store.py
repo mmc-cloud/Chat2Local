@@ -13,7 +13,10 @@ from chat2local.handoff.models import (
     HandoffMetadata, HandoffNotFoundError, HandoffRecord, InvalidHandoffError,
     InvalidWorkstreamError, RevisionConflictError,
 )
-from chat2local.handoff.paths import checked_path, personal_storage_directory, storage_directory
+from chat2local.handoff.paths import (
+    MAX_WORKSPACE_KEY_BYTES, checked_path, personal_storage_directory,
+    read_workspace_metadata, storage_directory,
+)
 from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
 
@@ -27,6 +30,13 @@ def validate_workstream(workstream: str) -> str:
     if not isinstance(workstream, str) or re.fullmatch(WORKSTREAM_PATTERN, workstream) is None:
         raise InvalidWorkstreamError("use 1-80 ASCII letters, digits, '-' or '_'; start with a letter or digit")
     return workstream
+
+
+def _validate_local_key(key: str) -> None:
+    if (not key or len(key.encode("utf-8")) > MAX_WORKSPACE_KEY_BYTES
+            or re.search(r'[<>:"/\\|?*\x00-\x1f]', key) or key in (".", "..")
+            or key.endswith((" ", "."))):
+        raise InvalidHandoffError("invalid local Handoff identifier")
 
 
 def _validate_single_line(value: str, field: str, max_length: int) -> str:
@@ -122,6 +132,93 @@ class HandoffStore:
     def _get(self, workspace: WorkspaceManager | None, workstream: str) -> dict:
         path = checked_path(self._directory(workspace), f"{workstream}.md")
         return asdict(_read(path, workstream))
+
+    def _local_project(self, directory: Path) -> dict:
+        _validate_local_key(directory.name)
+        checked_path(directory)
+        if not directory.is_dir():
+            raise InvalidHandoffError("handoff storage must be a directory")
+        if directory.name == "_personal":
+            return {"key": directory.name, "scope": "personal", "name": "Personal", "path": None}
+        metadata = read_workspace_metadata(directory)
+        name = metadata.get("display_name")
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise InvalidHandoffError("workspace.json display_name must be a nonblank string or null")
+        owner = metadata["canonical_path"]
+        return {"key": directory.name, "scope": "workspace", "name": name or Path(owner).name or owner,
+                "path": owner}
+
+    @staticmethod
+    def _local_identity(project: str, workstream: str) -> str:
+        # Encoding a single directory component keeps separators out of the ID.
+        return f"{project.encode('utf-8').hex()}:{workstream}"
+
+    async def list_local(self) -> dict:
+        """Read all local scopes, isolating failures without caching or writing."""
+        return await asyncio.to_thread(self._list_local)
+
+    def _list_local(self) -> dict:
+        result: dict = {"handoffs": [], "issues": []}
+
+        def issue(location: str, error: Exception) -> None:
+            result["issues"].append({"location": location, "message": str(error)})
+
+        try:
+            base = checked_path(self._user_data / "handoffs")
+            if not base.exists():
+                return result
+            directories = sorted(base.iterdir(), key=lambda path: path.name)
+        except (OSError, ValueError) as error:
+            issue("handoffs", error)
+            return result
+        for directory in directories:
+            try:
+                # Reject aliases before filtering hidden management entries or files.
+                checked_path(directory)
+                if directory.name.startswith(".") or not directory.is_dir():
+                    continue
+                project = self._local_project(directory)
+                entries = sorted(directory.iterdir(), key=lambda path: path.name)
+            except (OSError, ValueError) as error:
+                issue(directory.name, error)
+                continue
+            for entry in entries:
+                if entry.suffix != ".md":
+                    continue
+                try:
+                    validate_workstream(entry.stem)
+                    record = _read(checked_path(directory, entry.name), entry.stem)
+                    result["handoffs"].append({
+                        "id": self._local_identity(directory.name, entry.stem), "project": project,
+                        **asdict(HandoffMetadata(record.workstream, record.revision, record.updated_at,
+                                                 record.title, record.summary)),
+                    })
+                except (OSError, ValueError) as error:
+                    issue(f"{directory.name}/{entry.name}", error)
+        return result
+
+    async def get_local(self, handoff_id: str) -> dict:
+        """Accept a validated scope/workstream identity, never a caller's path."""
+        if not isinstance(handoff_id, str) or re.fullmatch(
+            rf"[0-9a-f]{{2,{MAX_WORKSPACE_KEY_BYTES * 2}}}:[A-Za-z0-9][A-Za-z0-9_-]{{0,79}}",
+            handoff_id,
+        ) is None:
+            raise InvalidHandoffError("invalid local Handoff identifier")
+        encoded, workstream = handoff_id.split(":")
+        try:
+            key = bytes.fromhex(encoded).decode("utf-8")
+        except (UnicodeError, ValueError) as error:
+            raise InvalidHandoffError("invalid local Handoff identifier") from error
+        _validate_local_key(key)
+        return await asyncio.to_thread(self._get_local, key, workstream)
+
+    def _get_local(self, key: str, workstream: str) -> dict:
+        directory = checked_path(self._user_data / "handoffs", key)
+        if not directory.exists():
+            raise HandoffNotFoundError(workstream)
+        project = self._local_project(directory)
+        record = _read(checked_path(directory, f"{workstream}.md"), workstream)
+        return {"id": self._local_identity(key, workstream), "project": project, **asdict(record)}
 
     async def save(
         self, workspace: WorkspaceManager | None, workstream: str, title: str, summary: str,

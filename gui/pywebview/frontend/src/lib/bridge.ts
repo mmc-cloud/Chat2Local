@@ -117,6 +117,8 @@ export class HttpTransport {
     save_config: (candidate) => this.request("save_config", { candidate }),
     read_logs: (cursor) => this.request("read_logs", { cursor }),
     list_devices: () => this.request("list_devices"),
+    list_local_handoffs: () => this.request("list_local_handoffs"),
+    get_local_handoff: (handoff_id) => this.request("get_local_handoff", { handoff_id }),
     browser_status: () => this.request("browser_status"),
     credential_info: (purpose, path) => this.request("credential_info", { purpose, path }),
     manage_token: (purpose, path, value, regenerate, confirmed) => this.request("manage_token", { purpose, path, value, regenerate, confirmed }),
@@ -156,6 +158,8 @@ async function invoke<T>(
   return response.result;
 }
 export const coreApi = {
+  localHandoffs: () => invoke((api) => api.list_local_handoffs()),
+  localHandoff: (id: string) => invoke((api) => api.get_local_handoff(id)),
   browserStatus: () => invoke((api) => api.browser_status()),
   credentialInfo: (purpose: TokenPurpose, path: string | null) => invoke((api) => api.credential_info(purpose, path)),
   manageToken: (purpose: TokenPurpose, path: string | null, value: string | null = null, regenerate = false, confirmed = false) =>
