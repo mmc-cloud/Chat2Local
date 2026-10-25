@@ -1175,7 +1175,1149 @@
         "action": "string: requested navigate/reload/back/forward.",
         "tab_id": "integer: selected native Chrome tab ID.",
         "status": "'initiated': Chrome API accepted the request; not page-load completion or business success.",
-        "navigation_waited": "false: no navigation/load-state wait performed."
+        "navigation_waited": "false: no navigation/load-state wait performed.",
+        "navigation_id": "string|null: short-lived observation ID for this exact go attempt, allocated before dispatch; use it with navigation.status/wait to avoid confusing concurrent calls. Null when no observation provider is present; then new-navigation completion cannot be proven by a receipt."
+      }
+    },
+    {
+      "name": "browser.navigation.status",
+      "description": "Read-only exact-tab observation of committed/pending URL, Chrome loading state and existence. Latest in-memory navigation.go observation ID distinguishes witnessed transitions from an old complete page; not SPA readiness.",
+      "input_schema": {
+        "$defs": {
+          "TabSelector": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "tab_id": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              },
+              {
+                "properties": {
+                  "url": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "properties": {
+                  "title": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            ],
+            "properties": {
+              "tab_id": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Native Chrome tab ID, not a ChatGPT browser ID; must be a JavaScript safe integer.",
+                "title": "Tab Id"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "maxLength": 8192,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact current URL, including query/fragment.",
+                "title": "Url"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exact case-sensitive tab title. Conditions are ANDed.",
+                "title": "Title"
+              }
+            },
+            "title": "TabSelector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "$ref": "#/$defs/TabSelector",
+            "description": "Explicit target tab; at least one non-null condition, all provided conditions must match. Never implicitly selects the active tab."
+          },
+          "navigation_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 40,
+                "pattern": "^nav_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional observation ID returned by navigation.go on this same tab. In-memory only; expires after 120s or extension restart/eviction. Omit to discover the latest ID, which may belong to another concurrent caller. Missing/superseded IDs never prove navigation completion.",
+            "title": "Navigation Id"
+          }
+        },
+        "required": [
+          "tab"
+        ],
+        "title": "NavigationStatusArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "tab": "object|null: sanitized selected native tab summary; null if an explicit ID no longer exists.",
+        "exists": "boolean: actual observation of this tab, not a guarantee it remains open.",
+        "url": "string|null: sanitized committed URL; display-only.",
+        "url_baseline_id": "string|null: unpredictable opaque baseline bound to this tab and its exact observed URL; use for wait(url_changed) without revealing query/fragment. In-memory only, max 128 entries/120s; restart/eviction invalidates. Null for absent/unknown URL or wait observations (waits never mint or renew baselines).",
+        "pending_url": "string|null: sanitized pending URL, null when absent/unavailable.",
+        "loading_status": "'loading'|'complete'|'unknown'|'closed': Chrome load state only; never SPA/business readiness.",
+        "navigation": "object|null: latest/requested short-lived navigation.go observation {navigation_id,state,completion_observed}. state is awaiting/loading/complete/unproven/superseded/overridden/closed/missing/failed. Old complete without transition never proves a new navigation. In-memory 120s/128-entry bound; not a durable navigation session or causal guarantee against indistinguishable manual navigations."
+      }
+    },
+    {
+      "name": "browser.navigation.wait",
+      "description": "Read-only finite wait on one exact native tab_id for URL, explicit URL change, current URL complete, or proven navigation observation plus target URL complete. Default 5s, max 8s. Returns final observation on timeout; never navigates/retries.",
+      "input_schema": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "condition": {
+                  "const": "url"
+                }
+              },
+              "required": [
+                "condition"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "baseline_url"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "navigation_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url_baseline_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "url": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "url"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "condition": {
+                  "const": "url_changed"
+                }
+              },
+              "required": [
+                "condition"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "navigation_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "baseline_url": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "url_baseline_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "condition": {
+                  "const": "current_complete"
+                }
+              },
+              "required": [
+                "condition"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "baseline_url"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "navigation_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url_baseline_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "url": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "url"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "condition": {
+                  "const": "navigation_complete"
+                }
+              },
+              "required": [
+                "condition"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "baseline_url"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url_baseline_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "navigation_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "url": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "navigation_id",
+                "url"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "condition": {
+                  "const": "url_changed"
+                }
+              },
+              "required": [
+                "condition"
+              ]
+            },
+            "then": {
+              "oneOf": [
+                {
+                  "required": [
+                    "baseline_url"
+                  ]
+                },
+                {
+                  "required": [
+                    "url_baseline_id"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "tab_id": {
+            "description": "Exact native tab ID; follows only this tab across URL changes. Never reselects by URL/title or switches to another matching tab.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Tab Id",
+            "type": "integer"
+          },
+          "condition": {
+            "description": "url: exact committed URL; url_changed: differs from explicit baseline; current_complete: this URL reports complete without pending URL, not proof of a new navigation; navigation_complete: additionally requires evidence for the specified navigation.go observation ID. Chrome complete never implies SPA/business readiness.",
+            "enum": [
+              "url",
+              "url_changed",
+              "current_complete",
+              "navigation_complete"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 8192,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Exact independently known URL for url/current_complete/navigation_complete, including query/fragment. Display URLs are sanitized and are not exact locators. Chrome redirects may require an explicitly known final URL.",
+            "title": "Url"
+          },
+          "baseline_url": {
+            "anyOf": [
+              {
+                "maxLength": 8192,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only for url_changed: independently known exact original URL, including query/fragment. Mutually exclusive with url_baseline_id; never copy a sanitized display URL as this baseline.",
+            "title": "Baseline Url"
+          },
+          "url_baseline_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 40,
+                "pattern": "^url_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only for url_changed: opaque random URL baseline returned by navigation.status on this exact tab. Choose exactly one of this or baseline_url. Raw URLs stay in extension memory; IDs expire after 120s, 128-entry eviction or restart. Missing/expired/wrong-tab IDs fail url_baseline_unavailable, never fall back to display URLs.",
+            "title": "Url Baseline Id"
+          },
+          "navigation_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 40,
+                "pattern": "^nav_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required only for navigation_complete: ID returned by the exact navigation.go call being followed. An old complete state without a witnessed transition never qualifies; no browser-restart recovery. Do not substitute a latest-ID query for an original call under concurrency.",
+            "title": "Navigation Id"
+          },
+          "timeout_ms": {
+            "default": 5000,
+            "description": "Finite read-only wait (default 5000, max 8000ms), bounded by the 15s request deadline. 0 observes once. Returns matched/unmet and final observation; never initiates or retries navigation.",
+            "maximum": 8000,
+            "minimum": 0,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tab_id",
+          "condition"
+        ],
+        "title": "NavigationWaitArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "status": "'matched'|'unmet': read-only condition observation, not business completion. timeout is an unmet result, not success-by-assumption.",
+        "condition": "string: the requested precise condition.",
+        "reason": "'condition_met'|'timeout'|'navigation_unproven'|'navigation_overridden'|'navigation_missing'|'navigation_failed'|'tab_closed': why the bounded wait ended.",
+        "observation": "object: final navigation.status-shaped observation on the same native tab ID. current_complete explicitly has no new-navigation proof; navigation_complete additionally checks navigation ID and exact target URL.",
+        "elapsed_ms": "integer: elapsed observation time; includes Chrome API latency, bounded by the outer request deadline."
+      }
+    },
+    {
+      "name": "browser.groups.list",
+      "description": "Read-only accessible Chrome tab groups with native IDs, window/title/color/collapsed and bounded sanitized member summaries. Optional exact group/window filters and stateless pagination. Requires independent user-granted tabGroups permission.",
+      "input_schema": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "offset": {
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "offset"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "snapshot": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "snapshot"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tab_offset": {
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "tab_offset"
+              ]
+            },
+            "then": {
+              "allOf": [
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "group_id": {
+                          "not": {
+                            "type": "null"
+                          }
+                        }
+                      },
+                      "required": [
+                        "group_id"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "tab_snapshot": {
+                          "not": {
+                            "type": "null"
+                          }
+                        }
+                      },
+                      "required": [
+                        "tab_snapshot"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "tab_snapshot": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "tab_snapshot"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "group_id": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "group_id"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "window_id": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional exact normal-window filter. No active/current window default.",
+            "title": "Window Id"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional exact native group ID; never chooses by title. Both ID/window filters must match.",
+            "title": "Group Id"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Zero-based group offset; nonzero requires snapshot. Groups sorted by ID; membership/window changes invalidate continuation.",
+            "maximum": 10000,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Maximum group summaries in one response; use next_offset/snapshot for more.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Stateless hash returned with the group listing; bind continuation to identical filters and group ID/window pairs. Restart after group_changed.",
+            "title": "Snapshot"
+          },
+          "tab_offset": {
+            "default": 0,
+            "description": "Tab-summary offset within groups. Nonzero requires exact group_id and tab_snapshot; complete tab_ids are always returned independently.",
+            "maximum": 10000,
+            "minimum": 0,
+            "title": "Tab Offset",
+            "type": "integer"
+          },
+          "tab_limit": {
+            "default": 50,
+            "description": "Maximum sanitized tab summaries per group. Reduce on result_too_large; no unlimited responses.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Tab Limit",
+            "type": "integer"
+          },
+          "tab_snapshot": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Stateless group ID/window/ordered-tab-ID hash. Requires exact group_id. Changed membership/order/window returns group_changed; metadata is not frozen.",
+            "title": "Tab Snapshot"
+          }
+        },
+        "title": "ListGroupsArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "groups": "array: {group_id,window_id,title,color,collapsed,tab_ids,tabs,total_tabs,tab_offset,tab_limit,has_more,next_offset,tab_snapshot}; complete IDs capped at 10000, at most tab_limit sanitized summaries. Ordered tab membership/window changes invalidate tab continuation; group metadata is not frozen.",
+        "total": "integer: matching groups before group pagination.",
+        "offset": "integer: group page start.",
+        "has_more": "boolean: more groups after this page.",
+        "next_offset": "integer|null: next group offset, null at end.",
+        "snapshot": "string: stateless hash of filters and sorted group ID/window pairs for safe group continuation; same-title groups stay distinct by ID."
+      }
+    },
+    {
+      "name": "browser.groups.manage",
+      "description": "Create/update/move/add_tabs/remove_tabs using explicit native IDs and strict action fields. Requires optional tabGroups permission; Chrome enforces constraints, actual state is verified, partial completion is reported without rollback or automatic retry.",
+      "input_schema": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "create"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "group_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "index"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "collapsed": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "color": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "tab_ids": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "title": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "window_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "tab_ids"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "update"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "index"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "tab_ids"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "window_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "collapsed": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "color": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "group_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "title": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "group_id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "move"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "collapsed"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "color"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "tab_ids"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "title"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "group_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "index": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "window_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "group_id",
+                "index"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "add_tabs"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "collapsed"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "color"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "index"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "window_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "group_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "tab_ids": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "group_id",
+                "tab_ids"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "remove_tabs"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "collapsed"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "color"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "index"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "window_id"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "group_id": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "tab_ids": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              },
+              "required": [
+                "group_id",
+                "tab_ids"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "update"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "required": [
+                    "title"
+                  ]
+                },
+                {
+                  "required": [
+                    "color"
+                  ]
+                },
+                {
+                  "required": [
+                    "collapsed"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "action": {
+            "description": "Explicit group operation; all group capabilities require user-granted optional tabGroups permission. Multi-step create can partially succeed; inspect error.details.progress and never retry/rollback automatically.",
+            "enum": [
+              "create",
+              "update",
+              "move",
+              "add_tabs",
+              "remove_tabs"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required exact native group ID for every action except create. remove_tabs verifies all selected tabs belong to this group before ungrouping.",
+            "title": "Group Id"
+          },
+          "tab_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Explicit unique tab IDs for create/add_tabs/remove_tabs; 1-50, all validated/rechecked before changes. Chrome enforces pinned/profile/window/group restrictions; no auto-unpin or fallback.",
+            "title": "Tab Ids",
+            "uniqueItems": true
+          },
+          "window_id": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional exact destination normal window for create/move only. Without it create requires all selected tabs in one window; move stays in the group's window.",
+            "title": "Window Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Group title for create/update; empty string clears it. Never used as a selector; output is sanitized.",
+            "title": "Title"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "enum": [
+                  "grey",
+                  "blue",
+                  "red",
+                  "yellow",
+                  "green",
+                  "pink",
+                  "purple",
+                  "cyan",
+                  "orange"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Native Chrome group color for create/update; strict enum.",
+            "title": "Color"
+          },
+          "collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Explicit desired collapse/expand state for create/update.",
+            "title": "Collapsed"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": -1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required destination index for move only; -1 means end. Chrome may adjust the actual group position, which is observed afterward.",
+            "title": "Index"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ManageGroupsArguments",
+        "type": "object"
+      },
+      "result_contract": {
+        "action": "string: requested create/update/move/add_tabs/remove_tabs.",
+        "group": "object|null: fresh sanitized group summary after the action; null when ungrouping the last tabs removed the group. Properties/membership are observed and verified, never echoed as achieved request values.",
+        "tab_ids": "array: IDs explicitly involved in the operation (or observed group members for update/move). No implicit active group.",
+        "actual_index": "integer|null: verified first member index after move, including Chrome's legal boundary/end adjustment; null for other actions. Member identity/order/contiguity, destination and position are checked. Unachieved or uncertain results fail state_not_reached without retry.",
+        "completed_steps": "array: confirmed native calls among grouped/updated/moved/ungrouped. Exceptions/expiry/revocation may instead return error.details.progress, including partial/unknown outcomes; never auto-replay."
       }
     },
     {
@@ -6410,12 +7552,18 @@
     "retry": "Tab/window list and resolve, read/inspect/wait_for are read-only. Tab/window management, navigation and all DOM actions may have side effects, including preparation (scroll/focus) and partially dispatched event sequences. Errors/timeouts/disconnections do not prove no action occurred. Observe actual state before retrying; never blindly repeat.",
     "window_close": "Before windows.manage close, obtain user confirmation in conversation for the exact window_id and complete expected_tab_ids observed via windows.list. Re-list if tabs changed, then obtain fresh confirmation; never replace the expected set silently. The extension checks membership immediately before remove, but Chrome provides no atomic compare-and-close against concurrent browser changes.",
     "window_pagination": "windows.list limit counts windows; tab_offset/tab_limit slice tab summaries in each returned window. Start at tab_offset=0, then use exact window_id, next_offset and that window's tab_snapshot for continuation. A changed ordered ID list returns window_changed; discard accumulated pages and restart. Snapshots are stateless membership/order identities, not frozen metadata or a history of transient changes. Complete tab_ids remain independent of pagination and close uses its own current membership check.",
-    "navigation": "navigation.go only initiates navigate/reload/back/forward; navigation_waited=false and status=initiated never mean loaded. No loading-state query/wait, tab groups or bookmarks. Browser-level tab/window/navigation operations use the authenticated bridge; per-site opt-in remains required for DOM reading/actions, not Chrome management APIs.",
+    "navigation": "navigation.go only initiates navigate/reload/back/forward; navigation_waited=false and status=initiated never mean loaded. Its additive navigation_id identifies that exact attempt. For navigation_complete use the original go navigation_id and an independently known exact target URL; a latest-ID status query can belong to another concurrent call and must not replace the original receipt. No witnessed transition means unproven, never a new-navigation completion. current_complete only describes the current URL/document. Chrome complete is not SPA/business readiness: follow with page.read/page.wait_for. tabs events plus bounded requery require no webNavigation permission. No bookmark support. Browser-level calls use the authenticated bridge; per-site opt-in remains required for DOM reading/actions.",
+    "url_change_baseline": "Observe navigation.status then pass its url_baseline_id to navigation.wait with condition=url_changed on the same tab_id. Random identifiers bind the exact raw URL without exposing it; changes include query/fragment. Choose exactly one of url_baseline_id or an independently known exact baseline_url; sanitized display URLs are not baselines. IDs are worker-local, expire after 120s or 128-entry eviction/restart, and are never renewed/consumed by waits. url_baseline_unavailable requires a fresh status observation, never a fallback comparison or another navigation.",
+    "groups": "Every groups capability requires independent optional tabGroups permission granted by a real Options-page click; MCP never requests permissions. List/group/tab pagination is bounded and snapshot-checked. Use native IDs, not titles or sanitized metadata. Chrome enforces pinned/profile/group constraints. Moves verify identity, destination, complete ordered contiguous membership and actual_index, allowing native end/boundary adjustments and already-valid positions; unachieved/uncertain layouts fail state_not_reached. Multi-step failures include progress; observe actual state, never unpin, rollback, or replay automatically. Removing every tab naturally removes the empty group.",
     "input_backend": "Top-document DOM APIs only; no CDP/debugger. Synthetic double_click/hover/press_key events are untrusted, do not guarantee physical input, CSS :hover, native keyboard defaults or browser/OS shortcuts. No security or user-gesture bypass.",
     "keyboard_completion": "press_key succeeds only after both events and safety confirmations. Errors may include details.events_dispatched={keydown:boolean,keyup:boolean} when known; true/false means partial, true/true can still fail final authorization. Missing details after timeout/disconnection means unknown, not no events. Never replay automatically.",
     "observation": "inspect/dom.inspect add state={disabled,read_only,check_state?,checked?,indeterminate?,selected?,expanded?,controls?,owns?,active_descendant?,selection?}. check_state is checked/unchecked/mixed/unknown; native checked retains its boolean even when indeterminate, ARIA mixed/unknown uses null. Native selection={multiple,total_options,selected_count,selected_indices (first 20),has_more}; opt-in inspect.select_options pages disclose sanitized option label/value, not other field values. scroll={is_page,x,y}; each axis has computed overflow, position, min/max native CSS coordinates, scrollable, at_start/at_end (1px tolerance). hidden can scroll, clip cannot. Observations never focus or scroll. Custom dropdown recipe: inspect combobox/relations, click, wait_for listbox/options, dom.inspect the portal anywhere in the same top document, click option ref, inspect expanded/selected/active_descendant again. No auto-select state machine."
   },
   "error_guidance": {
+    "groups_permission_denied": "Open extension Options and explicitly grant tabGroups access. Independent of website access; never request it from MCP. If interrupted, inspect progress and actual groups before any retry.",
+    "group_not_found": "List accessible groups on the same device and choose a native group_id. An empty group disappears when its last tab is removed.",
+    "group_changed": "Discard stale group pages/targets and observe again. Do not silently update snapshots or replay mutations; partial effects may already exist.",
+    "url_baseline_unavailable": "Baseline is unknown, expired, evicted, from another tab or lost after extension restart. Call navigation.status on the intended tab for a fresh url_baseline_id; never substitute its sanitized display URL or replay navigation.",
     "invalid_arguments": "Input/schema/URL error: correct arguments before retrying; no action dispatched by the rejecting validator.",
     "invalid_selector": "CSS syntax error: correct CSS using a fresh local DOM observation.",
     "invalid_cursor": "Malformed or invalid continuation: restart page.read without cursor.",
@@ -6438,7 +7586,7 @@
     "unsupported_page": "Use an authorized HTTP(S) top-level page; browser internal pages and embedded documents are unsupported.",
     "unsupported_element": "select/option discovery require native select; set_checked supports native checkbox/radio and ARIA checkbox/switch; fill requires supported text inputs. Custom dropdowns use explicit inspect/click/wait/dom.inspect/verify steps, no auto-selection fallback.",
     "unsupported_state": "A checked radio cannot be directly unchecked; select another radio in its group. An already unchecked radio requested false is a no-op.",
-    "state_not_reached": "Tab activation/move/pinning, window focus or DOM focus/selection/checked state was unreadable, prevented, reverted or did not reach the explicit target (mixed is not unchecked). Actions run at most once; inspect state before any next action.",
+    "state_not_reached": "Tab activation/move/pinning, group identity/membership/contiguity/position, window focus or DOM focus/selection/checked state was unreadable, prevented, reverted or did not reach the explicit target (mixed is not unchecked). Actions run at most once; inspect state before any next action.",
     "option_not_found": "No option matches all conditions: inspect the control and correct known option conditions; no selection changed by this operation.",
     "ambiguous_option": "More than one option matches: refine value/label/index, never choose the first implicitly. No selection changed by this operation.",
     "option_disabled": "Requested option or optgroup is disabled: stop; do not bypass it. No selection changed by this operation.",

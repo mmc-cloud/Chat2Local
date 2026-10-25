@@ -154,9 +154,15 @@ def capability_schema(result: dict[str, Any]) -> dict[str, Any]:
                     "keyup": field("boolean", "Whether keyup was dispatched.")}, required=["keydown", "keyup"])
     progress["if"] = {"properties": {"keyup": {"const": True}}}
     progress["then"] = {"properties": {"keydown": {"const": True}}}
+    group_progress = obj({
+        "completed_steps": {"type": "array", "maxItems": 4, "items": {"enum": ["grouped", "updated", "moved", "ungrouped"]}},
+        "outcome": {"enum": ["partial", "unknown"]},
+        "group_id": {"type": "integer", "minimum": 0, "maximum": 2**53 - 1},
+        "tab_ids": {"type": "array", "maxItems": 50, "items": {"type": "integer", "minimum": 0, "maximum": 2**53 - 1}},
+    }, required=["completed_steps", "outcome"])
     details = obj({"candidates": array({"type": "object"}, "At most five sanitized candidates."),
-                   "events_dispatched": progress})
-    details["anyOf"] = [{"required": ["candidates"]}, {"required": ["events_dispatched"]}]
+                   "events_dispatched": progress, "progress": group_progress})
+    details["anyOf"] = [{"required": [name]} for name in ("candidates", "events_dispatched", "progress")]
     error = obj({"code": field("string", "Stable error code."),
                  "message": field("string", "Readable error and recovery guidance."),
                  "details": details}, required=["code", "message"])

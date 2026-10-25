@@ -2,6 +2,7 @@
 (() => {
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
     "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
+    "browser.navigation.status", "browser.navigation.wait", "browser.groups.list", "browser.groups.manage",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"];
@@ -36,6 +37,8 @@
       && optional(option.index, (v) => integer(v, 0, 9999));
   }
   function validArguments(name, args) {
+    if (["browser.navigation.status", "browser.navigation.wait"].includes(name)) return globalThis.Chat2LocalNavigation.valid(name, args);
+    if (name.startsWith("browser.groups.")) return globalThis.Chat2LocalGroups.valid(name, args);
     if (name === "browser.tabs.create") return keys(args, ["url"]) && validUrl(args.url);
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
       && optional(args.tab, validTab) && optional(args.limit, (v) => integer(v, 1, 50));
@@ -254,18 +257,21 @@
     // once. Loading alone is not a race; never wait or substitute a new match.
     if (current.id !== id || !matches(current, args.tab) || current.url !== selected.result.url
       || current.pendingUrl !== selected.result.pendingUrl) return fail("page_changed");
+    const observation = globalThis.Chat2LocalNavigation?.begin(current, args);
     try {
       if (args.action === "navigate") await chrome.tabs.update(id, { url: args.url });
       else if (args.action === "reload") await chrome.tabs.reload(id);
       else if (args.action === "back") await chrome.tabs.goBack(id);
       else await chrome.tabs.goForward(id);
     } catch (error) {
+      if (observation) globalThis.Chat2LocalNavigation.failed(observation);
       // Chromium uses this same fixed error for both history directions.
       if (["back", "forward"].includes(args.action) && error?.message === "Cannot find a next page in history.") return fail("history_unavailable");
       return fail("browser_operation_failed");
     }
     return expired(expiresAt) ? fail("request_expired") : { ok: true, result: {
-      action: args.action, tab_id: id, status: "initiated", navigation_waited: false } };
+      action: args.action, tab_id: id, status: "initiated", navigation_waited: false,
+      navigation_id: observation?.id ?? null } };
   }
   function pagePattern(value) {
     const url = new URL(value);
@@ -422,8 +428,13 @@
       if (request.capability === "browser.windows.list") return await listWindows(args, request.expires_at);
       if (request.capability === "browser.windows.manage") return await manageWindow(args, request.expires_at);
       if (request.capability === "browser.navigation.go") return await navigate(args, request.expires_at);
+      if (["browser.navigation.status", "browser.navigation.wait"].includes(request.capability)) return await globalThis.Chat2LocalNavigation.execute(request.capability, args, request.expires_at);
+      if (request.capability.startsWith("browser.groups.")) return await globalThis.Chat2LocalGroups.execute(request.capability, args, request.expires_at);
       return await pageOperation(request.capability, args, request.expires_at);
     } catch { return fail("browser_operation_failed"); }
   }
   globalThis.Chat2LocalBrowser = { capabilities, execute, installAuthorizationHandler, pagePattern, allWebsiteOrigins };
+  const shared = { fail, keys, integer, text, validTab, summary, managedTab, matches, resolve, normalWindow, boundedResult };
+  globalThis.Chat2LocalNavigation?.configure(shared);
+  globalThis.Chat2LocalGroups?.configure(shared);
 })();

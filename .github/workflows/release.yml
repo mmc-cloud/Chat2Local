@@ -52,6 +52,7 @@ jobs:
 
           names = (
               "manifest.json", "background.js", "browser-operations.js",
+              "browser-navigation.js", "browser-groups.js",
               "browser-safety.js", "content-script.js", "capability-schemas.json",
               "options.html", "options.js",
           )

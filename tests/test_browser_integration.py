@@ -1,10 +1,21 @@
 """HTTP MCP -> Hub -> two real Agent sockets -> simulated extension sockets."""
 
 import asyncio
-from contextlib import AsyncExitStack
 import json
+from contextlib import AsyncExitStack
 
 import pytest
+from conftest import run
+from test_browser_bridge import browser_config, extension, response
+from test_devices import (
+    TOKEN,
+    decode,
+    eventually,
+    hub_runtime,
+    running_agent,
+    running_server,
+)
+from test_process_integration import mcp_client
 
 from chat2local.agent.client import AgentClient
 from chat2local.app import create_app
@@ -14,10 +25,6 @@ from chat2local.dispatch.local import LocalToolDispatcher
 from chat2local.hub.router import DeviceRouter
 from chat2local.runtime.config import AppConfig
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import run
-from test_browser_bridge import browser_config, extension, response
-from test_devices import TOKEN, decode, eventually, hub_runtime, running_agent, running_server
-from test_process_integration import mcp_client
 
 
 def test_discovery_detail_routes_through_mcp_hub_agent_to_the_selected_provider(tmp_path):
@@ -186,6 +193,10 @@ def test_browser_capabilities_route_to_only_the_selected_agent(tmp_path):
                         ("browser.windows.list", {}),
                         ("browser.windows.manage", {"action": "close", "window_id": 3, "expected_tab_ids": [7]}),
                         ("browser.navigation.go", {"action": "reload", "tab": {"tab_id": 7}}),
+                        ("browser.navigation.status", {"tab": {"tab_id": 7}}),
+                        ("browser.navigation.wait", {"tab_id": 7, "condition": "url", "url": "https://example.com/", "timeout_ms": 0}),
+                        ("browser.groups.list", {"window_id": 3}),
+                        ("browser.groups.manage", {"action": "create", "tab_ids": [7], "color": "blue"}),
                         ("browser.page.read", {"tab": {"tab_id": 7}, "max_chars": 1000}),
                         ("browser.page.inspect", {"tab": {"tab_id": 7}, "target": {"role": "button"}}),
                         ("browser.page.click", {"tab": {"tab_id": 7}, "target": {"name": "Go"}}),

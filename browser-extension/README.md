@@ -3,7 +3,7 @@
 可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择与管理、普通窗口管理、基础导航、独立网页读取与分段续读，以及授权网页的 DOM 定位、点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键与元素状态等待。
 **Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
 推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
-公共 MCP Tool 保持 12 个；浏览器能力为 20 个，统一通过 capability_discover / capability_execute 调用。
+公共 MCP Tool 保持 12 个；浏览器能力为 24 个，统一通过 capability_discover / capability_execute 调用。
 接口参数以 `capability_discover(detail="full")` 和 [capability-schemas.json](capability-schemas.json) 为准；
 阶段实现及历史验收记录可通过 Git 历史查阅。
 能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
@@ -19,6 +19,22 @@ ref 固定同一文档/URL 中的节点身份，无关 DOM 和原节点文字/�
 | `browser.windows.list` | 可选精确 `window_id`；`limit` 只控制窗口数量（默认 20，上限 50）。`tab_offset` 默认 0，`tab_limit` 默认 50、范围 1–50，控制各窗口的标签概要分页。保留完整 `tab_ids` 和 `total_tabs`，每个窗口还返回 `has_more`、`next_offset`、`tab_snapshot`。超出字节预算返回 `result_too_large`，可缩小 `tab_limit` 或指定精确窗口，不返回部分关闭前置条件。 |
 | `browser.windows.manage` | `create`（可选 HTTP(S) `url`）、`focus`（必需 `window_id`）、`close`（必需 `window_id` 和唯一的 `expected_tab_ids`）。拒绝无关字段，包括显式 null。 |
 | `browser.navigation.go` | `navigate`（必需 HTTP(S) `url`）、`reload`、`back`、`forward`，均需显式 `tab`。执行前重新读取同一标签页，复核全部显式条件、ID、URL 和 pendingUrl；目标消失、身份/条件/URL 变化，或两次观察间 pendingUrl 增加、改变、消失时返回 `page_changed`。持续 loading、单纯 loading/complete 切换或稳定存在的 pendingUrl 均不阻止导航，不增加等待。返回 `status: "initiated"`、`navigation_waited: false`，不声称网页加载完成。 |
+| `browser.navigation.status` | 通过现有显式 `tab` 查询存在性、当前/待提交 URL、`loading_status`。可传 `go` 返回的 `navigation_id` 复核该次尝试；省略时仅展示最近一次 ID，并发下不代表原调用。原生 ID 已关闭时返回 `exists: false`。不读取网页或触发操作。 |
+| `browser.navigation.wait` | 精确 `tab_id` 跟踪同一标签；`condition` 为 `url`（必需 `url`）、`url_changed`（`url_baseline_id` 或精确 `baseline_url` 二选一）、`current_complete`（必需 `url`）、`navigation_complete`（必需 `url` 和 `navigation_id`）。`timeout_ms` 默认 5000、上限 8000，0 表示单次观察。返回 `matched/unmet`、原因和最终观察；不重新导航。 |
+| `browser.groups.list` | 可选精确 `group_id`、`window_id`，同名不构成选择条件。返回原生 ID、标题、颜色、折叠状态、完整成员 ID 及有界脱敏概要。分组页用 `offset/limit/snapshot`，成员页用 `tab_offset/tab_limit/tab_snapshot`；成员续页必须精确 group_id。每页最多 50 项，集合/顺序变化拒绝旧快照。 |
+| `browser.groups.manage` | `create`（必需唯一 `tab_ids`，可选目标 `window_id`、`title/color/collapsed`）、`update`（必需 `group_id` 和至少一种属性）、`move`（必需 `group_id/index`，可选目标 `window_id`）、`add_tabs/remove_tabs`（必需 `group_id/tab_ids`）。每次最多 50 个显式标签 ID，拒绝重复、无关字段及显式 null。 |
+
+导航流程推荐 `navigation.go → navigation.status / navigation.wait → page.read / page.wait_for`。
+`navigation.go` 保持只发起、不等待的语义，成功结果新增只读 `navigation_id`，标识这一次调用。后台从执行前开始观察原生标签事件；等待注册前发生的事件也可用于核验。后续应传原始 go 返回的 ID，不能用“最近一次”状态查询替换它，以免并发 go 接错调用。
+`navigation_complete` 要求从该尝试观察到加载或 URL 转移，且最终精确目标 URL 报告 complete、没有 pendingUrl；新 URL 导航还必须观察到请求目的地，不能凭无关 URL 的 complete 推测重定向。旧页面仍是 complete、同 URL 已在加载却无法区分新旧轮次等情形返回未证明状态。
+`current_complete` 仅说明指定当前 URL 的文档报告 complete，明确不证明刚发起的新导航完成；SPA 路由可用精确 `url` 或显式基准 `url_changed` 观察。Chrome complete 不保证 React/Vue 的业务内容就绪，业务元素继续使用 `page.wait_for`。
+观察 URL 变化时使用 `navigation.status → 获取 url_baseline_id → navigation.wait({tab_id, condition: "url_changed", url_baseline_id})`。status 为已知 URL 返回绑定该标签和原始完整 URL 的不可预测随机 ID（URL 不可用/标签已关闭则为 null），敏感 URL 仅存于扩展内存；查询参数和 Fragment 的变化也会识别。基准最多保留 128 条、120 秒，不被等待续期或消耗；扩展重启、淘汰、过期、未知或跨标签使用返回 `url_baseline_unavailable`，必须重新观察，不回退到显示 URL。等待结果里的 `observation.url_baseline_id` 为 null，不创建新基准。`baseline_url` 继续支持调用者独立知道精确完整 URL 的情形，与 ID 互斥；不能将已脱敏的显示 URL 当成精确基准。
+等待用标签事件积累证据并最多每 100ms 重新查询，单次上限 8 秒且受现有请求期限约束。标签关闭、标识丢失、被新 go 覆盖、观察到新的加载轮次或等待超时分别报告原因和最终状态；绝不自动重放导航。
+观察记录只在扩展内存保留最多 128 条、120 秒，扩展重启/记录淘汰后不恢复。tabs API 没有文档级导航事务 ID；同一标签的人工导航如果与事件流不可区分，不提供跨并发操作的因果/原子保证。不明确的状态保持 unproven，未观察到请求目的地的重定向需重新观察后明确选择条件，不冒充已证明完成。
+
+分组授权与网站授权独立：在扩展设置页点击“授权标签分组”，才能启用全部分组 Capability。仅有 Chrome 权限或仅有本地同意记录都不足以启用；拒绝/撤销后返回 `groups_permission_denied`。MCP 和网页内容不会申请权限。撤销先关闭内部授权门，即使 Chrome 权限移除失败也停用分组功能。
+分组管理使用 Chrome 原生 API 处理固定、窗口、profile 和连续性限制，不自动取消固定、移动无关标签或重试。创建可先分组再修改属性；后一步失败时 `error.details.progress` 给出 `completed_steps`、已知 `group_id/tab_ids` 和 `partial/unknown`，必须先观察实际状态，不能自动回滚或重新执行。退出全部标签后空分组自然消失，没有独立删除 action。
+`groups.manage(move)` 在操作前后读取分组和窗口标签布局，核验身份、目标窗口、完整成员顺序及连续性，并返回实际首成员索引 `actual_index`（其他 action 为 null）。末尾截断和固定/分组区域的合法边界调整可成功；本来已在有效位置也可成功。明确可移动但位置未改变、移动到错误位置或核验期间布局变化返回 `state_not_reached`；结果不确定时不再次移动。Chrome 不提供原子的核验并移动操作。
 
 读取超过 50 个标签的窗口时，先用 `{"window_id": 7}` 查询第一页；若 `has_more: true`，再传同一 `window_id`、该窗口的 `next_offset` 作为 `tab_offset`，以及原样的 `tab_snapshot`。例如 70 个标签默认分 50 / 20 两页读取。
 非零 `tab_offset` 必须同时提供精确窗口和快照；有快照时也必须提供精确窗口。`tab_offset == total_tabs` 返回空的末页，超过总数返回 `invalid_arguments`；末页 `has_more: false`、`next_offset: null`。
@@ -162,6 +178,9 @@ detail 只接受 summary/full；显式 null、其他字符串或类型均拒绝�
 | `window_not_found` / `unsupported_window` | 精确窗口不存在，或窗口类型不是 normal |
 | `window_changed` | 续页的标签页集合/顺序已变化，或关闭前完整标签页集合已变化。分页应丢弃旧页重新读取；关闭则重新观察并取得用户确认 |
 | `history_unavailable` | 后退或前进方向没有可用历史记录 |
+| `groups_permission_denied` | 在 Options 中由用户点击授予独立 tabGroups 权限；MCP 无法申请 |
+| `group_not_found` / `group_changed` | 分组不存在，或目标/成员/页快照已经变化；重新观察，不能盲目重试 |
+| `url_baseline_unavailable` | URL 基准未知、过期、已淘汰、扩展重启后丢失或属于其他标签；重新 status 获取基准，不使用显示 URL 替代 |
 | `device_unavailable` | 设备离线、不支持新 Tool、Hub 请求超时等原设备路由错误 |
 | `capability_error` | 目标设备工具分发失败 |
 
@@ -251,7 +270,7 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-当前支持标签页管理、普通窗口管理、基础导航、网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及元素状态等待；暂不包含导航加载状态查询/等待、标签组或书签。
+当前支持标签页管理、普通窗口管理、基础导航与有界状态等待、可选授权的标签分组管理、网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及元素状态等待；暂不包含书签。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
 没有端到端 exactly-once 或页面加载完成保证。已有真实 Chrome 的代表性 MCP 调用链验收，

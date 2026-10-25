@@ -5,6 +5,7 @@
   "description": "Optional local browser capabilities for Chat2Local.",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms", "tabs", "scripting"],
+  "optional_permissions": ["tabGroups"],
   "host_permissions": ["http://127.0.0.1/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js" },

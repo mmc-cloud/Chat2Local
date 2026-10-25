@@ -95,3 +95,31 @@ document.querySelector("#revoke-all-websites").addEventListener("click", () => {
   })().catch(() => { allStatus.textContent = "撤销未完成，请重试并检查 Chrome 网站权限 / Revocation incomplete; retry and check Chrome site access"; });
 });
 void showAllWebsites().catch(() => { allStatus.textContent = "无法读取网站权限 / Could not read website permissions"; });
+
+const groupStatus = document.querySelector("#tab-groups-status");
+async function showGroups() {
+  const { groupAccess = false } = await chrome.storage.local.get("groupAccess");
+  const granted = await chrome.permissions.contains({ permissions: ["tabGroups"] });
+  groupStatus.textContent = groupAccess === true && granted
+    ? "标签分组已授权 / Tab groups enabled" : "标签分组未授权 / Tab groups disabled";
+}
+document.querySelector("#allow-tab-groups").addEventListener("click", () => {
+  // Keep request in the actual Options-page gesture, before any asynchronous work.
+  void chrome.permissions.request({ permissions: ["tabGroups"] }).then(async (granted) => {
+    if (!granted) { groupStatus.textContent = "未获得分组权限 / Tab group permission denied"; return; }
+    await chrome.storage.local.set({ groupAccess: true });
+    await showGroups();
+  }).catch(() => { groupStatus.textContent = "分组授权失败，请重试 / Tab group grant failed; try again"; });
+});
+document.querySelector("#revoke-tab-groups").addEventListener("click", () => {
+  void (async () => {
+    // Disable the application gate first, even if Chrome revocation then fails.
+    await chrome.storage.local.set({ groupAccess: false });
+    if (!await chrome.permissions.remove({ permissions: ["tabGroups"] })) throw Error("Permission removal failed");
+    await showGroups();
+  })().catch(() => { groupStatus.textContent = "已停用分组；Chrome 权限撤销未完成 / Groups disabled; Chrome revocation incomplete"; });
+});
+const refreshGroups = () => { void showGroups().catch(() => { groupStatus.textContent = "无法读取分组权限 / Could not read tab group permission"; }); };
+chrome.permissions.onAdded?.addListener(refreshGroups);
+chrome.permissions.onRemoved?.addListener(refreshGroups);
+refreshGroups();

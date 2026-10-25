@@ -109,8 +109,9 @@ def test_close_confirmation_and_navigation_limits_are_discoverable():
     assert "no atomic" in full["conventions"]["window_close"]
     assert "navigation_waited=false" in full["conventions"]["navigation"]
     names = {entry["name"] for entry in full["capabilities"]}
-    assert len(names) == 20
-    assert not any("bookmark" in name or "group" in name or "navigation.wait" in name for name in names)
+    assert len(names) == 24
+    assert not any("bookmark" in name for name in names)
+    assert {"browser.groups.list", "browser.groups.manage", "browser.navigation.status", "browser.navigation.wait"} <= names
 
 
 @pytest.mark.parametrize("arguments,valid", [

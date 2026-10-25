@@ -74,3 +74,50 @@ test("all-site grants require a gesture and consent, and revocation disables the
     assert.deepEqual(storage.pageOrigins, ["https://kept.example/*"]);
   } finally { window.close(); }
 });
+
+test("tabGroups permission is gesture-only, independent, denied/revoked safely and visible in Options", async () => {
+  const dom = new JSDOM(readFileSync(new URL("../options.html", import.meta.url), "utf8"), {
+    url: "https://extension.test/", runScripts: "outside-only",
+  });
+  const { window } = dom;
+  const storage = { allWebsites: true, pageOrigins: ["https://kept.example/*"] };
+  let inGesture = false, granted = false, failRemove = false;
+  const requests = [], permissionListeners = {};
+  window.chrome = { runtime: { id: "test-extension" }, storage: {
+    local: { get: async () => storage, set: async (value) => Object.assign(storage, value) },
+    session: { get: async () => ({}) }, onChanged: { addListener() {} },
+  }, permissions: {
+    contains: async (value) => value.permissions ? granted : true,
+    request: async (value) => { assert.equal(inGesture, true); requests.push(value); return granted; },
+    remove: async (value) => {
+      assert.equal(storage.groupAccess, false);
+      assert.deepEqual(Array.from(value.permissions), ["tabGroups"]);
+      if (failRemove) throw Error("Chrome denied revoke");
+      granted = false; return true;
+    },
+    onAdded: { addListener(fn) { permissionListeners.added = fn; } },
+    onRemoved: { addListener(fn) { permissionListeners.removed = fn; } },
+  } };
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const status = () => window.document.querySelector("#tab-groups-status").textContent;
+  try {
+    window.eval(readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8"));
+    window.eval(readFileSync(new URL("../options.js", import.meta.url), "utf8"));
+    await flush(); assert.equal(requests.length, 0); assert.match(status(), /disabled/);
+    inGesture = true; window.document.querySelector("#allow-tab-groups").click(); inGesture = false;
+    await flush(); assert.match(status(), /denied/); assert.notEqual(storage.groupAccess, true);
+    granted = true;
+    inGesture = true; window.document.querySelector("#allow-tab-groups").click(); inGesture = false;
+    await flush(); assert.equal(storage.groupAccess, true); assert.match(status(), /enabled/);
+    assert.deepEqual(Array.from(requests[1].permissions), ["tabGroups"]);
+    granted = false; permissionListeners.removed(); await flush(); assert.match(status(), /disabled/);
+    granted = true; permissionListeners.added(); await flush(); assert.match(status(), /enabled/);
+    failRemove = true; window.document.querySelector("#revoke-tab-groups").click(); await flush();
+    assert.equal(storage.groupAccess, false); assert.match(status(), /incomplete/);
+    failRemove = false; window.document.querySelector("#revoke-tab-groups").click(); await flush();
+    assert.equal(granted, false); assert.match(status(), /disabled/);
+    assert.equal(storage.allWebsites, true);
+    assert.deepEqual(storage.pageOrigins, ["https://kept.example/*"]);
+    assert.equal(requests.length, 2);
+  } finally { window.close(); }
+});

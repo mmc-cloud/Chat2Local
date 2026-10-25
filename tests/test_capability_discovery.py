@@ -3,7 +3,9 @@ import json
 
 import jsonschema
 import pytest
+from conftest import run
 from mcp.server.mcpserver.exceptions import ToolError
+from test_mcp_surface import payload
 
 from chat2local.browser.bridge import BrowserBridge
 from chat2local.browser.capabilities import CapabilityRegistry
@@ -14,8 +16,6 @@ from chat2local.mcp.output_schema import OUTPUT_SCHEMAS
 from chat2local.mcp.server import create_mcp_server
 from chat2local.runtime.config import AppConfig, BrowserConfig
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import run
-from test_mcp_surface import payload
 
 
 def test_summary_is_default_and_has_no_full_definitions_or_guidance():
@@ -24,7 +24,7 @@ def test_summary_is_default_and_has_no_full_definitions_or_guidance():
     full = registry.discover(detail="full")
     assert summary == registry.discover(detail="summary")
     assert set(summary["result"]) == {"capabilities"}
-    assert len(summary["result"]["capabilities"]) == 20
+    assert len(summary["result"]["capabilities"]) == 24
     assert [item["name"] for item in summary["result"]["capabilities"]] == [item["name"] for item in full["result"]["capabilities"]]
     for brief, complete in zip(summary["result"]["capabilities"], full["result"]["capabilities"]):
         assert set(brief) == {"name", "description", "available"}
@@ -44,7 +44,7 @@ def test_summary_does_not_generate_schemas(monkeypatch):
         pytest.fail("Summary must not generate full schemas")
     for model in {entry.arguments for entry in registry._entries.values()}:
         monkeypatch.setattr(model, "model_json_schema", unexpected_schema)
-    assert len(registry.discover()["result"]["capabilities"]) == 20
+    assert len(registry.discover()["result"]["capabilities"]) == 24
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])

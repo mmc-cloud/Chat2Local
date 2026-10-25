@@ -5,12 +5,17 @@ from typing import Any
 CAPABILITY_NAMES = (
     "browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
     "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
+    "browser.navigation.status", "browser.navigation.wait", "browser.groups.list", "browser.groups.manage",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for",
 )
 
 EXTENSION_ERROR_MESSAGES = {
+    "groups_permission_denied": "Grant tab group access by clicking the button in extension Options; MCP cannot request it",
+    "group_not_found": "No matching accessible Chrome tab group exists",
+    "group_changed": "Group target, membership or ordering changed; observe again before continuing",
+    "url_baseline_unavailable": "URL baseline is unavailable for this tab; observe a fresh baseline before waiting",
     "unknown_capability": "Browser extension does not support the requested capability",
     "invalid_arguments": "Browser extension rejected the operation arguments",
     "request_expired": "Browser request deadline elapsed; observe actual state before retrying",
@@ -50,6 +55,10 @@ EXTENSION_ERROR_MESSAGES = {
 
 # Published once per discovery response, not copied into every capability.
 ERROR_GUIDANCE = {
+    "groups_permission_denied": "Open extension Options and explicitly grant tabGroups access. Independent of website access; never request it from MCP. If interrupted, inspect progress and actual groups before any retry.",
+    "group_not_found": "List accessible groups on the same device and choose a native group_id. An empty group disappears when its last tab is removed.",
+    "group_changed": "Discard stale group pages/targets and observe again. Do not silently update snapshots or replay mutations; partial effects may already exist.",
+    "url_baseline_unavailable": "Baseline is unknown, expired, evicted, from another tab or lost after extension restart. Call navigation.status on the intended tab for a fresh url_baseline_id; never substitute its sanitized display URL or replay navigation.",
     "invalid_arguments": "Input/schema/URL error: correct arguments before retrying; no action dispatched by the rejecting validator.",
     "invalid_selector": "CSS syntax error: correct CSS using a fresh local DOM observation.",
     "invalid_cursor": "Malformed or invalid continuation: restart page.read without cursor.",
@@ -72,7 +81,7 @@ ERROR_GUIDANCE = {
     "unsupported_page": "Use an authorized HTTP(S) top-level page; browser internal pages and embedded documents are unsupported.",
     "unsupported_element": "select/option discovery require native select; set_checked supports native checkbox/radio and ARIA checkbox/switch; fill requires supported text inputs. Custom dropdowns use explicit inspect/click/wait/dom.inspect/verify steps, no auto-selection fallback.",
     "unsupported_state": "A checked radio cannot be directly unchecked; select another radio in its group. An already unchecked radio requested false is a no-op.",
-    "state_not_reached": "Tab activation/move/pinning, window focus or DOM focus/selection/checked state was unreadable, prevented, reverted or did not reach the explicit target (mixed is not unchecked). Actions run at most once; inspect state before any next action.",
+    "state_not_reached": "Tab activation/move/pinning, group identity/membership/contiguity/position, window focus or DOM focus/selection/checked state was unreadable, prevented, reverted or did not reach the explicit target (mixed is not unchecked). Actions run at most once; inspect state before any next action.",
     "option_not_found": "No option matches all conditions: inspect the control and correct known option conditions; no selection changed by this operation.",
     "ambiguous_option": "More than one option matches: refine value/label/index, never choose the first implicitly. No selection changed by this operation.",
     "option_disabled": "Requested option or optgroup is disabled: stop; do not bypass it. No selection changed by this operation.",
@@ -104,6 +113,19 @@ def extension_failure(error: dict[str, Any]) -> dict[str, Any]:
     result = failure(code, EXTENSION_ERROR_MESSAGES[code])
     # Candidate summaries are intentional page metadata, never exception text.
     details = error.get("details")
+    progress = details.get("progress") if isinstance(details, dict) else None
+    if isinstance(progress, dict):
+        steps = progress.get("completed_steps")
+        if (isinstance(steps, list) and len(steps) <= 4
+                and all(step in ("grouped", "updated", "moved", "ungrouped") for step in steps)
+                and progress.get("outcome") in ("partial", "unknown")):
+            cleaned_progress = {"completed_steps": list(steps), "outcome": progress["outcome"]}
+            if type(progress.get("group_id")) is int and 0 <= progress["group_id"] <= 2**53 - 1:
+                cleaned_progress["group_id"] = progress["group_id"]
+            ids = progress.get("tab_ids")
+            if isinstance(ids, list) and len(ids) <= 50 and all(type(item) is int and 0 <= item <= 2**53 - 1 for item in ids):
+                cleaned_progress["tab_ids"] = list(ids)
+            result["error"]["details"] = {"progress": cleaned_progress}
     dispatched = details.get("events_dispatched") if isinstance(details, dict) else None
     if (isinstance(dispatched, dict) and set(dispatched) == {"keydown", "keyup"}
             and all(type(value) is bool for value in dispatched.values())
