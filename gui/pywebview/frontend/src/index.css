@@ -884,10 +884,39 @@ dd {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
   gap: 24px;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
+}
+.handoffs-page-content { display: flex; flex-direction: column; overflow: hidden; }
+.handoffs-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.handoffs-page-content > .error-note { flex-shrink: 0; }
+.handoffs-page > .page-heading { flex-shrink: 0; }
+.handoffs-page > .error-note { flex-shrink: 0; max-height: 110px; overflow-y: auto; }
+.handoff-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.handoff-list > input { flex-shrink: 0; }
+.handoff-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 10px;
+}
+.handoff-detail {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .handoff-list, .handoff-detail {
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
@@ -899,8 +928,25 @@ dd {
   font-size: 13px;
   padding: 16px 0;
 }
-.handoff-group { margin-top: 22px; }
-.handoff-group h2 { font-size: 13px; font-weight: 600; }
+.handoff-group { margin-top: 6px; }
+.handoff-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  background: transparent;
+  font-weight: 600;
+  font-size: 13px;
+}
+.handoff-group-toggle:hover { background: var(--muted); }
+.handoff-group-toggle svg { flex-shrink: 0; transition: transform 150ms ease; }
+.handoff-group-toggle svg.expanded { transform: rotate(90deg); }
+.handoff-group-toggle > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+.handoff-group-count { margin-left: auto; color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
+.handoff-group-body { padding-left: 12px; }
 .handoff-path { display: block; color: var(--muted-foreground); font-size: 11px; margin-top: 4px; }
 .handoff-item {
   display: flex;
@@ -939,7 +985,7 @@ dd {
 .handoff-markdown code { font-family: var(--font-mono); background: var(--muted); }
 .handoff-markdown blockquote { border-left: 3px solid var(--border); padding-left: 16px; color: var(--muted-foreground); }
 .handoff-markdown a { text-decoration: underline; }
-@media (max-width: 900px) { .handoff-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { .handoff-layout { grid-template-columns: minmax(190px, 1fr) minmax(0, 1.6fr); gap: 12px; } }
 .config-fieldset {
   margin: 0;
   padding: 0;

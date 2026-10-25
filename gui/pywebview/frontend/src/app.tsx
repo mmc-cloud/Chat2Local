@@ -91,7 +91,9 @@ export function App() {
             className={
               currentPage === "Logs"
                 ? "page-content logs-page-content"
-                : "page-content"
+                : currentPage === "Handoffs"
+                  ? "page-content handoffs-page-content"
+                  : "page-content"
             }
           >
             {runtime?.desktop_error && (

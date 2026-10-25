@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 import Markdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,11 @@ export function Handoffs() {
   const [snapshot, setSnapshot] = useState<HandoffSnapshot>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
+  const [searchCollapse, setSearchCollapse] = useState<{ query: string; keys: Set<string> }>(
+    () => ({ query: "", keys: new Set() }),
+  );
+  const detailRef = useRef<HTMLElement>(null);
   const [detail, setDetail] = useState<HandoffDetail>();
   const [listError, setListError] = useState("");
   const [detailError, setDetailError] = useState("");
@@ -56,10 +61,29 @@ export function Handoffs() {
   }, [snapshot, query, t]);
   const select = (id: string) => {
     if (id === selected) return;
+    if (detailRef.current) detailRef.current.scrollTop = 0;
     setDetail(undefined);
     setDetailError("");
     setReading(true);
     setSelected(id);
+  };
+  const toggleProject = (key: string) => {
+    const search = query.trim();
+    if (search) {
+      setSearchCollapse((previous) => {
+        const next = new Set(previous.query === search ? previous.keys : []);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return { query: search, keys: next };
+      });
+      return;
+    }
+    setExpandedProjects((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
   const reload = () => {
     setLoading(true);
@@ -69,7 +93,7 @@ export function Handoffs() {
     setDetailError("");
     setRefresh((current) => current + 1);
   };
-  return <>
+  return <div className="handoffs-page">
     <div className="page-heading">
       <div><p className="eyebrow">{t("LOCAL HANDOFFS")}</p><h1>{t("Handoffs")}</h1>
         <p>{t("Browse handoffs from every project on this device.")}</p></div>
@@ -86,20 +110,33 @@ export function Handoffs() {
       <section className="handoff-list" aria-label={t("Handoff list")} aria-busy={loading}>
         <Input aria-label={t("Search handoffs")} placeholder={t("Search title, summary or project...")}
           value={query} onChange={(event) => setQuery(event.target.value)} />
+        <div className="handoff-groups">
         {loading ? <p role="status">{t("Loading handoffs...")}</p> : groups.length ? groups.map((entries) => {
           const project = entries[0].project;
+          const search = query.trim();
+          const expanded = search
+            ? !(searchCollapse.query === search && searchCollapse.keys.has(project.key))
+            : expandedProjects.has(project.key);
           return <section key={project.key} className="handoff-group">
-            <h2>{project.scope === "personal" ? t("Personal") : project.name}</h2>
-            {project.path && <p className="handoff-path">{project.path}</p>}
-            {entries.map((entry) => <button key={entry.id} type="button"
+            <h2><button type="button" className="handoff-group-toggle" aria-expanded={expanded}
+              onClick={() => toggleProject(project.key)}>
+              <ChevronRight size={15} aria-hidden="true" className={expanded ? "expanded" : ""} />
+              <span>{project.scope === "personal" ? t("Personal") : project.name}</span>
+              <span className="handoff-group-count">{entries.length}</span>
+            </button></h2>
+            {expanded && <div className="handoff-group-body">
+              {project.path && <p className="handoff-path">{project.path}</p>}
+              {entries.map((entry) => <button key={entry.id} type="button"
               className={`handoff-item${selected === entry.id ? " selected" : ""}`}
               aria-pressed={selected === entry.id} onClick={() => select(entry.id)}>
               <strong>{entry.title}</strong><span>{entry.summary}</span>
-            </button>)}
+              </button>)}
+            </div>}
           </section>;
         }) : !listError && <p role="status">{t(snapshot?.handoffs.length ? "No handoffs match your search." : "No local handoffs yet.")}</p>}
+        </div>
       </section>
-      <section className="handoff-detail" aria-label={t("Handoff details")} aria-busy={selected !== null && reading}>
+      <section ref={detailRef} className="handoff-detail" aria-label={t("Handoff details")} aria-busy={selected !== null && reading}>
         {!selected ? <p role="status">{t("Select a handoff to read its content.")}</p>
           : reading ? <p role="status">{t("Loading handoff...")}</p>
           : detailError ? <div className="error-note" role="alert">{t("Could not read this handoff. It may have moved or been deleted.")}<p>{t(detailError)}</p></div>
@@ -123,5 +160,5 @@ export function Handoffs() {
           </>}
       </section>
     </div>
-  </>;
+  </div>;
 }
