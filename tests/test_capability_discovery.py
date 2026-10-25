@@ -24,7 +24,7 @@ def test_summary_is_default_and_has_no_full_definitions_or_guidance():
     full = registry.discover(detail="full")
     assert summary == registry.discover(detail="summary")
     assert set(summary["result"]) == {"capabilities"}
-    assert len(summary["result"]["capabilities"]) == 24
+    assert len(summary["result"]["capabilities"]) == 28
     assert [item["name"] for item in summary["result"]["capabilities"]] == [item["name"] for item in full["result"]["capabilities"]]
     for brief, complete in zip(summary["result"]["capabilities"], full["result"]["capabilities"]):
         assert set(brief) == {"name", "description", "available"}
@@ -44,7 +44,7 @@ def test_summary_does_not_generate_schemas(monkeypatch):
         pytest.fail("Summary must not generate full schemas")
     for model in {entry.arguments for entry in registry._entries.values()}:
         monkeypatch.setattr(model, "model_json_schema", unexpected_schema)
-    assert len(registry.discover()["result"]["capabilities"]) == 24
+    assert len(registry.discover()["result"]["capabilities"]) == 28
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])

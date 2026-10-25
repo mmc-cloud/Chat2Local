@@ -55,7 +55,7 @@ test("minimal manifest and private loopback connection, no page exposure", async
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.permissions, ["storage", "alarms", "tabs", "scripting"]);
-  assert.deepEqual(manifest.optional_permissions, ["tabGroups"]);
+  assert.deepEqual(manifest.optional_permissions, ["tabGroups", "bookmarks"]);
   assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
   assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"]);
   assert.equal(manifest.minimum_chrome_version, "120");
@@ -68,6 +68,7 @@ test("minimal manifest and private loopback connection, no page exposure", async
   assert.deepEqual(ws.sent[0].capabilities, [capability, "browser.tabs.list", "browser.tabs.resolve",
     "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
     "browser.navigation.status", "browser.navigation.wait", "browser.groups.list", "browser.groups.manage",
+    "browser.bookmarks.query", "browser.bookmarks.manage", "browser.bookmarks.preview_remove_tree", "browser.bookmarks.remove_tree",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"]);

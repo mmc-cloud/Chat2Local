@@ -2,6 +2,7 @@
 importScripts("browser-safety.js");
 importScripts("browser-navigation.js");
 importScripts("browser-groups.js");
+importScripts("browser-bookmarks.js");
 importScripts("browser-operations.js");
 const browserOperations = globalThis.Chat2LocalBrowser;
 browserOperations.installAuthorizationHandler();

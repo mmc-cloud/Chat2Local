@@ -3,6 +3,7 @@
   const capabilities = ["browser.tabs.create", "browser.tabs.list", "browser.tabs.resolve",
     "browser.tabs.manage", "browser.windows.list", "browser.windows.manage", "browser.navigation.go",
     "browser.navigation.status", "browser.navigation.wait", "browser.groups.list", "browser.groups.manage",
+    "browser.bookmarks.query", "browser.bookmarks.manage", "browser.bookmarks.preview_remove_tree", "browser.bookmarks.remove_tree",
     "browser.page.read", "browser.page.inspect", "browser.page.dom.inspect", "browser.page.click", "browser.page.fill",
     "browser.page.double_click", "browser.page.hover", "browser.page.focus", "browser.page.select",
     "browser.page.set_checked", "browser.page.scroll", "browser.page.press_key", "browser.page.wait_for"];
@@ -39,6 +40,7 @@
   function validArguments(name, args) {
     if (["browser.navigation.status", "browser.navigation.wait"].includes(name)) return globalThis.Chat2LocalNavigation.valid(name, args);
     if (name.startsWith("browser.groups.")) return globalThis.Chat2LocalGroups.valid(name, args);
+    if (name.startsWith("browser.bookmarks.")) return globalThis.Chat2LocalBookmarks.valid(name, args);
     if (name === "browser.tabs.create") return keys(args, ["url"]) && validUrl(args.url);
     if (name === "browser.tabs.list") return keys(args, ["tab", "limit"])
       && optional(args.tab, validTab) && optional(args.limit, (v) => integer(v, 1, 50));
@@ -430,6 +432,7 @@
       if (request.capability === "browser.navigation.go") return await navigate(args, request.expires_at);
       if (["browser.navigation.status", "browser.navigation.wait"].includes(request.capability)) return await globalThis.Chat2LocalNavigation.execute(request.capability, args, request.expires_at);
       if (request.capability.startsWith("browser.groups.")) return await globalThis.Chat2LocalGroups.execute(request.capability, args, request.expires_at);
+      if (request.capability.startsWith("browser.bookmarks.")) return await globalThis.Chat2LocalBookmarks.execute(request.capability, args, request.expires_at);
       return await pageOperation(request.capability, args, request.expires_at);
     } catch { return fail("browser_operation_failed"); }
   }
@@ -437,4 +440,5 @@
   const shared = { fail, keys, integer, text, validTab, summary, managedTab, matches, resolve, normalWindow, boundedResult };
   globalThis.Chat2LocalNavigation?.configure(shared);
   globalThis.Chat2LocalGroups?.configure(shared);
+  globalThis.Chat2LocalBookmarks?.configure(shared);
 })();

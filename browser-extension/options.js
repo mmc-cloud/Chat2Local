@@ -123,3 +123,30 @@ const refreshGroups = () => { void showGroups().catch(() => { groupStatus.textCo
 chrome.permissions.onAdded?.addListener(refreshGroups);
 chrome.permissions.onRemoved?.addListener(refreshGroups);
 refreshGroups();
+
+const bookmarkStatus = document.querySelector("#bookmarks-status");
+async function showBookmarks() {
+  const { bookmarkAccess = false } = await chrome.storage.local.get("bookmarkAccess");
+  const granted = await chrome.permissions.contains({ permissions: ["bookmarks"] });
+  bookmarkStatus.textContent = bookmarkAccess === true && granted
+    ? "书签已授权 / Bookmarks enabled" : "书签未授权 / Bookmarks disabled";
+}
+document.querySelector("#allow-bookmarks").addEventListener("click", () => {
+  // Preserve the user gesture: MCP and background requests never grant access.
+  void chrome.permissions.request({ permissions: ["bookmarks"] }).then(async (granted) => {
+    if (!granted) { bookmarkStatus.textContent = "未获得书签权限 / Bookmark permission denied"; return; }
+    await chrome.storage.local.set({ bookmarkAccess: true });
+    await showBookmarks();
+  }).catch(() => { bookmarkStatus.textContent = "书签授权失败，请重试 / Bookmark grant failed; try again"; });
+});
+document.querySelector("#revoke-bookmarks").addEventListener("click", () => {
+  void (async () => {
+    await chrome.storage.local.set({ bookmarkAccess: false });
+    if (!await chrome.permissions.remove({ permissions: ["bookmarks"] })) throw Error("Permission removal failed");
+    await showBookmarks();
+  })().catch(() => { bookmarkStatus.textContent = "已停用书签；Chrome 权限撤销未完成 / Bookmarks disabled; Chrome revocation incomplete"; });
+});
+const refreshBookmarks = () => { void showBookmarks().catch(() => { bookmarkStatus.textContent = "无法读取书签权限 / Could not read bookmark permission"; }); };
+chrome.permissions.onAdded?.addListener(refreshBookmarks);
+chrome.permissions.onRemoved?.addListener(refreshBookmarks);
+refreshBookmarks();

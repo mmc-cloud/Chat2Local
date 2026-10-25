@@ -22,7 +22,7 @@ export function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "htt
   };
   const context = vm.createContext({ chrome, URL, Date: dateApi, crypto: cryptoApi, TextEncoder, btoa, atob, setTimeout, clearTimeout });
   vm.runInContext(readFileSync(new URL("../browser-safety.js", import.meta.url), "utf8"), context);
-  for (const name of ["browser-navigation.js", "browser-groups.js"]) vm.runInContext(readFileSync(new URL("../" + name, import.meta.url), "utf8"), context);
+  for (const name of ["browser-navigation.js", "browser-groups.js", "browser-bookmarks.js"]) vm.runInContext(readFileSync(new URL("../" + name, import.meta.url), "utf8"), context);
   vm.runInContext(source, context);
   const api = context.Chat2LocalBrowser;
   api.installAuthorizationHandler();

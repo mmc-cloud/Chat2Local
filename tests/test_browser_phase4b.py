@@ -169,6 +169,6 @@ def test_runtime_scripts_are_loaded_and_present_in_explicit_release_zip_list():
     with ZipFile(buffer) as archive:
         assert set(names) == set(archive.namelist())
     manifest = json.loads((root / "browser-extension/manifest.json").read_text(encoding="utf-8"))
-    assert manifest["optional_permissions"] == ["tabGroups"]
+    assert manifest["optional_permissions"] == ["tabGroups", "bookmarks"]
     assert "webNavigation" not in manifest["permissions"]
     assert "tabGroups" not in manifest["permissions"]

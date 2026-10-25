@@ -103,6 +103,23 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
             {"action": "move", "group_id": 1, "index": -1, "window_id": 8},
             *[{"action": action, "group_id": 1, "tab_ids": [1]} for action in ("add_tabs", "remove_tabs")],
         ],
+        "browser.bookmarks.query": [
+            {"action": "roots", "offset": 0, "limit": 50, "snapshot": "a" * 64},
+            {"action": "get", "bookmark_id": "10"},
+            {"action": "children", "folder_id": "10", "offset": 50, "limit": 50, "snapshot": "b" * 64},
+            {"action": "subtree", "folder_id": "10", "depth": 2, "offset": 0, "limit": 50},
+            {"action": "search", "query": "Example", "title": "Example", "url": "https://example.com/"},
+            {"action": "recent"},
+        ],
+        "browser.bookmarks.manage": [
+            {"action": "create", "kind": "bookmark", "parent_id": "10", "title": "Example", "url": "https://example.com/", "index": 0},
+            {"action": "create", "kind": "folder", "parent_id": "10", "title": ""},
+            {"action": "update", "bookmark_id": "10", "title": "", "url": "https://example.com/"},
+            {"action": "move", "bookmark_id": "10", "parent_id": "20", "index": 0},
+            {"action": "remove", "bookmark_id": "10"},
+        ],
+        "browser.bookmarks.preview_remove_tree": {"folder_id": "10", "examples_limit": 10},
+        "browser.bookmarks.remove_tree": {"folder_id": "10", "preview_id": "bmk_00000000-0000-0000-0000-000000000001"},
         "browser.page.read": {"tab": tab, "cursor": "example", "max_chars": 8000},
         "browser.page.inspect": {"tab": tab, "target": target, "limit": 20, "wait_ms": 0,
                                  "select_options": {"offset": 0, "limit": 20}},
@@ -228,7 +245,7 @@ def test_discovery_agent_contracts_are_complete_compact_and_public():
     result = CapabilityRegistry(BrowserBridge(BrowserConfig())).discover(detail="full")
     jsonschema.validate(result, OUTPUT_SCHEMAS['capability_discover'])
     assert len(TOOL_METADATA) == 12
-    assert len(result['result']['capabilities']) == 24
+    assert len(result['result']['capabilities']) == 28
     for entry in result['result']['capabilities']:
         assert entry['description'] and entry['result_contract']
         schema = entry['input_schema']

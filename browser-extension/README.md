@@ -3,7 +3,7 @@
 可选、独立安装的 Chrome Manifest V3 扩展，提供标签页创建/查询/选择与管理、普通窗口管理、基础导航、独立网页读取与分段续读，以及授权网页的 DOM 定位、点击/填写、双击/悬停/聚焦、原生选择/勾选、滚动、合成按键与元素状态等待。
 **Chat2Local Browser Use 独立负责读取、定位、操作和结果观察，不再依赖官方 ChatGPT Chrome 插件读取页面。**
 推荐按需使用：`tabs.list / resolve → page.read → page.inspect / dom.inspect → click / fill → page.read 再观察`。
-公共 MCP Tool 保持 12 个；浏览器能力为 24 个，统一通过 capability_discover / capability_execute 调用。
+公共 MCP Tool 保持 12 个；浏览器能力为 28 个，统一通过 capability_discover / capability_execute 调用。
 接口参数以 `capability_discover(detail="full")` 和 [capability-schemas.json](capability-schemas.json) 为准；
 阶段实现及历史验收记录可通过 Git 历史查阅。
 能力发现默认 summary，只返回 name/description/available；按需查询 detail=full 才提供参数 Schema、各能力的 `result_contract`、共享 `conventions` 和 `error_guidance`。
@@ -23,6 +23,18 @@ ref 固定同一文档/URL 中的节点身份，无关 DOM 和原节点文字/�
 | `browser.navigation.wait` | 精确 `tab_id` 跟踪同一标签；`condition` 为 `url`（必需 `url`）、`url_changed`（`url_baseline_id` 或精确 `baseline_url` 二选一）、`current_complete`（必需 `url`）、`navigation_complete`（必需 `url` 和 `navigation_id`）。`timeout_ms` 默认 5000、上限 8000，0 表示单次观察。返回 `matched/unmet`、原因和最终观察；不重新导航。 |
 | `browser.groups.list` | 可选精确 `group_id`、`window_id`，同名不构成选择条件。返回原生 ID、标题、颜色、折叠状态、完整成员 ID 及有界脱敏概要。分组页用 `offset/limit/snapshot`，成员页用 `tab_offset/tab_limit/tab_snapshot`；成员续页必须精确 group_id。每页最多 50 项，集合/顺序变化拒绝旧快照。 |
 | `browser.groups.manage` | `create`（必需唯一 `tab_ids`，可选目标 `window_id`、`title/color/collapsed`）、`update`（必需 `group_id` 和至少一种属性）、`move`（必需 `group_id/index`，可选目标 `window_id`）、`add_tabs/remove_tabs`（必需 `group_id/tab_ids`）。每次最多 50 个显式标签 ID，拒绝重复、无关字段及显式 null。 |
+| `browser.bookmarks.query` | `roots` 发现根目录和浏览器文件夹；`get` 必需字符串 `bookmark_id`；`children/subtree` 必需字符串 `folder_id`；`search` 至少提供 `query/title/url` 一项，组合时 AND；`recent` 查询最近添加的书签。除 get 外支持 `offset/limit/snapshot`；subtree 可传 `depth`。 |
+| `browser.bookmarks.manage` | `create` 必需 `kind: "bookmark"/"folder"`、`parent_id/title`，书签必需 URL、文件夹禁止 URL；`update` 必需 `bookmark_id` 及至少一种 `title/url`；`move` 必需 `bookmark_id/parent_id`；`remove` 必需 `bookmark_id`。create/move 可指定非负 `index`，省略表示末尾。 |
+| `browser.bookmarks.preview_remove_tree` | 必需精确字符串 `folder_id`；`examples_limit` 默认 10、上限 20。完整统计子树，返回脱敏示例、`preview_id/expires_at`。只读，不删除、不证明已获得用户确认。 |
+| `browser.bookmarks.remove_tree` | 必需同一 `folder_id/preview_id`；Agent 先在对话中说明预览影响并取得明确确认。重新核验完整快照、权限和期限后仅调用一次 removeTree，再查询验证不存在。 |
+
+书签授权独立于网站和分组：必须在 Options 点击“授权书签访问”，本地 `bookmarkAccess` 与 Chrome 可选 `bookmarks` 权限同时有效才可执行四种 Capability。撤销先停用本地门禁，再请求 Chrome 撤权；MCP 不会申请权限，也不增加删除确认弹窗。
+书签 ID 始终是原生字符串，同名节点通过 ID 区分。先 query roots 获取实际根/内置文件夹 ID，不写死特殊数字 ID。类型由 URL 属性是否存在确定；返回标题最多 512 字符、URL 最多 2048 字符，并提供父 ID、实际位置及时间信息。HTTP(S)、FTP、file、chrome、chrome-extension 和 about:blank 的显示 URL 复用安全路径过滤，移除凭据、查询和 Fragment；可执行/不支持的 URL 以 null 和 `url_omitted` 标记，已有书签仍可按 ID 查询及整理。显示标题和 URL 不能复制为原始精确搜索条件。
+查询分页默认/上限 50 项，非零 offset 必须携带相同 action、筛选和深度下的 snapshot；成员、内容或顺序变化以及 worker 重启均返回 `bookmark_changed`，应丢弃旧页重新读取。快照采用内存随机密钥的 HMAC，不公开可猜测的 URL 哈希。subtree 为带 depth/parent_id 的先序平铺结构，默认深度 2、上限 5；`depth_limited` 和 `children_omitted` 明确未探索的文件夹，可按 ID 后续查询。单次遍历最多 10000 个节点、规范化快照最多 2 MiB，超限明确失败；total 只代表已声明查询深度的范围。响应仍受现有 40 KiB 结果预算限制，过大时减小 limit。
+创建/修改 URL 支持经校验的绝对 HTTP(S)、FTP、file、chrome、chrome-extension 及 about:blank，拒绝凭据、空白、反斜线、控制字符和 javascript/data/blob 等可执行或数据地址；Chrome 原生 API 保留最终约束。仅改标题、移动或删除已有书签不套用写 URL 限制。文件夹不能设置 URL；普通 remove 仅接受单个书签或空文件夹，非空文件夹返回 `bookmark_not_empty`。移动核验原生返回与实际父节点/索引、目标同级节点顺序，接受同父级前移/后移等合法索引调整，不重复移动。
+根、浏览器特殊文件夹和受管理节点不可直接修改；结合 `folderType`、`unmodifiable` 和根目录/祖先关系识别，兼容缺少 folderType 的旧版 Chrome。非受管理内置文件夹可接收子节点。文件夹移动和递归删除会完整检查子树，防止间接移动或删除受保护后代；无法完整核验就拒绝执行。
+递归删除流程必须是 `preview_remove_tree → 告知用户准确文件夹和全部统计 → 用户明确确认 → remove_tree`。预览的 bookmark_count/subfolder_count 覆盖所有后代，total_nodes 还包含目标文件夹；示例可截断并用 has_more 声明。完整预览上限为 10000 节点、相对深度 64、2 MiB 规范化快照；缺失子树数据或超限不签发凭据。快照绑定原始标题/URL、ID、父 ID、索引、层级/顺序、创建/文件夹修改时间及保护/同步属性，不使用脱敏值比较。
+预览凭据是随机、内存内的，最多 32 条、有效 120 秒；重启或淘汰后失效。执行前重新读取完整子树并比较快照，再检查授权和期限；变更需重新预览并重新取得确认。第一次原生删除尝试前使同一文件夹的所有旧凭据失效，API 报错也不恢复。凭据只证明快照匹配，扩展无法验证 ChatGPT 对话中的确认。Chrome 不提供原子比较并删除，最后核验后仍可能有并发改动；返回 `bookmark_outcome_unknown`、state_not_reached、超时或断线时先查询实际树，不自动重试、回滚或创建替代节点。保护规则参见 [Chrome Bookmarks API](https://developer.chrome.com/docs/extensions/reference/api/bookmarks)。
 
 导航流程推荐 `navigation.go → navigation.status / navigation.wait → page.read / page.wait_for`。
 `navigation.go` 保持只发起、不等待的语义，成功结果新增只读 `navigation_id`，标识这一次调用。后台从执行前开始观察原生标签事件；等待注册前发生的事件也可用于核验。后续应传原始 go 返回的 ID，不能用“最近一次”状态查询替换它，以免并发 go 接错调用。
@@ -223,7 +235,7 @@ ChatGPT / MCP client
 - Agent 的 Hub 连接重连保留浏览器 Runtime；Core / Agent 正常退出会关闭浏览器连接、listener 并释放等待者。
   运行时连接、能力可用性与待处理请求只保存在内存，不与 Handoff、Chat 或 Process 状态混存。
 - 日志不输出 token、认证帧或浏览器参数。DOM 脚本仅按需注入，无外部网页消息入口、`externally_connectable`、
-  自动授予的广域 host 权限、远程脚本或书签权限。第二阶段新增 `tabs`、`scripting`，
+  自动授予的广域 host 权限或远程脚本；书签与分组权限都是独立、手动授予的可选权限。网页操作使用 `tabs`、`scripting`，
   网站权限通过选项页用户点击按站或全站授予；仍保留 `storage`、`alarms` 和 `http://127.0.0.1/*` 本机 host 权限，CSP 将扩展自身网络连接限制为
   `ws://127.0.0.1:*`。本机 host 权限用于 Chromium 本地网络访问检查下的扩展接入；
   Chrome host match pattern 无法限定端口，因此端口由扩展设置控制。
@@ -236,7 +248,7 @@ Origin 与 token 保护来自普通网页的调用；同一 OS 用户下的恶�
 在仓库根目录运行：
 
 ```powershell
-uv run pytest -q tests/test_browser_capabilities.py tests/test_browser_phase2.py tests/test_browser_phase3.py tests/test_browser_contract.py tests/test_browser_bridge.py tests/test_browser_integration.py
+uv run pytest -q tests/test_browser_capabilities.py tests/test_browser_phase2.py tests/test_browser_phase3.py tests/test_browser_phase4a.py tests/test_browser_phase4b.py tests/test_browser_phase4c.py tests/test_browser_contract.py tests/test_browser_bridge.py tests/test_browser_integration.py
 npm ci --prefix browser-extension
 npm test --prefix browser-extension
 ```
@@ -246,6 +258,7 @@ Python 测试无需 Chrome，覆盖参数、能力目录、真实 loopback WebSo
 以及 **HTTP MCP → Hub → 两个真实 Agent → 模拟扩展** 的设备隔离集成调用。
 Node 测试使用内置 `node:test` / `vm` 模拟 Chrome API 与 worker 环境，覆盖真实后台脚本的认证门禁、
 标签页创建、无效命令、过期请求、同连接去重、API 错误、心跳、重连及 worker 恢复。
+书签使用虚拟树和 Mock 原生 API，覆盖分页/深度/字节边界、保护节点、独立授权、完整预览统计、快照变化、凭据过期/消耗、并发删除和不确定结果不重试；不对真实用户书签执行自动化删除。
 另使用开发依赖 jsdom 运行实际打包的 DOM 脚本，并使用 React / Vue 组件检查受控输入模型更新；
 这些测试依赖不会成为生产扩展的安装或运行依赖。
 
@@ -270,7 +283,7 @@ Agent 端固定警告提示检查凭据文件与端口。认证失败不显示�
 
 ## 范围与限制
 
-当前支持标签页管理、普通窗口管理、基础导航与有界状态等待、可选授权的标签分组管理、网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及元素状态等待；暂不包含书签。
+当前支持标签页管理、普通窗口管理、基础导航与有界状态等待、可选授权的标签分组及书签管理、网页读取、DOM 定位与点击/填写、双击、悬停、聚焦、选择、勾选、滚动、合成按键及元素状态等待；不包含历史记录、下载或截图。
 一个端点对应一个 Chrome profile，没有浏览器 profile 路由或跨重启的请求去重。
 超时、断开、Hub 重连或服务重启后**不要盲目重试**：Chrome 操作可能已发生，必须先人工检查实际标签页。
 没有端到端 exactly-once 或页面加载完成保证。已有真实 Chrome 的代表性 MCP 调用链验收，

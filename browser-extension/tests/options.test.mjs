@@ -82,7 +82,7 @@ test("tabGroups permission is gesture-only, independent, denied/revoked safely a
   const { window } = dom;
   const storage = { allWebsites: true, pageOrigins: ["https://kept.example/*"] };
   let inGesture = false, granted = false, failRemove = false;
-  const requests = [], permissionListeners = {};
+  const requests = [], permissionListeners = { added: [], removed: [] };
   window.chrome = { runtime: { id: "test-extension" }, storage: {
     local: { get: async () => storage, set: async (value) => Object.assign(storage, value) },
     session: { get: async () => ({}) }, onChanged: { addListener() {} },
@@ -95,8 +95,8 @@ test("tabGroups permission is gesture-only, independent, denied/revoked safely a
       if (failRemove) throw Error("Chrome denied revoke");
       granted = false; return true;
     },
-    onAdded: { addListener(fn) { permissionListeners.added = fn; } },
-    onRemoved: { addListener(fn) { permissionListeners.removed = fn; } },
+    onAdded: { addListener(fn) { permissionListeners.added.push(fn); } },
+    onRemoved: { addListener(fn) { permissionListeners.removed.push(fn); } },
   } };
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const status = () => window.document.querySelector("#tab-groups-status").textContent;
@@ -110,8 +110,8 @@ test("tabGroups permission is gesture-only, independent, denied/revoked safely a
     inGesture = true; window.document.querySelector("#allow-tab-groups").click(); inGesture = false;
     await flush(); assert.equal(storage.groupAccess, true); assert.match(status(), /enabled/);
     assert.deepEqual(Array.from(requests[1].permissions), ["tabGroups"]);
-    granted = false; permissionListeners.removed(); await flush(); assert.match(status(), /disabled/);
-    granted = true; permissionListeners.added(); await flush(); assert.match(status(), /enabled/);
+    granted = false; permissionListeners.removed.forEach((fn) => fn()); await flush(); assert.match(status(), /disabled/);
+    granted = true; permissionListeners.added.forEach((fn) => fn()); await flush(); assert.match(status(), /enabled/);
     failRemove = true; window.document.querySelector("#revoke-tab-groups").click(); await flush();
     assert.equal(storage.groupAccess, false); assert.match(status(), /incomplete/);
     failRemove = false; window.document.querySelector("#revoke-tab-groups").click(); await flush();
@@ -119,5 +119,43 @@ test("tabGroups permission is gesture-only, independent, denied/revoked safely a
     assert.equal(storage.allWebsites, true);
     assert.deepEqual(storage.pageOrigins, ["https://kept.example/*"]);
     assert.equal(requests.length, 2);
+  } finally { window.close(); }
+});
+
+test("bookmark permission is gesture-only and revokes the internal gate before Chrome", async () => {
+  const dom = new JSDOM(readFileSync(new URL("../options.html", import.meta.url), "utf8"), { url: "https://extension.test/", runScripts: "outside-only" });
+  const { window } = dom, storage = { allWebsites: true, groupAccess: true, pageOrigins: ["https://kept.example/*"] };
+  const listeners = [], requests = [];
+  let granted = false, inGesture = false, failRemove = false;
+  window.chrome = { runtime: { id: "test-extension" }, storage: {
+    local: { get: async () => storage, set: async (value) => Object.assign(storage, value) },
+    session: { get: async () => ({}) }, onChanged: { addListener() {} },
+  }, permissions: {
+    contains: async (args) => args.permissions?.includes("bookmarks") ? granted : true,
+    request: async (args) => { assert.equal(inGesture, true); requests.push(args); return granted; },
+    remove: async (args) => {
+      assert.equal(storage.bookmarkAccess, false); assert.deepEqual(Array.from(args.permissions), ["bookmarks"]);
+      if (failRemove) throw Error("Denied"); granted = false; return true;
+    }, onAdded: { addListener(fn) { listeners.push(fn); } }, onRemoved: { addListener(fn) { listeners.push(fn); } },
+  } };
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const status = () => window.document.querySelector("#bookmarks-status").textContent;
+  try {
+    window.eval(readFileSync(new URL("../browser-operations.js", import.meta.url), "utf8"));
+    window.eval(readFileSync(new URL("../options.js", import.meta.url), "utf8"));
+    await flush(); assert.equal(requests.length, 0); assert.match(status(), /disabled/);
+    inGesture = true; window.document.querySelector("#allow-bookmarks").click(); inGesture = false;
+    await flush(); assert.match(status(), /denied/); assert.notEqual(storage.bookmarkAccess, true);
+    granted = true;
+    inGesture = true; window.document.querySelector("#allow-bookmarks").click(); inGesture = false;
+    await flush(); assert.equal(storage.bookmarkAccess, true); assert.match(status(), /enabled/);
+    assert.deepEqual(Array.from(requests[1].permissions), ["bookmarks"]);
+    granted = false; listeners.forEach((fn) => fn()); await flush(); assert.match(status(), /disabled/);
+    granted = true; listeners.forEach((fn) => fn()); await flush(); assert.match(status(), /enabled/);
+    failRemove = true; window.document.querySelector("#revoke-bookmarks").click(); await flush();
+    assert.equal(storage.bookmarkAccess, false); assert.match(status(), /incomplete/);
+    failRemove = false; window.document.querySelector("#revoke-bookmarks").click(); await flush(); assert.equal(granted, false);
+    assert.equal(storage.groupAccess, true); assert.equal(storage.allWebsites, true);
+    assert.deepEqual(storage.pageOrigins, ["https://kept.example/*"]);
   } finally { window.close(); }
 });
