@@ -973,6 +973,31 @@ dd {
 .handoff-detail > h2 { font-size: 22px; font-weight: 600; }
 .handoff-metadata { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 18px; margin: 20px 0; font-size: 12px; }
 .handoff-metadata dt { color: var(--muted-foreground); }
+.handoff-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.handoff-detail-heading h2 { font-size: 22px; font-weight: 600; }
+.handoff-detail-heading button { flex-shrink: 0; }
+.handoff-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.handoff-editor fieldset { display: flex; flex-direction: column; gap: 10px; border: 0; padding: 0; min-width: 0; }
+.handoff-editor legend { font-weight: 600; margin-bottom: 12px; }
+.handoff-editor label { font-size: 12px; }
+.handoff-editor textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.handoff-editor textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.handoff-editor textarea:disabled { opacity: 0.6; }
+.handoff-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.handoff-comparison label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.handoff-comparison textarea { height: 420px; white-space: pre; overflow: auto; resize: vertical; }
 .handoff-markdown { border-top: 1px solid var(--border); padding-top: 20px; line-height: 1.75; font-size: 14px; }
 .handoff-markdown :is(p, ul, ol, pre, blockquote) { margin: 12px 0; }
 .handoff-markdown :is(h1, h2, h3, h4, h5, h6) { font-weight: 600; margin: 20px 0 10px; }

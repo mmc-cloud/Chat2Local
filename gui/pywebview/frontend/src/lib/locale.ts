@@ -5,6 +5,23 @@ export type Language = "zh-CN" | "en";
 const legacyStorageKey = "chat2local.gui.language";
 const cacheStorageKey = "chat2local.gui.language.cache";
 const chinese: Record<string, string> = {
+  Title: "标题",
+  "Edit handoff": "编辑交接状态",
+  "Cancel editing": "取消编辑并返回阅读",
+  "Discard your unsaved handoff changes?": "放弃尚未保存的交接状态修改？",
+  "Load the latest version and discard your current draft?": "加载磁盘最新版本并放弃当前草稿？",
+  "This handoff has a newer revision. Your draft has been kept.": "此交接状态已有更新版本，当前草稿已保留。",
+  "Could not save this handoff. Your draft has been kept.": "无法保存此交接状态，当前草稿已保留。",
+  "Compare versions": "查看版本对比",
+  "Copy my changes": "复制我的修改",
+  "Load latest version": "加载最新版本",
+  "Return to editing": "返回编辑",
+  "My changes": "我的修改",
+  "Latest version": "最新版本",
+  "Your changes were copied.": "已复制你的修改。",
+  "Could not copy your changes. Select and copy the text from the comparison instead.": "复制失败，请从版本对比中选中文本并手动复制。",
+  "Could not load the latest version. Your draft has been kept.": "无法读取最新版本，当前草稿已保留。",
+  "Loading latest version...": "正在读取最新版本…",
   Handoffs: "交接状态",
   "LOCAL HANDOFFS": "本机交接状态",
   "Browse handoffs from every project on this device.": "浏览当前设备所有项目的交接状态。",

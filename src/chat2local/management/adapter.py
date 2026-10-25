@@ -30,6 +30,14 @@ class CoreAdapter:
         except (HandoffError, OSError) as error:
             raise ManagementError(str(error)) from error
 
+    async def save_local_handoff(
+        self, handoff_id: str, title: str, summary: str, content: str, expected_revision: int,
+    ) -> dict:
+        try:
+            return await HandoffStore().save_local(handoff_id, title, summary, content, expected_revision)
+        except (ValueError, OSError) as error:
+            raise ManagementError(str(error)) from error
+
     async def runtime_status(self) -> dict:
         result = await self.runtime.status()
         current = result["core"]

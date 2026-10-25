@@ -55,6 +55,15 @@ def validate_summary(value: str) -> str:
     return _validate_single_line(value, "summary", SUMMARY_MAX_LENGTH)
 
 
+def _validate_save(title: str, summary: str, content: str, expected_revision: int) -> None:
+    validate_title(title)
+    validate_summary(summary)
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError("expected_revision must be a strict integer >= 0")
+    if not isinstance(content, str):
+        raise ValueError("content must be a string")
+
+
 def _read(path: Path, workstream: str) -> HandoffRecord:
     if not path.exists():
         raise HandoffNotFoundError(workstream)
@@ -199,6 +208,11 @@ class HandoffStore:
 
     async def get_local(self, handoff_id: str) -> dict:
         """Accept a validated scope/workstream identity, never a caller's path."""
+        key, workstream = self._parse_local_id(handoff_id)
+        return await asyncio.to_thread(self._get_local, key, workstream)
+
+    @staticmethod
+    def _parse_local_id(handoff_id: str) -> tuple[str, str]:
         if not isinstance(handoff_id, str) or re.fullmatch(
             rf"[0-9a-f]{{2,{MAX_WORKSPACE_KEY_BYTES * 2}}}:[A-Za-z0-9][A-Za-z0-9_-]{{0,79}}",
             handoff_id,
@@ -210,7 +224,8 @@ class HandoffStore:
         except (UnicodeError, ValueError) as error:
             raise InvalidHandoffError("invalid local Handoff identifier") from error
         _validate_local_key(key)
-        return await asyncio.to_thread(self._get_local, key, workstream)
+        validate_workstream(workstream)
+        return key, workstream
 
     def _get_local(self, key: str, workstream: str) -> dict:
         directory = checked_path(self._user_data / "handoffs", key)
@@ -220,23 +235,41 @@ class HandoffStore:
         record = _read(checked_path(directory, f"{workstream}.md"), workstream)
         return {"id": self._local_identity(key, workstream), "project": project, **asdict(record)}
 
+    async def save_local(
+        self, handoff_id: str, title: str, summary: str, content: str, expected_revision: int,
+    ) -> dict:
+        key, workstream = self._parse_local_id(handoff_id)
+        _validate_save(title, summary, content, expected_revision)
+        identity = (self._user_data / "handoffs" / key, os.path.normcase(workstream))
+        return await self._run_save(identity, self._save_local, key, workstream,
+                                    title, summary, content, expected_revision)
+
+    def _save_local(
+        self, key: str, workstream: str, title: str, summary: str, content: str, expected_revision: int,
+    ) -> dict:
+        record = self._get_local(key, workstream)
+        if record["revision"] != expected_revision:
+            raise RevisionConflictError(expected_revision, record["revision"])
+        directory = checked_path(self._user_data / "handoffs", key)
+        metadata = self._write(directory, workstream, title, summary, content, expected_revision,
+                               require_existing=True)
+        return {"id": self._local_identity(key, workstream), "project": record["project"], **metadata,
+                "content": content.replace("\r\n", "\n").replace("\r", "\n")}
+
     async def save(
         self, workspace: WorkspaceManager | None, workstream: str, title: str, summary: str,
         content: str, expected_revision: int,
     ) -> dict:
         validate_workstream(workstream)
-        validate_title(title)
-        validate_summary(summary)
-        if type(expected_revision) is not int or expected_revision < 0:
-            raise ValueError("expected_revision must be a strict integer >= 0")
-        if not isinstance(content, str):
-            raise ValueError("content must be a string")
+        _validate_save(title, summary, content, expected_revision)
         identity = (workspace.root if workspace is not None else None, os.path.normcase(workstream))
+        return await self._run_save(identity, self._save, workspace, workstream,
+                                    title, summary, content, expected_revision)
+
+    async def _run_save(self, identity: tuple[Path | None, str], operation, *args) -> dict:
         lock = self._locks.setdefault(identity, asyncio.Lock())
         async with lock:
-            worker = asyncio.create_task(asyncio.to_thread(
-                self._save, workspace, workstream, title, summary, content, expected_revision,
-            ))
+            worker = asyncio.create_task(asyncio.to_thread(operation, *args))
             try:
                 return await asyncio.shield(worker)
             except asyncio.CancelledError:
@@ -269,6 +302,12 @@ class HandoffStore:
             current = _read(path, workstream).revision if path.exists() else 0
             if current != expected_revision:
                 raise RevisionConflictError(expected_revision, current)
+        return self._write(directory, workstream, title, summary, content, current)
+
+    def _write(
+        self, directory: Path, workstream: str, title: str, summary: str, content: str, current: int,
+        *, require_existing: bool = False,
+    ) -> dict:
         metadata = HandoffMetadata(
             workstream, current + 1,
             datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
@@ -288,7 +327,14 @@ class HandoffStore:
                 temporary = Path(handle.name)
                 handle.write(text)
                 handle.flush()
-            os.replace(temporary, checked_path(directory, f"{workstream}.md"))
+            destination = checked_path(directory, f"{workstream}.md")
+            if require_existing:
+                # Never recreate a file deleted while its replacement was being prepared.
+                self._local_project(directory)
+                latest = _read(destination, workstream).revision
+                if latest != current:
+                    raise RevisionConflictError(current, latest)
+            os.replace(temporary, destination)
         except (OSError, UnicodeError) as error:
             raise OSError(f"handoff_write_failed: {workstream}: {error}") from error
         finally:

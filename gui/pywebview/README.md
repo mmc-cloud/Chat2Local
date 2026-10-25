@@ -48,11 +48,19 @@ Device IDs, workspace paths and original log entries are not translated.
   (native Browse or typed path), then Start. Stop uses local control IPC; Restart stops before
   starting the same mode/workspace. No PID killing. Running mode/workspace cannot be edited.
 - **Handoffs** browses all workspace and Personal handoffs stored on this device, grouped by
-  project with title/summary/project search, manual refresh and a read-only Markdown preview.
+  project with title/summary/project search, manual refresh and a safe Markdown preview.
   The desktop GUI works even when Core is stopped or the original project directory no longer
   exists; the Web UI uses the same page while Core is running. Invalid files are reported
   individually. HTML is not executed, images are not fetched and external links are inactive.
-  This page does not create, edit, save or delete handoffs.
+  Edit changes the title, summary and Markdown of an existing handoff, with manual Save and
+  Cancel. Unsaved changes require confirmation before switching records, refreshing, cancelling
+  or navigating away; saving temporarily blocks these actions. Browser reload/close uses the
+  native unsaved-changes prompt. Drafts stay in memory and are not persisted separately.
+  A revision conflict keeps the draft and offers a side-by-side read-only comparison, copying
+  all draft fields, or loading the latest disk version after confirmation. Save increments the
+  revision using the same atomic writer as MCP. This page cannot create, delete or rename handoffs.
+  Optimistic revision checks do not provide full protection against writes from different
+  processes in the narrow check/replace interval, or direct file edits that do not change revision.
 - **Settings** edits the real `~/.chat2local/config.yaml`. The current mode shows Agent,
   Hub plus Auth, or no role section for Standalone. Security, Process, Read and Search
   remain available under Advanced (collapsed by default). Running Core determines the mode;

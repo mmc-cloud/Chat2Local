@@ -108,6 +108,7 @@ export type Envelope<T> =
 export interface CoreApi {
   list_local_handoffs: () => Promise<Envelope<HandoffSnapshot>>;
   get_local_handoff: (handoff_id: string) => Promise<Envelope<HandoffDetail>>;
+  save_local_handoff: (handoff_id: string, title: string, summary: string, content: string, expected_revision: number) => Promise<Envelope<HandoffDetail>>;
   browser_status: () => Promise<Envelope<BrowserStatus>>;
   credential_info: (purpose: TokenPurpose, path: string | null) => Promise<Envelope<CredentialInfo>>;
   manage_token: (purpose: TokenPurpose, path: string | null, value: string | null, regenerate: boolean, confirmed: boolean) => Promise<Envelope<CredentialInfo>>;

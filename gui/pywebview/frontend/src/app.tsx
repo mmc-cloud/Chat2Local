@@ -19,6 +19,12 @@ export function App() {
   const [busy, setBusy] = useState("");
   const [stopped, setStopped] = useState(false);
   const discoveredInstance = useRef<string | null>(null);
+  const handoffLeaveGuard = useRef<(() => boolean) | null>(null);
+  const registerHandoffGuard = useCallback((guard: (() => boolean) | null) => { handoffLeaveGuard.current = guard; }, []);
+  const navigate = useCallback((next: Page) => {
+    if (next !== page && handoffLeaveGuard.current && !handoffLeaveGuard.current()) return;
+    setPage(next);
+  }, [page]);
   const bridge = useBridge();
   useEffect(() => {
     if (bridge.status === "connected") void initializeLanguage();
@@ -29,7 +35,7 @@ export function App() {
       coreApi.status(),
       desktopApi.takeNavigation(),
     ]);
-    if (navigation === "Logs") setPage("Logs");
+    if (navigation === "Logs" && (!handoffLeaveGuard.current || handoffLeaveGuard.current())) setPage("Logs");
     const core = snapshot.core;
     if (snapshot.lifecycle !== "Running" || (!isWebUi && core?.mode !== "hub")) {
       setPage((current) => (current === "Devices" ? "Overview" : current));
@@ -73,7 +79,7 @@ export function App() {
       <div className="app-shell">
         <AppSidebar
           page={currentPage}
-          onNavigate={setPage}
+          onNavigate={navigate}
           bridge={error || stopped ? { ...bridge, status: "failed" } : bridge}
           showDevices={showDevices}
         />
@@ -118,7 +124,7 @@ export function App() {
             ) : currentPage === "Settings" ? (
               <Settings currentMode={currentMode} />
             ) : currentPage === "Handoffs" ? (
-              <Suspense fallback={<p role="status">{t("Loading handoffs...")}</p>}><Handoffs /></Suspense>
+              <Suspense fallback={<p role="status">{t("Loading handoffs...")}</p>}><Handoffs onLeaveGuard={registerHandoffGuard} /></Suspense>
             ) : (
               <Logs />
             )}

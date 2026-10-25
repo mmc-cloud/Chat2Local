@@ -139,6 +139,13 @@ class HandoffRequest(_Request):
     handoff_id: str
 
 
+class HandoffSaveRequest(HandoffRequest):
+    title: str
+    summary: str
+    content: str
+    expected_revision: int
+
+
 def _redact_snapshot(snapshot: dict) -> dict:
     snapshot = deepcopy(snapshot)
     for part in ("persisted", "effective"):
@@ -206,6 +213,7 @@ def create_management_app(adapter: CoreAdapter, *, port: int, stop: Callable[[],
         "list_devices": (_Request, lambda _: adapter.runtime.devices()),
         "list_local_handoffs": (_Request, lambda _: adapter.list_local_handoffs()),
         "get_local_handoff": (HandoffRequest, lambda req: adapter.get_local_handoff(req.handoff_id)),
+        "save_local_handoff": (HandoffSaveRequest, lambda req: adapter.save_local_handoff(**req.model_dump())),
         "browser_status": (_Request, lambda _: adapter.browser_status()),
         "credential_info": (CredentialRequest, lambda req: adapter.credential_info(req.purpose, req.path)),
         "manage_token": (TokenRequest, lambda req: adapter.manage_token(**req.model_dump())),

@@ -111,3 +111,31 @@ test("Handoff browsing transports send identities through the two read-only oper
     } finally { f.dom.window.close(); }
   }
 });
+
+test("Both transports save only the existing Handoff identity, three draft fields and expected revision", async () => {
+  for (const web of [true, false]) {
+    const f = fixture(web);
+    const calls = [];
+    try {
+      if (!web) f.dom.window.pywebview = { api: {
+        ping: async () => ({ ok: true, app: "Chat2Local", version: "test", backend: "pywebview" }),
+        save_local_handoff: async (...args) => {
+          calls.push(args);
+          return { ok: false, error: { message: "revision_conflict: expected revision 3, current revision 4" } };
+        },
+      } };
+      const pending = f.coreApi.saveLocalHandoff("6162:design", "Title", "Summary", "# Body\n正文", 3);
+      if (web) {
+        await pending;
+        const [path, options] = f.calls.at(-1);
+        assert.equal(path, "/api/save_local_handoff");
+        assert.deepEqual(JSON.parse(options.body), { handoff_id: "6162:design", title: "Title", summary: "Summary", content: "# Body\n正文", expected_revision: 3 });
+        assert.equal(options.headers["X-Chat2Local-CSRF"], "SESSION-CSRF");
+      } else {
+        await assert.rejects(pending, /^Error: revision_conflict:/);
+        assert.deepEqual(calls, [["6162:design", "Title", "Summary", "# Body\n正文", 3]]);
+        assert.equal(f.calls.length, 0);
+      }
+    } finally { f.dom.window.close(); }
+  }
+});

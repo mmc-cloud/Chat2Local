@@ -30,11 +30,19 @@ async function fixture(language = "en", web = false) {
   const { createRoot } = require("react-dom/client");
   const root = createRoot(globalThis.document.getElementById("root"));
   const calls = [];
+  const copied = [], confirmations = [];
+  let confirmResult = false, leaveGuard;
+  dom.window.confirm = (message) => { confirmations.push(message); return confirmResult; };
+  const navigator = { clipboard: { writeText: async (value) => copied.push(value) } };
   const api = {
     localHandoffs: async () => ({ handoffs: [], issues: [] }),
     localHandoff: async (id) => {
       calls.push(id);
       return { ...entries.find((e) => e.id === id), content: "# Body\n\n**Read only**\n\n- First\n- Second" };
+    },
+    saveLocalHandoff: async (id, title, summary, content, revision) => {
+      calls.push(["save", id, title, summary, content, revision]);
+      return { ...entries.find((e) => e.id === id), title, summary, content, revision: revision + 1, updated_at: "2026-10-25T03:00:00Z" };
     },
   };
   const entries = [entry("a", "Same project", "Alpha"), entry("b", "Same project", "Beta"),
@@ -46,7 +54,17 @@ async function fixture(language = "en", web = false) {
     "@/components/ui/input": { Input: native("input") },
     "lucide-react": { RefreshCw: () => null, ChevronRight: () => null },
     "react-markdown": { __esModule: true, default: Markdown },
+    "@/components/ui/tooltip": { TooltipProvider: ({ children }) => children },
+    "sonner": { Toaster: () => null },
+    "@/lib/poll": { usePoll: () => ({ data: { lifecycle: "Stopped", core: null } }) },
+    "@/pages/overview": { Overview: () => React.createElement("p", null, "Overview page") },
+    "@/pages/devices": { Devices: () => null },
+    "@/pages/settings": { Settings: () => React.createElement("p", null, "Settings page") },
+    "@/pages/logs": { Logs: () => React.createElement("p", null, "Logs page") },
+    "@/components/app-sidebar": { AppSidebar: ({ onNavigate }) => React.createElement("nav", null,
+      ...["Overview", "Handoffs", "Settings", "Logs"].map((page) => React.createElement("button", { key: page, onClick: () => onNavigate(page) }, page))) },
   };
+  mocks["@/lib/bridge"].useBridge = () => ({ status: "connected" });
   function load(name) {
     if (mocks[name]) return mocks[name];
     if (!name.startsWith("@/")) return require(name);
@@ -55,11 +73,12 @@ async function fixture(language = "en", web = false) {
     const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
     const module = { exports: {} };
     vm.runInNewContext(code, { require: load, module, exports: module.exports, document: dom.window.document,
-      window: dom.window, localStorage: dom.window.localStorage, setTimeout, clearTimeout });
+      window: dom.window, navigator, localStorage: dom.window.localStorage, setTimeout, clearTimeout });
     return module.exports;
   }
   const { Handoffs } = load("@/pages/handoffs");
-  const render = () => React.act(async () => root.render(React.createElement(Handoffs)));
+  const render = () => React.act(async () => root.render(React.createElement(Handoffs, { onLeaveGuard: (next) => { leaveGuard = next; } })));
+  const renderApp = () => React.act(async () => root.render(React.createElement(load("@/app").App)));
   const click = async (button) => { assert.ok(button); await React.act(async () => button.click()); };
   const toggleGroup = async (index) => click(globalThis.document.querySelectorAll(".handoff-group-toggle")[index]);
   const search = async (value) => React.act(async () => {
@@ -68,7 +87,18 @@ async function fixture(language = "en", web = false) {
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
   const close = async () => { await React.act(async () => root.unmount()); dom.window.close(); };
-  return { api, entries, calls, render, click, toggleGroup, search, close };
+  const field = async (selector, value) => React.act(async () => {
+    const input = globalThis.document.querySelector(selector);
+    assert.ok(input);
+    const prototype = input.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  const button = (text) => [...globalThis.document.querySelectorAll("button")].find((node) => node.textContent === text);
+  const beforeUnload = () => { const event = new dom.window.Event("beforeunload", { cancelable: true }); dom.window.dispatchEvent(event); return event.defaultPrevented; };
+  const submit = () => React.act(async () => globalThis.document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+  return { api, entries, calls, render, renderApp, click, toggleGroup, search, close, field, button, beforeUnload, submit,
+    copied, navigator, confirmations, confirm: (value) => { confirmResult = value; }, canLeave: () => leaveGuard?.() ?? true };
 }
 
 for (const web of [false, true]) test(`Handoffs group by identity and render selected metadata and Markdown (${web ? "HTTP" : "GUI"})`, async () => {
@@ -159,5 +189,222 @@ test("Markdown preview never creates HTML scripts, images or navigable external 
     const preview = globalThis.document.querySelector(".handoff-markdown");
     assert.equal(preview.querySelector("script, iframe, img, [onerror]"), null);
     assert.deepEqual([...preview.querySelectorAll("a")].map((a) => a.getAttribute("href")), ["#body"]);
+  } finally { await f.close(); }
+});
+
+async function editFixture(web = false, language = "en", app = false) {
+  const f = await fixture(language, web);
+  f.api.localHandoffs = async () => ({ handoffs: f.entries, issues: [] });
+  if (app) { await f.renderApp(); await f.click(f.button("Handoffs")); }
+  else await f.render();
+  await f.toggleGroup(1);
+  await f.click(globalThis.document.querySelector(".handoff-item"));
+  await f.click(f.button(language === "en" ? "Edit handoff" : "编辑交接状态"));
+  return f;
+}
+
+for (const web of [false, true]) test(`Editing saves all three fields and updates the reader and list (${web ? "Web" : "GUI"})`, async () => {
+  const f = await editFixture(web);
+  try {
+    assert.equal(f.beforeUnload(), false);
+    await f.field("#handoff-title", "New title");
+    await f.field("#handoff-summary", "New summary");
+    await f.field("#handoff-content", "# New body\n\n正文");
+    assert.equal(f.beforeUnload(), true);
+    assert.match(globalThis.document.querySelector(".handoff-metadata").textContent, /design.*3/s);
+    await f.click(f.button("Save changes"));
+    assert.deepEqual(f.calls.at(-1), ["save", "a:design", "New title", "New summary", "# New body\n\n正文", 3]);
+    assert.equal(globalThis.document.querySelector("form"), null);
+    assert.match(globalThis.document.querySelector(".handoff-metadata").textContent, /New summary.*4.*2026-10-25T03/s);
+    assert.equal(globalThis.document.querySelector(".handoff-item strong").textContent, "New title");
+    assert.equal(globalThis.document.querySelector(".handoff-item span").textContent, "New summary");
+    assert.equal(globalThis.document.querySelector(".handoff-markdown h1").textContent, "New body");
+    assert.equal(f.beforeUnload(), false);
+    assert.equal(f.canLeave(), true);
+    assert.equal(f.confirmations.length, 0);
+  } finally { await f.close(); }
+});
+
+for (const action of ["switch", "refresh", "cancel", "leave"]) test(`Unsaved changes require confirmation for ${action}`, async () => {
+  const f = await editFixture();
+  try {
+    await f.field("#handoff-title", "Draft title");
+    if (action === "switch") await f.toggleGroup(2);
+    const perform = () => action === "switch" ? f.click(globalThis.document.querySelectorAll(".handoff-item")[1])
+      : action === "refresh" ? f.click(f.button("Refresh")) : action === "cancel" ? f.click(f.button("Cancel editing")) : f.canLeave();
+    assert.equal(f.beforeUnload(), true);
+    await perform();
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "Draft title");
+    assert.equal(f.confirmations.length, 1);
+    f.confirm(true);
+    const accepted = await perform();
+    if (action === "leave") assert.equal(accepted, true);
+    else assert.equal(globalThis.document.querySelector("form"), null);
+    assert.equal(f.confirmations.length, 2);
+  } finally { await f.close(); }
+});
+
+test("Opening an editor or reverting edits does not cause a discard prompt", async () => {
+  const f = await editFixture();
+  try {
+    await f.field("#handoff-title", "Changed");
+    await f.field("#handoff-title", "Alpha");
+    assert.equal(f.beforeUnload(), false);
+    assert.equal(f.canLeave(), true);
+    await f.click(f.button("Cancel editing"));
+    assert.equal(f.confirmations.length, 0);
+    assert.ok(f.button("Edit handoff"));
+  } finally { await f.close(); }
+});
+
+for (const message of ["handoff_not_found: design", "invalid_handoff: broken", "handoff_write_failed: permission denied"]) test(`Save failure keeps the complete draft: ${message}`, async () => {
+  const f = await editFixture();
+  try {
+    f.api.saveLocalHandoff = async () => { throw new Error(message); };
+    await f.field("#handoff-title", "Draft title");
+    await f.field("#handoff-summary", "Draft summary");
+    await f.field("#handoff-content", "Draft body");
+    await f.click(f.button("Save changes"));
+    assert.match(globalThis.document.querySelector('[role="alert"]').textContent, /Your draft has been kept/);
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "Draft title");
+    assert.equal(globalThis.document.getElementById("handoff-summary").value, "Draft summary");
+    assert.equal(globalThis.document.getElementById("handoff-content").value, "Draft body");
+    assert.equal(f.beforeUnload(), true);
+  } finally { await f.close(); }
+});
+
+test("Pending saves block duplicate submissions, switching, refresh, cancel and leaving", async () => {
+  const f = await editFixture();
+  const pending = deferred();
+  let saves = 0;
+  try {
+    f.api.saveLocalHandoff = () => { saves++; return pending.promise; };
+    await f.field("#handoff-title", "Pending draft");
+    await f.toggleGroup(2);
+    await f.submit();
+    await f.submit();
+    await f.click(f.button("Refresh"));
+    await f.click(globalThis.document.querySelectorAll(".handoff-item")[1]);
+    await f.click(f.button("Cancel editing"));
+    assert.equal(saves, 1);
+    assert.equal(f.button("Refresh").disabled, true);
+    assert.equal(f.canLeave(), false);
+    assert.equal(f.confirmations.length, 0);
+    assert.equal(f.beforeUnload(), true);
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "Pending draft");
+    await React.act(async () => pending.resolve({ ...f.entries[0], title: "Pending draft", content: "Saved body", revision: 4 }));
+    assert.equal(globalThis.document.querySelector("form"), null);
+    assert.equal(f.beforeUnload(), false);
+  } finally { await f.close(); }
+});
+
+test("Revision conflict compares both complete versions, copies draft, and reloads only after confirmation", async () => {
+  const f = await editFixture();
+  try {
+    const latest = { ...f.entries[0], revision: 4, title: "MCP title", summary: "MCP summary", content: "MCP body\n".repeat(200) };
+    f.api.saveLocalHandoff = async () => { throw new Error("revision_conflict: expected revision 3, current revision 4"); };
+    f.api.localHandoff = async () => latest;
+    await f.field("#handoff-title", "My title");
+    await f.field("#handoff-summary", "My summary");
+    await f.field("#handoff-content", "My body\n".repeat(200));
+    await f.click(f.button("Save changes"));
+    assert.match(globalThis.document.querySelector('[role="alert"]').textContent, /newer revision/);
+    await f.click(f.button("Compare versions"));
+    let areas = globalThis.document.querySelectorAll(".handoff-comparison textarea");
+    assert.equal(areas.length, 2);
+    assert.equal(areas[0].readOnly && areas[1].readOnly, true);
+    assert.match(areas[0].value, /Title: My title\nSummary: My summary\n\nMarkdown:\nMy body/);
+    assert.match(areas[1].value, /Revision: 4.*Title: MCP title.*Summary: MCP summary.*MCP body/s);
+    await f.click(f.button("Copy my changes"));
+    assert.equal(f.copied[0], areas[0].value);
+    assert.match(globalThis.document.querySelector('[role="status"]').textContent, /copied/);
+    f.navigator.clipboard.writeText = async () => { throw new Error("denied"); };
+    await f.click(f.button("Copy my changes"));
+    assert.match(globalThis.document.body.textContent, /Could not copy your changes/);
+    await f.click(f.button("Return to editing"));
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "My title");
+    await f.click(f.button("Load latest version"));
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "My title");
+    f.confirm(true);
+    f.api.localHandoff = async () => { throw new Error("disk unavailable"); };
+    await f.click(f.button("Load latest version"));
+    assert.match(globalThis.document.body.textContent, /Could not load the latest version/);
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "My title");
+    f.api.localHandoff = async () => ({ ...latest, revision: 5 });
+    await f.click(f.button("Load latest version"));
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "MCP title");
+    assert.equal(globalThis.document.getElementById("handoff-content").value, latest.content);
+    assert.match(globalThis.document.querySelector(".handoff-metadata").textContent, /5/);
+    assert.equal(f.beforeUnload(), false);
+    await f.field("#handoff-title", "Rebased title");
+    let revision;
+    f.api.saveLocalHandoff = async (_id, title, summary, content, expected) => { revision = expected; return { ...latest, title, summary, content, revision: expected + 1 }; };
+    await f.click(f.button("Save changes"));
+    assert.equal(revision, 5);
+    assert.equal(globalThis.document.querySelector("form"), null);
+  } finally { await f.close(); }
+});
+
+test("Failed or pending comparison reads keep the draft and block abandoning it", async () => {
+  const f = await editFixture();
+  const pending = deferred();
+  try {
+    await f.field("#handoff-title", "Keep me");
+    f.api.saveLocalHandoff = async () => { throw new Error("revision_conflict: changed"); };
+    await f.click(f.button("Save changes"));
+    f.api.localHandoff = () => pending.promise;
+    await f.click(f.button("Compare versions"));
+    assert.equal(f.canLeave(), false);
+    assert.equal(globalThis.document.querySelector('textarea[aria-label="My changes"]').value.includes("Keep me"), true);
+    await React.act(async () => pending.reject(new Error("latest deleted")));
+    assert.match(globalThis.document.body.textContent, /Could not load the latest version/);
+    assert.equal(globalThis.document.querySelector('textarea[aria-label="My changes"]').value.includes("Keep me"), true);
+    await f.click(f.button("Return to editing"));
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "Keep me");
+  } finally { await f.close(); }
+});
+
+test("A later save failure replaces an earlier conflict warning without losing the draft", async () => {
+  const f = await editFixture();
+  try {
+    await f.field("#handoff-title", "Keep draft");
+    f.api.saveLocalHandoff = async () => { throw new Error("revision_conflict: changed"); };
+    await f.click(f.button("Save changes"));
+    assert.ok(f.button("Compare versions"));
+    f.api.saveLocalHandoff = async () => { throw new Error("handoff_not_found: design"); };
+    await f.click(f.button("Save changes"));
+    assert.equal(f.button("Compare versions"), undefined);
+    assert.match(globalThis.document.querySelector('[role="alert"]').textContent, /Could not save this handoff/);
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "Keep draft");
+  } finally { await f.close(); }
+});
+
+test("Actual App navigation respects the Handoffs leave guard", async () => {
+  const f = await editFixture(true, "en", true);
+  try {
+    await f.field("#handoff-title", "Unsaved navigation draft");
+    await f.click(f.button("Logs"));
+    assert.ok(globalThis.document.getElementById("handoff-title"));
+    assert.equal(f.confirmations.length, 1);
+    f.confirm(true);
+    await f.click(f.button("Logs"));
+    assert.equal(globalThis.document.querySelector(".handoffs-page"), null);
+    assert.match(globalThis.document.body.textContent, /Logs page/);
+    assert.equal(f.beforeUnload(), false);
+  } finally { await f.close(); }
+});
+
+test("Editing and conflict actions are translated to Chinese", async () => {
+  const f = await editFixture(false, "zh-CN");
+  try {
+    await f.field("#handoff-title", "草稿");
+    f.api.saveLocalHandoff = async () => { throw new Error("revision_conflict: changed"); };
+    await f.click(f.button("保存更改"));
+    assert.ok(f.button("查看版本对比"));
+    assert.ok(f.button("复制我的修改"));
+    assert.ok(f.button("加载最新版本"));
+    await f.click(f.button("取消编辑并返回阅读"));
+    assert.equal(f.confirmations[0], "放弃尚未保存的交接状态修改？");
+    assert.equal(globalThis.document.getElementById("handoff-title").value, "草稿");
   } finally { await f.close(); }
 });

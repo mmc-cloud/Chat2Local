@@ -219,6 +219,8 @@ def test_browse_rejects_aliases(tmp_path, isolated_user_data, kind, location):
     assert "symlinks or junctions" in result["issues"][0]["message"]
     with pytest.raises(InvalidHandoffError, match="symlinks or junctions"):
         run(store.get_local(store._local_identity(key, "design")))
+    with pytest.raises(InvalidHandoffError, match="symlinks or junctions"):
+        run(store.save_local(store._local_identity(key, "design"), "Title", "Summary", "body", 1))
 
 
 def test_gui_http_share_local_results_without_core(local_handoffs, tmp_path, monkeypatch):
@@ -247,5 +249,5 @@ def test_gui_http_share_local_results_without_core(local_handoffs, tmp_path, mon
         for parameters in ({"path": "secret.md"}, {"handoff_id": entry["id"], "path": "secret.md"}, {"handoff_id": 1}):
             assert client.post("/api/get_local_handoff", json=parameters).status_code == 400
         assert client.post("/api/list_local_handoffs", json={"workspace": "arbitrary"}).status_code == 400
-        for method in ("save_local_handoff", "delete_local_handoff"):
-            assert client.post(f"/api/{method}", json={}).status_code == 404
+        assert client.post("/api/save_local_handoff", json={}).status_code == 400
+        assert client.post("/api/delete_local_handoff", json={}).status_code == 404

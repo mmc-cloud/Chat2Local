@@ -134,6 +134,10 @@ class GuiBridge:
     def get_local_handoff(self, handoff_id: str):
         return self._call(self._adapter.get_local_handoff, handoff_id)
 
+    def save_local_handoff(self, handoff_id: str, title: str, summary: str,
+                           content: str, expected_revision: int):
+        return self._call(self._adapter.save_local_handoff, handoff_id, title, summary, content, expected_revision)
+
     def browser_status(self):
         return self._call(self._adapter.browser_status)
 
