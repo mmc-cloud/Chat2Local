@@ -235,6 +235,58 @@ test("group move verifies actual position for left/right, cross-window, end and 
   }
 });
 
+test("undefined move result succeeds only with independently verified layout, with one native write", async () => {
+  for (const [index, window_id, expected] of [[0, 7, 0], [3, 7, 3], [0, 8, 0]]) {
+    const { f, id } = await movableGroup(), nativeMove = f.chrome.tabGroups.move;
+    f.chrome.tabGroups.move = async (...args) => { await nativeMove(...args); };
+    const result = await f.manage({ action: "move", group_id: id, index, window_id });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.result.actual_index, expected);
+    assert.equal(result.result.group.window_id, window_id);
+    assert.deepEqual(Array.from(result.result.group.tab_ids), [1, 2]);
+    assert.deepEqual(Array.from(result.result.group.tabs, (tab) => tab.index), [expected, expected + 1]);
+    assert.deepEqual(Array.from(result.result.completed_steps), ["moved"]);
+    assert.equal(f.mutations.filter(([name]) => name === "groups.move").length, 1);
+  }
+});
+
+test("undefined move result cannot hide no-op, wrong position or changed group state", async () => {
+  for (const change of ["no-op", "wrong-position", "window", "member", "order", "gap"]) {
+    const { f, id } = await movableGroup(), nativeMove = f.chrome.tabGroups.move;
+    let attempts = 0;
+    f.chrome.tabGroups.move = async (groupId, args) => {
+      attempts++;
+      if (change !== "no-op") await nativeMove(groupId, { ...args, index: change === "wrong-position" ? 3 : args.index });
+      if (change === "window") f.groups[0].windowId = 8;
+      if (change === "member") f.tabs[0].groupId = -1;
+      if (change === "order") [f.tabs[0].index, f.tabs[1].index] = [f.tabs[1].index, f.tabs[0].index];
+      if (change === "gap") f.tabs[1].index += 5;
+    };
+    const result = await f.manage({ action: "move", group_id: id, index: 0 });
+    assert.equal(result.error.code, "state_not_reached", change);
+    assert.deepEqual(Array.from(result.error.details.progress.completed_steps), ["moved"]);
+    assert.equal(result.error.details.progress.outcome, "partial");
+    assert.equal(attempts, 1);
+  }
+});
+
+test("present move results with incorrect identity/window or malformed values are rejected", async () => {
+  for (const returned of ["id", "window", "missing-window", "null"]) {
+    const { f, id } = await movableGroup(), nativeMove = f.chrome.tabGroups.move;
+    f.chrome.tabGroups.move = async (...args) => {
+      const result = await nativeMove(...args);
+      if (returned === "id") result.id++;
+      if (returned === "window") result.windowId = 7;
+      if (returned === "missing-window") delete result.windowId;
+      return returned === "null" ? null : result;
+    };
+    const result = await f.manage({ action: "move", group_id: id, window_id: 8, index: 0 });
+    assert.equal(result.error.code, "state_not_reached", returned);
+    assert.deepEqual(Array.from(result.error.details.progress.completed_steps), ["moved"]);
+    assert.equal(f.mutations.filter(([name]) => name === "groups.move").length, 1);
+  }
+});
+
 test("native boundary adjustments can succeed without requiring the requested numeric index", async () => {
   for (const [constraint, adjusted] of [["pinned", 1], ["group", 0], ["group", 2]]) {
     const { f, id } = await movableGroup();

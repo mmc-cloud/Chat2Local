@@ -203,7 +203,8 @@
           const strip = ordered(destination.result.tabs);
           if (strip.length > 10000) return failed("result_too_large");
           const inStrip = strip.filter((tab) => tab.groupId === groupId);
-          if (actual.id !== groupId || movedGroup?.id !== groupId || movedGroup.windowId !== actual.windowId
+          // The native receipt is optional; observed state is always required.
+          if (actual.id !== groupId || (movedGroup !== undefined && (movedGroup?.id !== groupId || movedGroup.windowId !== actual.windowId))
             || !contiguous(members, actual) || JSON.stringify(members.map((tab) => tab.id)) !== JSON.stringify(membersBefore)
             || layout(strip.filter((tab) => tab.groupId !== groupId)) !== layout(moveBefore.destination.filter((tab) => tab.groupId !== groupId))
             || strip.some((tab, index) => tab.index !== index) || inStrip.length !== members.length

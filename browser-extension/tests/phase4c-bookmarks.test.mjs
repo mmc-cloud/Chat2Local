@@ -41,6 +41,78 @@ test("roots/get/children/search/recent are read-only, typed, ID-specific and san
   assert.equal(f.mutations.length, 0); assert.equal(f.calls.injected.length, 0);
 });
 
+test("modern roots reads only the advertised root and its immediate children", async () => {
+  const f = bookmarks(), calls = [], nativeGet = f.chrome.bookmarks.get, nativeChildren = f.chrome.bookmarks.getChildren;
+  f.chrome.bookmarks.ROOT_NODE_ID = "root";
+  f.chrome.bookmarks.get = async (id) => { calls.push(["get", id]); return nativeGet(id); };
+  f.chrome.bookmarks.getChildren = async (id) => { calls.push(["getChildren", id]); return nativeChildren(id); };
+  f.chrome.bookmarks.getTree = async () => { assert.fail("Modern roots must not read the full tree"); };
+  f.chrome.bookmarks.getSubTree = async () => { assert.fail("Modern roots must not read subtrees"); };
+  const result = ok(await f.query());
+  assert.deepEqual(calls, [["get", "root"], ["getChildren", "root"]]);
+  assert.deepEqual(Array.from(result.nodes, (node) => [node.bookmark_id, node.depth, node.parent_id]),
+    [["root", 0, null], ["bar", 1, "root"], ["other", 1, "root"], ["managed", 1, "root"]]);
+  assert.equal(result.nodes[0].children_omitted, false);
+  assert.equal(result.nodes[1].children_omitted, true);
+  assert.equal(f.mutations.length, 0);
+});
+
+test("modern and legacy roots preserve dual stores, fields, order, pages and snapshots", async () => {
+  const f = bookmarks(), calls = { get: 0, children: 0, tree: 0 };
+  f.nodes.get("bar").syncing = false; f.nodes.get("other").syncing = false;
+  f.add("account-bar", "root", { folderType: "bookmarks-bar", syncing: true });
+  f.add("account-other", "root", { folderType: "other", syncing: true, title: "token=PRIVATE-ACCOUNT" });
+  for (const [method, key] of [["get", "get"], ["getChildren", "children"], ["getTree", "tree"]]) {
+    const native = f.chrome.bookmarks[method];
+    f.chrome.bookmarks[method] = async (...args) => { calls[key]++; return native(...args); };
+  }
+  let args = { action: "roots", limit: 2 };
+  const nodes = [];
+  for (;;) {
+    f.chrome.bookmarks.ROOT_NODE_ID = "root";
+    const modern = ok(await f.query(args));
+    delete f.chrome.bookmarks.ROOT_NODE_ID;
+    const legacy = ok(await f.query(args));
+    assert.deepEqual(modern, legacy); // Includes the same worker-keyed snapshot.
+    assert.equal(modern.total, 6); assert.equal(modern.depth_limited, false);
+    assert.equal(JSON.stringify(modern).includes("PRIVATE-"), false);
+    nodes.push(...modern.nodes);
+    if (!modern.has_more) { assert.equal(modern.next_offset, null); break; }
+    args = { ...args, offset: modern.next_offset, snapshot: modern.snapshot };
+  }
+  assert.deepEqual(nodes.map((node) => node.bookmark_id), ["root", "bar", "other", "managed", "account-bar", "account-other"]);
+  for (const folderType of ["bookmarks-bar", "other"]) {
+    assert.deepEqual(nodes.filter((node) => node.folder_type === folderType).map((node) => node.syncing), [false, true]);
+  }
+  assert.deepEqual(calls, { get: 3, children: 3, tree: 3 });
+  assert.equal(f.mutations.length, 0);
+});
+
+test("modern roots detects changes across pages without falling back to getTree", async () => {
+  const f = bookmarks(); f.chrome.bookmarks.ROOT_NODE_ID = "root";
+  f.chrome.bookmarks.getTree = async () => { assert.fail("Modern roots must not fall back to full-tree reads"); };
+  const first = ok(await f.query({ limit: 2 }));
+  f.add("account-bar", "root", { folderType: "bookmarks-bar", syncing: true });
+  error(await f.query({ limit: 2, offset: first.next_offset, snapshot: first.snapshot }), "bookmark_changed");
+});
+
+test("modern roots does not visit large or deeply nested bookmark descendants", async () => {
+  const f = bookmarks();
+  let parent = "empty";
+  for (let i = 0; i < 500; i++) { f.add(`deep${i}`, parent); parent = `deep${i}`; }
+  bulk(f, parent, 20000);
+  Object.defineProperty(f.nodes.get("bulk0"), "title", { get() { assert.fail("Descendants must not be traversed"); } });
+  f.chrome.bookmarks.ROOT_NODE_ID = "root";
+  const nativeGet = f.chrome.bookmarks.get, nativeChildren = f.chrome.bookmarks.getChildren;
+  let reads = 0;
+  f.chrome.bookmarks.get = async (id) => { assert.equal(id, "root"); reads++; return nativeGet(id); };
+  f.chrome.bookmarks.getChildren = async (id) => { assert.equal(id, "root"); reads++; return nativeChildren(id); };
+  f.chrome.bookmarks.getTree = async () => { assert.fail("Modern roots must not clone a large tree"); };
+  f.chrome.bookmarks.getSubTree = async () => { assert.fail("Modern roots must not traverse a large subtree"); };
+  assert.equal(ok(await f.query()).total, 4);
+  assert.equal(reads, 2); assert.equal(f.mutations.length, 0);
+});
+
 test("large result pages continue beyond 50 and declare empty/last/out-of-range pages", async () => {
   const f = bookmarks(); bulk(f, "empty", 127);
   let args = { action: "children", folder_id: "empty" }, ids = [];

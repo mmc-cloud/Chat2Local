@@ -147,7 +147,12 @@
     let rows = [], depthLimited = false;
     if (args.action === "get") rows = [{ node: await requireNode(args.bookmark_id), depth: 0 }];
     else if (args.action === "roots") {
-      const roots = await chrome.bookmarks.getTree();
+      let roots;
+      // Chrome 145+ exposes the root ID; older versions need tree discovery.
+      if (chrome.bookmarks.ROOT_NODE_ID !== undefined) {
+        const root = await requireNode(chrome.bookmarks.ROOT_NODE_ID, true);
+        roots = [{ ...root, children: await children(root) }];
+      } else roots = await chrome.bookmarks.getTree();
       for (const root of roots) {
         if (rows.length + 1 + (root.children?.length ?? 0) > MAX_NODES) stop("bookmark_traversal_limit");
         rows.push({ node: root, depth: 0, omitted: false });
