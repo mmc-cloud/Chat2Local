@@ -1,43 +1,123 @@
 <!doctype html>
 <html lang="zh-CN">
-<meta charset="utf-8">
-<title>Chat2Local 浏览器连接</title>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Chat2Local Browser 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
 <body>
-  <h1>Chat2Local 浏览器连接</h1>
-  <p>扩展 ID：<code id="extension-id"></code></p>
-  <p>仅连接本机 127.0.0.1。凭据只保存在当前 Chrome 配置的本地扩展存储中。</p>
-  <form id="settings">
-    <p><label><input id="enabled" type="checkbox"> 启用连接</label></p>
-    <p><label>Agent 端口 <input id="port" type="number" min="1" max="65535" required value="8766"></label></p>
-    <p><label>独立浏览器凭据 <input id="token" type="password" autocomplete="off" minlength="32" maxlength="128" required></label></p>
-    <button type="submit">保存并重新连接</button>
-  </form>
-  <p id="saved" role="status"></p>
-  <p>连接状态：<span id="status"></span></p>
-  <h2>网页操作授权</h2>
-  <p>可选择授权全部普通 HTTP/HTTPS 网站。全站模式下，移除单站记录不会排除该网站。<br>
-    You can allow all ordinary HTTP/HTTPS websites. Removing an individual entry does not exclude it while all-site access is enabled.</p>
-  <button type="button" id="allow-all-websites">授权所有网站 / Allow all websites</button>
-  <button type="button" id="revoke-all-websites">撤销全站授权 / Revoke all-site access</button>
-  <p id="all-websites-status" role="status"></p>
-  <p>填写一个网站地址并点击授权。权限范围为该协议和主机的所有路径与端口；不包含其他子域名。</p>
-  <p>本机连接权限不会自动授权操作本机网页，也需要在这里确认。</p>
-  <form id="website-permission">
-    <label>网站地址 <input id="website-url" type="url" placeholder="https://example.com" required></label>
-    <button type="submit">授权此网站</button>
-  </form>
-  <p id="permission-status" role="status"></p>
-  <ul id="authorized-websites"></ul>
-  <h2>标签分组授权 / Tab group access</h2>
-  <p>独立于网站授权。只有在这里点击授权后，MCP 才可查询或管理标签分组。</p>
-  <button type="button" id="allow-tab-groups">授权标签分组 / Allow tab groups</button>
-  <button type="button" id="revoke-tab-groups">撤销标签分组授权 / Revoke tab groups</button>
-  <p id="tab-groups-status" role="status"></p>
-  <h2>书签授权 / Bookmark access</h2>
-  <p>独立于网站和标签分组授权。授权后 MCP 可以读取和管理书签；递归删除须先预览并在对话中确认。</p>
-  <button type="button" id="allow-bookmarks">授权书签访问 / Allow bookmarks</button>
-  <button type="button" id="revoke-bookmarks">撤销书签授权 / Revoke bookmarks</button>
-  <p id="bookmarks-status" role="status"></p>
+  <main class="page">
+    <header class="page-header">
+      <div class="heading-row">
+        <div>
+          <h1>Chat2Local Browser</h1>
+          <p class="subtitle">浏览器连接与权限设置</p>
+        </div>
+        <div class="header-controls">
+          <span id="status" class="badge" role="status">正在读取状态</span>
+          <div class="theme-picker">
+            <label for="theme">主题</label>
+            <select id="theme" aria-describedby="theme-feedback">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="extension-row">
+        <span>扩展 ID</span>
+        <code id="extension-id"></code>
+        <button type="button" id="copy-extension-id" class="button-small">复制</button>
+      </div>
+      <p id="copy-status" class="feedback" role="status" aria-live="polite"></p>
+      <p id="theme-feedback" class="feedback" role="status" aria-live="polite"></p>
+    </header>
+
+    <section class="card" aria-labelledby="connection-title">
+      <h2 id="connection-title">连接设置</h2>
+      <p class="description">仅连接本机 127.0.0.1。凭据仅保存在当前浏览器配置的本地扩展存储中。</p>
+      <form id="settings">
+        <fieldset id="connection-fields" disabled>
+          <label class="toggle-row" for="enabled">
+            <span><span class="field-title">启用连接</span><span class="field-hint">保存后生效；停用后将停止连接本机 Agent。</span></span>
+            <input id="enabled" class="switch" type="checkbox" role="switch">
+          </label>
+          <div class="field">
+            <label for="port">Agent 本机端口</label>
+            <input id="port" class="port-input" type="number" min="1" max="65535" step="1" required value="8766" aria-describedby="port-hint">
+            <p id="port-hint" class="hint">与本机 Agent 的浏览器连接端口保持一致，默认为 8766。</p>
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="token">浏览器独立凭据</label><span id="token-state" class="muted">正在读取</span></div>
+            <input id="token" type="password" autocomplete="off" spellcheck="false" minlength="32" maxlength="128" aria-describedby="token-hint" placeholder="输入浏览器独立凭据">
+            <p id="token-hint" class="hint">使用 32–128 位字母、数字、下划线或连字符。请使用浏览器专用凭据。</p>
+          </div>
+          <div class="form-actions"><button id="save-settings" class="primary" type="submit">保存设置</button></div>
+        </fieldset>
+      </form>
+      <p id="saved" class="feedback" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card" aria-labelledby="websites-title">
+      <h2 id="websites-title">网站访问权限</h2>
+      <p class="description">选择允许操作的网站。网站权限与下方浏览器权限分别授权。</p>
+      <div class="permission-heading">
+        <h3>全站授权</h3>
+        <span id="all-websites-status" class="badge" role="status">正在读取</span>
+      </div>
+      <p class="hint">允许访问所有普通 HTTP/HTTPS 网站，浏览器内部页面等受限页面仍不可访问。</p>
+      <div class="button-row">
+        <button type="button" id="allow-all-websites">授权所有网站</button>
+        <button type="button" id="revoke-all-websites">撤销全站授权</button>
+      </div>
+      <p id="all-websites-feedback" class="feedback" role="status" aria-live="polite"></p>
+      <p id="all-websites-notice" class="notice" hidden>全站授权已开启：移除单站记录不能排除该网站。如需限制访问范围，请先撤销全站授权。</p>
+
+      <div class="subsection">
+        <h3>单站授权</h3>
+        <p id="website-hint" class="hint">授权范围为该协议和主机的所有路径与端口，不包含其他子域名。本机网页也需要单独授权。</p>
+        <form id="website-permission" class="website-form">
+          <div class="field">
+            <label for="website-url">网站地址</label>
+            <input id="website-url" type="url" placeholder="https://example.com" required aria-describedby="website-hint" spellcheck="false">
+          </div>
+          <button id="allow-website" type="submit" class="primary">授权此网站</button>
+        </form>
+        <p id="permission-status" class="feedback" role="status" aria-live="polite"></p>
+        <div class="list-heading"><h3>已记录的网站</h3><span id="website-count" class="muted">0 个</span></div>
+        <p id="websites-empty" class="empty-state" hidden>尚未添加单站授权。可在上方输入网站地址。</p>
+        <ul id="authorized-websites" class="website-list" aria-label="单站授权记录"></ul>
+        <p id="websites-error" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="browser-title">
+      <h2 id="browser-title">浏览器权限</h2>
+      <p class="description">按需授权，标签分组和书签的授权互相独立。</p>
+      <div class="browser-permission">
+        <div class="permission-heading"><h3>标签分组</h3><span id="tab-groups-status" class="badge" role="status">正在读取</span></div>
+        <p class="hint">允许查询和管理标签分组。</p>
+        <div class="button-row">
+          <button type="button" id="allow-tab-groups">授权标签分组访问</button>
+          <button type="button" id="revoke-tab-groups">撤销授权</button>
+        </div>
+        <p id="tab-groups-feedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+      <div class="browser-permission subsection">
+        <div class="permission-heading"><h3>书签</h3><span id="bookmarks-status" class="badge" role="status">正在读取</span></div>
+        <p class="hint">允许读取和管理书签。递归删除须先预览并在对话中确认。</p>
+        <div class="button-row">
+          <button type="button" id="allow-bookmarks">授权书签访问</button>
+          <button type="button" id="revoke-bookmarks">撤销授权</button>
+        </div>
+        <p id="bookmarks-feedback" class="feedback" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+    <footer>权限仅在此页面经你确认后授予，可随时撤销。</footer>
+  </main>
   <script src="browser-operations.js"></script>
   <script src="options.js"></script>
 </body>

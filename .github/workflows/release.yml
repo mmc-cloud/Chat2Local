@@ -54,7 +54,7 @@ jobs:
               "manifest.json", "background.js", "browser-operations.js",
               "browser-navigation.js", "browser-groups.js", "browser-bookmarks.js",
               "browser-safety.js", "content-script.js", "capability-schemas.json",
-              "options.html", "options.js",
+              "options.html", "options.js", "options.css",
           )
           output = Path("release-assets") / f"Chat2Local-{os.environ['GITHUB_REF_NAME']}-chrome-extension.zip"
           output.parent.mkdir(parents=True, exist_ok=True)
