@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chat2Local Browser Bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Optional local browser capabilities for Chat2Local.",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms", "tabs", "scripting"],
