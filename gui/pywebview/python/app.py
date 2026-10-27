@@ -126,8 +126,39 @@ class DesktopShell:
             # pywebview 6.2.1's public closing event drops FormClosingEventArgs.
             # The native form exists here, including for a silent tray startup.
             self.window.native.FormClosing += self.on_windows_closing
+            self.window.native.FormClosed += self.on_closed
+            if self.exiting:
+                # A confirmed session end can arrive before WebView creation.
+                from System import Action
+
+                self.window.native.BeginInvoke(Action(self.window.native.Close))
         else:
             self.window.events.closing += self.on_closing
+            self.window.events.closed += self.on_closed
+
+    def on_closed(self, *_):
+        self._begin_exit()
+
+    def _begin_exit(self):
+        self.exiting = True
+        self.bridge._begin_shutdown()
+
+    def _dispatch_window(self, operation):
+        native = getattr(self.window, "native", None)
+        if sys.platform == "win32" and native is not None:
+            if getattr(native, "IsDisposed", False) is True:
+                return
+        if (
+            sys.platform == "win32"
+            and native is not None
+            and getattr(native, "InvokeRequired", False) is True
+        ):
+            from System import Action
+
+            # A tray/worker must not wait on a closing WinForms message loop.
+            native.BeginInvoke(Action(operation))
+        else:
+            operation()
 
     def on_windows_closing(self, sender, args):
         from System.Windows.Forms import CloseReason
@@ -151,15 +182,19 @@ class DesktopShell:
                 return False
             except Exception as error:  # noqa: BLE001 -- Desktop/native boundary, safe diagnostics.
                 log_exception_safe(logger, "Could not hide window; exiting GUI", error)
-        self.exiting = True
+        self._begin_exit()
         return True
 
     def open_window(self):
         if self.window is not None and not self.exiting:
-            self.window.show()
-            self.window.restore()
-            # pywebview 6.2.1 WinForms show() calls Activate(); no focus() API.
-            self.window.show()
+            def show():
+                if not self.exiting:
+                    self.window.show()
+                    self.window.restore()
+                    # pywebview 6.2.1 WinForms show() calls Activate(); no focus() API.
+                    self.window.show()
+
+            self._dispatch_window(show)
 
     def request_activation(self) -> bool:
         # IPC only signals; the existing desktop worker calls the native backend.
@@ -184,9 +219,11 @@ class DesktopShell:
             return page
 
     def exit(self):
-        self.exiting = True
-        if self.window is not None:
-            self.window.destroy()
+        self._begin_exit()
+        if self.window is not None and (
+            sys.platform != "win32" or self.window.native is not None
+        ):
+            self._dispatch_window(self.window.destroy)
 
     def report_error(self, message):
         self.error = message
@@ -268,7 +305,7 @@ class DesktopShell:
             self._auto_start_lock.release()
 
     def shutdown(self):
-        self.exiting = True
+        self._begin_exit()
         self.tray.shutdown()
 
 
@@ -372,6 +409,8 @@ def main() -> None:
 
                     instance.start(desktop.request_activation)
                     desktop.tray.start()
+                    if desktop.exiting is True:
+                        return
                     desktop.window = desktop.bridge._window = webview.create_window(
                         "Chat2Local",
                         url=url,

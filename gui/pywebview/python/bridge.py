@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 from importlib.metadata import PackageNotFoundError, version
 
 from desktop_logging import log_exception_safe
@@ -23,13 +24,45 @@ class GuiBridge:
         self._preferences = preferences or PreferencesStore()
         self._desktop = None
         self._window = None
+        self._closing = False
+        self._calls_lock = threading.Lock()
+        self._calls = set()
+
+    def _begin_shutdown(self):
+        """Cancel GUI waits, without stopping or killing the independent Core."""
+        with self._calls_lock:
+            self._closing = True
+            calls = tuple(self._calls)
+        for loop, task in calls:
+            try:
+                loop.call_soon_threadsafe(task.cancel)
+            except RuntimeError:
+                pass  # The call completed and closed its loop concurrently.
+
+    async def _await_call(self, coroutine):
+        task = asyncio.create_task(coroutine)
+        call = (asyncio.get_running_loop(), task)
+        with self._calls_lock:
+            self._calls.add(call)
+            if self._closing:
+                task.cancel()
+        try:
+            return await task
+        finally:
+            with self._calls_lock:
+                self._calls.discard(call)
 
     def _call(self, operation, *args):
         try:
+            with self._calls_lock:
+                if self._closing:
+                    return {"ok": False, "error": {"message": "Desktop is exiting"}}
             result = operation(*args)
             if asyncio.iscoroutine(result):
-                result = asyncio.run(result)
+                result = asyncio.run(self._await_call(result))
             return {"ok": True, "result": result}
+        except asyncio.CancelledError:
+            return {"ok": False, "error": {"message": "Desktop is exiting"}}
         except ValidationError:
             return {"ok": False, "error": {"message": "Invalid GUI request"}}
         except (ManagementError, ConfigError, WorkspaceError) as error:

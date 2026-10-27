@@ -92,7 +92,7 @@ def main():
             super().__init__(
                 **kwargs,
                 preferences=PreferencesStore(),
-                bridge=SimpleNamespace(),
+                bridge=SimpleNamespace(_begin_shutdown=lambda: None),
                 autostart=FakeAutostart(),
             )
 

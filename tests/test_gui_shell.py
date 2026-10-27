@@ -405,10 +405,10 @@ def test_reconcile_failure_keeps_gui_starting_and_preferences_intent(
     shell.SingleInstance.return_value.start.assert_called_once()
     shell.WindowsAutostart.return_value.reconcile.assert_called_once_with(True)
     assert store.current.launch_at_login and store.path.read_bytes() == previous
-    assert (
-        desktop.bridge.runtime_status()["result"]["desktop_error"]
-        == "Could not synchronize Windows login startup; see desktop log"
-    )
+    assert desktop.error == "Could not synchronize Windows login startup; see desktop log"
+    assert desktop.bridge.runtime_status() == {
+        "ok": False, "error": {"message": "Desktop is exiting"}
+    }
     contents = (isolated_user_data / "gui/desktop.log").read_text(encoding="utf-8")
     assert (
         "Could not synchronize Windows login startup" in contents

@@ -51,6 +51,9 @@ TRAY_TEXT = {
 
 
 def create_icon(controller):
+    import ctypes
+    from ctypes import wintypes
+
     import pystray
     from PIL import Image
     from pystray._util import win32
@@ -59,6 +62,78 @@ def create_icon(controller):
     # before _mark_ready. Run the tiny visibility setup on our owned loop instead,
     # so failure cannot strand that helper. No native mouse hooks are changed.
     class WindowsIcon(pystray.Icon):
+        def _run(self):
+            self._native_loop_entered = False
+            try:
+                super()._run()
+            finally:
+                self._running = False
+                if hasattr(self, "_atom"):
+                    # Upstream cleans up only after _mainloop was entered.
+                    # A failed second CreateWindow or visibility setup skips it.
+                    if not self._native_loop_entered:
+                        for hwnd in (self._hwnd, self._menu_hwnd):
+                            if hwnd:
+                                self._HWND_TO_ICON.pop(hwnd, None)
+                                win32.DestroyWindow(hwnd)
+                        menu_handle = getattr(self, "_menu_handle", None)
+                        if menu_handle:
+                            win32.DestroyMenu(menu_handle[0])
+                        self._unregister_class(self._atom)
+                    self._release_icon()
+
+        def _mainloop(self):
+            self._native_loop_entered = True
+            super()._mainloop()
+
+        def _on_stop(self, wparam, lparam):
+            # WM_QUIT alone can be consumed by TrackPopupMenuEx's modal loop.
+            # This handler always runs on the owning tray thread.
+            ctypes.WinDLL("user32").EndMenu()
+            super()._on_stop(wparam, lparam)
+
+        def _register_class(self):
+            # pystray 0.19.5 drops unknown messages on the main HWND and uses
+            # a 32-bit HRESULT WNDPROC even on Win64. Own only this icon's class;
+            # both its tray and menu HWNDs need the same session handling.
+            prototype = ctypes.WINFUNCTYPE(
+                ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
+                wintypes.WPARAM, wintypes.LPARAM,
+            )
+            default = ctypes.WinDLL("user32").DefWindowProcW
+            default.argtypes = prototype._argtypes_
+            default.restype = ctypes.c_ssize_t
+
+            def dispatch(hwnd, message, wparam, lparam):
+                try:
+                    if message == 0x11:  # WM_QUERYENDSESSION: no state changes.
+                        return 1
+                    if message == 0x16:  # WM_ENDSESSION
+                        if wparam:
+                            try:
+                                controller.session_ended()
+                            finally:
+                                self._on_stop(wparam, lparam)
+                        return 0
+                    if message == 0x10:  # WM_CLOSE on either hidden window.
+                        controller.submit("exit")
+                        return 0
+                    handler = self._message_handlers.get(message)
+                    if handler is not None:
+                        return int(handler(wparam, lparam) or 0)
+                except Exception as error:  # noqa: BLE001 -- ctypes callback boundary.
+                    log_exception_safe(logger, "Tray window message failed", error)
+                    return 0
+                return default(hwnd, message, wparam, lparam)
+
+            self._window_proc = prototype(dispatch)  # Retain until windows are destroyed.
+            return win32.RegisterClassEx(win32.WNDCLASSEX(
+                cbSize=ctypes.sizeof(win32.WNDCLASSEX),
+                lpfnWndProc=ctypes.cast(self._window_proc, win32.WNDPROC),
+                hInstance=win32.GetModuleHandle(None),
+                lpszClassName=f"{self.name}{id(self)}SystemTrayIcon",
+            ))
+
         def _start_setup(self, setup):
             self._desktop_setup = setup
             self._setup_thread = threading.current_thread()
@@ -218,10 +293,9 @@ class TrayController:
         if self._stopping.is_set():
             return
         if command == "exit":
-            try:
-                self._commands.get_nowait()
-            except queue.Empty:
-                pass
+            # Never put exit behind a Core status request or a lifecycle action.
+            self.desktop.exit()
+            return
         try:
             self._commands.put_nowait(command)
         except queue.Full:
@@ -233,14 +307,14 @@ class TrayController:
             self._operation = self._operations.submit(
                 self._operate, self.desktop.auto_start_core
             )
-            while not self._stopping.is_set():
+            while not self._stopping.is_set() and not self.desktop.exiting:
                 self.desktop.activate_pending()
                 self.refresh()
                 try:
                     command = self._commands.get(timeout=1)
                 except queue.Empty:
                     continue
-                if not self._stopping.is_set():
+                if not self._stopping.is_set() and not self.desktop.exiting:
                     if command in ("start", "stop", "restart"):
                         if self._operation is None or self._operation.done():
                             self._operation = self._operations.submit(
@@ -302,6 +376,13 @@ class TrayController:
             if not result["ok"]:
                 logger.error("Tray Core operation failed")
                 self.desktop.report_error(result["error"]["message"])
+
+    def session_ended(self):
+        # Called only for WM_ENDSESSION(TRUE), on the tray's native thread.
+        # exit() posts to WinForms; never join another message loop here.
+        self._icon_stopping.set()
+        self._stopping.set()
+        self.desktop.exit()
 
     def shutdown(self):
         self._stopping.set()

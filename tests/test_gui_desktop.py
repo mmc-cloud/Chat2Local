@@ -70,8 +70,10 @@ def desktop(modules, tmp_path):
     )
     shell = modules.app.DesktopShell(preferences=preferences, bridge=bridge)
     shell.window = Mock()
-    shell.window.native = SimpleNamespace(FormClosing=ClosingEvent())
-    shell.window.events = SimpleNamespace(closing=ClosingEvent())
+    shell.window.native = SimpleNamespace(
+        FormClosing=ClosingEvent(), FormClosed=ClosingEvent()
+    )
+    shell.window.events = SimpleNamespace(closing=ClosingEvent(), closed=ClosingEvent())
     shell.tray = SimpleNamespace(available=True, shutdown=Mock())
     shell.test_state = state
     return shell
@@ -633,7 +635,9 @@ def windows_closing(modules, desktop, monkeypatch):
 
     native_closing = ClosingEvent([pywebview_closing])
     desktop.window.events = SimpleNamespace(closing=public_closing)
-    desktop.window.native = SimpleNamespace(FormClosing=native_closing)
+    desktop.window.native = SimpleNamespace(
+        FormClosing=native_closing, FormClosed=ClosingEvent()
+    )
     desktop.before_show()
     assert not public_closing
     assert native_closing == [pywebview_closing, desktop.on_windows_closing]
