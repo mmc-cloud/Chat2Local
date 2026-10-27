@@ -212,7 +212,7 @@ test("dynamic appearance, bounded waits, changed page, revoked permission and un
     assert.equal((await p.call("inspect", {}, { expires_at: Date.now() - 1 })).error.code, "request_expired");
     assert.equal((await p.dispatch({ type: "chat2local.dom" }, { id: "untrusted" })).ignored, true);
   } finally { p.dom.window.close(); }
-  const denied = page('<button>Go</button>', { authorize: async () => ({ ok: false }) });
+  const denied = page('<button>Go</button>', { authorize: async () => ({ ok: false, error: { code: "permission_denied" } }) });
   try { assert.equal((await denied.call("click", { target: { name: "Go" } })).error.code, "permission_denied"); }
   finally { denied.dom.window.close(); }
 });

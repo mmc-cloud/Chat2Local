@@ -268,7 +268,7 @@ for (const phase of ["scroll", "focus"]) for (const change of ["replace", "remov
 }
 
 test("DOM probe retains authorization, URL, expiry and sender checks and never acts", async () => {
-  const p = page('<div>Send</div>', { authorize: async () => ({ ok: false }) });
+  const p = page('<div>Send</div>', { authorize: async () => ({ ok: false, error: { code: "permission_denied" } }) });
   try {
     assert.equal((await p.call("dom.inspect", { css: "div" })).error.code, "permission_denied");
     assert.equal((await p.call("dom.inspect", { css: "div" }, { expected_url: "https://other.example/" })).error.code, "page_changed");

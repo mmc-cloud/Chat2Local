@@ -194,7 +194,7 @@ for (const [change, expected] of [["permission", "permission_denied"], ["tab", "
   test(`a timed-out wait still reports ${expected} from final safety confirmation`, async () => {
     const t = timedPage('<button id="x" hidden>Later</button>', ({ p, call, advance }) => {
       if (call === 2) {
-        if (change === "permission") return { ok: false };
+        if (change === "permission") return { ok: false, error: { code: "permission_denied" } };
         if (change === "tab") return { ok: false, error: { code: "page_changed" } };
         if (change === "url") p.window.history.replaceState(null, "", "/changed");
         if (change === "expiry") advance(9000);
@@ -294,7 +294,7 @@ test("wait_for keeps malformed CSS, navigation, expiry and missing state errors 
 
 test("authorization is rechecked on timeout and periodically, even if no target appears", async () => {
   let allowed = true;
-  const p = page("", { authorize: async () => ({ ok: allowed }) });
+  const p = page("", { authorize: async () => allowed ? { ok: true } : { ok: false, error: { code: "permission_denied" } } });
   try {
     const pending = wait(p, "visible", { timeout_ms: 1000 });
     p.window.setTimeout(() => { allowed = false; }, 10);

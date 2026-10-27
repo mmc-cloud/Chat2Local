@@ -530,10 +530,21 @@
     if (Date.now() >= message.expires_at) throw new QueryError("request_expired");
   }
   async function authorize(message) {
-    const authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
-      expected_url: message.expected_url, tab: message.arguments.tab });
-    if (authorization?.ok !== true) throw new QueryError(authorization?.error?.code === "page_changed" ? "page_changed" : "permission_denied");
     checkRequest(message);
+    let authorization;
+    try {
+      authorization = await chrome.runtime.sendMessage({ type: "chat2local.dom.authorize",
+        expected_url: message.expected_url, expected_document_id: message.expected_document_id, tab: message.arguments.tab });
+    } catch {
+      checkRequest(message);
+      throw new QueryError("browser_operation_failed");
+    }
+    // A navigation while awaiting consent is a page change, even if the reply
+    // is missing or denied. Only explicit consent failures mean permission_denied.
+    checkRequest(message);
+    if (authorization?.ok !== true) throw new QueryError(
+      ["page_changed", "permission_denied"].includes(authorization?.error?.code)
+        ? authorization.error.code : "browser_operation_failed");
   }
   const pause = (deadline) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(50, deadline - Date.now()))));
   async function findWithWait(message, find) {

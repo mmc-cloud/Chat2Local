@@ -227,7 +227,10 @@ for (const change of ["text", "order", "title", "description", "visibility", "di
       }
       if (change === "visibility") p.document.querySelector("button").hidden = true;
       if (change === "disabled") p.document.querySelector("button").disabled = true;
-      if (change === "document") p.f.chrome.scripting.executeScript = async () => [{ frameId: 0, documentId: "doc-2" }];
+      if (change === "document") {
+        p.sender.documentId = "doc-2";
+        p.f.chrome.scripting.executeScript = async () => [{ frameId: 0, documentId: "doc-2" }];
+      }
       if (change === "url") {
         p.window.history.replaceState(null, "", "/?token=new-query"); p.f.tabs[0].url = p.window.location.href;
       }

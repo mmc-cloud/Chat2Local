@@ -295,15 +295,24 @@
   function installAuthorizationHandler() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message?.type !== "chat2local.dom.authorize" || sender.id !== chrome.runtime.id || sender.frameId !== 0
-        || !sender.tab || sender.url !== message.expected_url || !validTab(message.tab)) return false;
+        || !sender.tab || !validTab(message.tab)) return false;
       void (async () => {
         try {
-          if (!await authorized(sender.url)) { sendResponse({ ok: false }); return; }
+          // Chromium can retain the content script's original sender.url after
+          // History API navigation. Bind to the injected document instead of its
+          // original route, while requiring the same HTTP(S) origin.
+          if (!validUrl(message.expected_url) || !validUrl(sender.url)
+            || new URL(sender.url).origin !== new URL(message.expected_url).origin
+            || !text(message.expected_document_id, 128) || sender.documentId !== message.expected_document_id
+            || sender.documentLifecycle !== "active") {
+            sendResponse(fail("page_changed")); return;
+          }
+          if (!await authorized(message.expected_url)) { sendResponse(fail("permission_denied")); return; }
           const tab = await chrome.tabs.get(sender.tab.id);
-          if (tab.url !== sender.url || tab.pendingUrl || !matches(tab, message.tab)) {
+          if (tab.url !== message.expected_url || tab.pendingUrl || !matches(tab, message.tab)) {
             sendResponse(fail("page_changed"));
           } else sendResponse({ ok: true });
-        } catch { sendResponse({ ok: false }); }
+        } catch { sendResponse(fail("browser_operation_failed")); }
       })();
       return true;
     });
@@ -378,7 +387,7 @@
       if (Date.now() >= expiresAt) return fail("request_expired");
       const result = await chrome.tabs.sendMessage(tab.id, {
         type: "chat2local.dom", operation: name === "browser.page.dom.inspect" ? "dom.inspect" : name.split(".").at(-1), arguments: args,
-        expected_url: tab.url, expires_at: expiresAt,
+        expected_url: tab.url, expected_document_id: documentId, expires_at: expiresAt,
       }, { documentId });
       if (!record(result) || typeof result.ok !== "boolean") return fail("injection_failed");
       if (result.ok && name === "browser.page.read") {

@@ -56,6 +56,7 @@ test("revoking all-site access during an element wait prevents the action before
   let f;
   const p = page("", { authorize: (message) => f.authorize(message, {
     id: "test-extension", frameId: 0, tab: { id: 1 }, url: "https://test.example/",
+    documentId: "doc-1", documentLifecycle: "active",
   }) });
   f = fixture({ consent: [], allWebsites: true, send: (_, message) => p.dispatch(message) });
   let clicks = 0;
@@ -74,7 +75,8 @@ test("revoking all-site access during an element wait prevents the action before
 test("background injects the packaged top-frame module and sends to its documentId; actual DOM executes", async () => {
   let f;
   const p = page('<label for="q">Query</label><input id="q"><button>Go</button>', {
-    authorize: (message) => f.authorize(message, { id: "test-extension", frameId: 0, tab: { id: 1 }, url: "https://test.example/" }),
+    authorize: (message) => f.authorize(message, { id: "test-extension", frameId: 0, tab: { id: 1 }, url: "https://test.example/",
+      documentId: "doc-1", documentLifecycle: "active" }),
   });
   f = fixture({ send: (id, message) => p.dispatch(message) });
   let clicks = 0;
@@ -156,6 +158,7 @@ test("DOM authorization rechecks the original selector after an element wait", a
   let f;
   const p = page("", { authorize: (message) => f.authorize(message, {
     id: "test-extension", frameId: 0, tab: { id: 1 }, url: "https://test.example/",
+    documentId: "doc-1", documentLifecycle: "active",
   }) });
   f = fixture({ send: (_, message) => p.dispatch(message) });
   let clicks = 0;

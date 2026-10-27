@@ -37,11 +37,13 @@ export function fixture({ tabs = [{ id: 1, windowId: 7, title: "Test", url: "htt
 export function browserPage(html, options = {}) {
   let f;
   const url = options.url ?? "https://test.example/";
-  const p = page(html, { url, authorize: (message) => f.authorize(message, {
-    id: "test-extension", frameId: 0, tab: { id: 1 }, url: p.window.location.href,
-  }) });
+  const sender = { id: "test-extension", frameId: 0, tab: { id: 1 }, url,
+    documentId: "doc-1", documentLifecycle: "active",
+  };
+  const p = page(html, { url, authorize: (message) => f.authorize(message, sender) });
   f = fixture({ tabs: [{ id: 1, windowId: 7, title: "Test", url }], send: (_, message) => p.dispatch(message), ...options });
   const read = (args = {}) => f.call("browser.page.read", { tab: { tab_id: 1 }, ...args });
-  const call = (operation, args = {}, extra = {}) => p.call(operation, { tab: { tab_id: 1 }, ...args }, extra);
-  return { ...p, call, f, read };
+  const call = (operation, args = {}, extra = {}) => p.call(operation, { tab: { tab_id: 1 }, ...args },
+    { expected_document_id: "doc-1", ...extra });
+  return { ...p, call, f, read, sender };
 }
