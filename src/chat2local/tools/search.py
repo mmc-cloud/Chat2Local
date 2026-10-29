@@ -26,6 +26,7 @@ import posixpath
 import re
 import shutil
 import stat
+import subprocess
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
@@ -471,11 +472,14 @@ async def _ripgrep_search(
 
 
     with tempfile.TemporaryFile() as error_log:
+        # Background/GUI parents have no console for rg to inherit on Windows.
+        options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
         process = await asyncio.create_subprocess_exec(
             *args,
             cwd=str(root),
             stdout=asyncio.subprocess.PIPE,
             stderr=error_log,
+            **options,
         )
 
         try:

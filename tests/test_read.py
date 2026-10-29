@@ -13,7 +13,7 @@ import chat2local.tools.read as read_module
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
 from chat2local.tools.read import read
 
-from conftest import make_file, run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, make_file, run
 
 LINE = "line {index}\n"
 
@@ -271,6 +271,7 @@ def test_read_directory_reports_windows_junctions_as_links(workspace: WorkspaceM
         ["cmd", "/c", "mklink", "/J", str(junction), str(workspace.root / "pkg" / "nested")],
         capture_output=True,
         text=True,
+        **HIDDEN_SUBPROCESS_OPTIONS,
     )
 
     if created.returncode != 0:

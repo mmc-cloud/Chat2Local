@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -20,7 +21,7 @@ import chat2local.tools.search as search_module
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
 from chat2local.tools.search import search
 
-from conftest import make_file, run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, make_file, run
 
 
 def test_search_name_finds_files(workspace: WorkspaceManager) -> None:
@@ -433,6 +434,7 @@ def test_search_fallback_skips_directory_junction_escaping_workspace(
         ["cmd", "/c", "mklink", "/J", str(junction), str(outside_dir)],
         capture_output=True,
         text=True,
+        **HIDDEN_SUBPROCESS_OPTIONS,
     )
 
     if created.returncode != 0:
@@ -565,6 +567,63 @@ def install_fake_ripgrep(
     monkeypatch.setattr(search_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     return calls
+
+
+@pytest.mark.parametrize("os_name", ["nt", "posix"], ids=["windows", "linux-macos"])
+@pytest.mark.parametrize("mode", ["name", "content"])
+def test_ripgrep_subprocess_window_options(
+    workspace: WorkspaceManager, monkeypatch: pytest.MonkeyPatch, os_name: str, mode: str
+) -> None:
+    process = FakeProcess([])
+    options: list[dict[str, Any]] = []
+
+    async def create(*args: str, **kwargs: Any) -> FakeProcess:
+        options.append(kwargs)
+        return process
+
+    monkeypatch.setattr(search_module.shutil, "which", lambda _: "rg")
+    monkeypatch.setattr(search_module.asyncio, "create_subprocess_exec", create)
+    # Replace only search's platform view; changing os.name globally breaks pathlib.
+    monkeypatch.setattr(search_module, "os", SimpleNamespace(name=os_name))
+    if os_name == "nt":
+        monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    else:
+        # POSIX Python does not expose this Windows-only constant.
+        monkeypatch.delattr(subprocess, "CREATE_NO_WINDOW", raising=False)
+
+    result = run(search(workspace, "needle", mode=mode))
+
+    assert result["engine"] == "ripgrep"
+    assert len(options) == 1
+    actual = options[0]
+    expected = {
+        "cwd": str(workspace.root),
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": actual["stderr"],
+    }
+    if os_name == "nt":
+        expected["creationflags"] = subprocess.CREATE_NO_WINDOW
+    assert actual == expected
+
+
+@pytest.mark.parametrize("mode", ["name", "content"])
+def test_ripgrep_real_subprocess_search(
+    workspace: WorkspaceManager, mode: str
+) -> None:
+    if search_module.shutil.which("rg") is None:
+        pytest.skip("ripgrep is not available")
+    make_file(workspace, "needle.txt", "needle here\n")
+
+    result = run(search(workspace, "needle", mode=mode))
+
+    assert result["engine"] == "ripgrep"
+    assert result["truncated"] is False
+    expected = (
+        {"path": "needle.txt", "name": "needle.txt", "type": "file"}
+        if mode == "name"
+        else {"path": "needle.txt", "line": 1, "text": "needle here"}
+    )
+    assert result["results"] == [expected]
 
 
 def test_ripgrep_name_search_lists_files(
@@ -711,6 +770,62 @@ def test_ripgrep_failure_is_raised(
     install_fake_ripgrep(monkeypatch, process)
 
     with pytest.raises(RuntimeError):
+        run(search(workspace, "needle", mode="content"))
+
+
+def test_ripgrep_exit_wait_timeout_kills_and_reaps_process(
+    workspace: WorkspaceManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class SlowExitProcess(FakeProcess):
+        wait_calls = 0
+
+        async def wait(self) -> int:
+            self.wait_calls += 1
+            if not self.killed:
+                await asyncio.Event().wait()
+            return await super().wait()
+
+    process = SlowExitProcess([])
+    install_fake_ripgrep(monkeypatch, process)
+    monkeypatch.setattr(search_module, "_EXIT_TIMEOUT", 0.01)
+
+    with pytest.raises(RuntimeError, match="ripgrep failed: -9"):
+        run(search(workspace, "needle", mode="content"))
+
+    assert process.killed is True
+    assert process.wait_calls == 2
+    assert process.returncode == -9
+
+
+def test_ripgrep_failure_preserves_stderr(
+    workspace: WorkspaceManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process = FakeProcess([], exit_after_wait=2)
+    install_fake_ripgrep(monkeypatch, process)
+
+    async def create(*args: str, **kwargs: Any) -> FakeProcess:
+        kwargs["stderr"].write(b"search path is inaccessible\n")
+        return process
+
+    monkeypatch.setattr(search_module.asyncio, "create_subprocess_exec", create)
+
+    with pytest.raises(RuntimeError, match="ripgrep failed: search path is inaccessible"):
+        run(search(workspace, "needle", mode="content"))
+    assert process.killed is False
+    assert process.returncode == 2
+
+
+def test_ripgrep_spawn_failure_is_raised(
+    workspace: WorkspaceManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_ripgrep(monkeypatch, FakeProcess([]))
+
+    async def create(*args: str, **kwargs: Any) -> FakeProcess:
+        raise OSError("cannot start ripgrep")
+
+    monkeypatch.setattr(search_module.asyncio, "create_subprocess_exec", create)
+
+    with pytest.raises(OSError, match="cannot start ripgrep"):
         run(search(workspace, "needle", mode="content"))
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 from pydantic import ValidationError
 from test_browser_bridge import browser_config, extension, response, running_bridge
 
@@ -56,7 +56,8 @@ def test_every_action_required_unrelated_and_null_field_contract_matches_schema_
     node = shutil.which("node")
     assert node, "Node is required to verify the Phase 4A wire contract"
     completed = subprocess.run([node, str(Path(__file__).resolve().parents[1] / "browser-extension/tests/contract-helper.mjs")],
-                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, check=True, timeout=30)
+                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, check=True, timeout=30,
+                               **HIDDEN_SUBPROCESS_OPTIONS)
     actual = json.loads(completed.stdout)["accepted"]
     assert actual == expected, [case for case, py, js in zip(cases, expected, actual) if py != js]
 

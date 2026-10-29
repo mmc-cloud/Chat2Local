@@ -8,7 +8,7 @@ from dataclasses import asdict
 from unittest.mock import Mock
 
 import pytest
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 
 from chat2local.management.runtime import ManagementError, RuntimeClient
 from chat2local.runtime import config
@@ -293,6 +293,7 @@ asyncio.run(RuntimeClient().action('start', 'standalone', __import__('sys').argv
             capture_output=True,
             check=False,
             timeout=35,
+            **HIDDEN_SUBPROCESS_OPTIONS,
         )
         assert result.returncode == 0, result.stderr.decode(errors="replace")
         assert run(client.discover())["lifecycle"] == "Running"

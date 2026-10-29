@@ -10,7 +10,7 @@ from websockets.uri import parse_uri
 
 from chat2local.runtime import logging as logging_module
 from chat2local.runtime.logging import SafeFormatter, websocket_callback_noise
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 
 
 def connection():
@@ -129,7 +129,7 @@ except Exception:
 assert old_output.getvalue() == ""
 '''
     result = subprocess.run([sys.executable, "-c", script, str(tmp_path / "data")],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=10, **HIDDEN_SUBPROCESS_OPTIONS)
     assert result.returncode == 0
     file_text = (tmp_path / "data" / "logs" / "chat2local.log").read_text(encoding="utf-8")
     for text in (result.stderr, file_text):
@@ -183,7 +183,7 @@ assert "TOKEN-SECRET" not in old_output.getvalue()
 assert "PROXY-SECRET" not in old_output.getvalue()
 '''
     result = subprocess.run([sys.executable, "-c", script, mode, str(config)],
-                            capture_output=True, text=True, cwd=tmp_path, timeout=15)
+                            capture_output=True, text=True, cwd=tmp_path, timeout=15, **HIDDEN_SUBPROCESS_OPTIONS)
     assert result.returncode == 0, result.stderr
     file_text = (tmp_path / "user-data" / "logs" / "chat2local.log").read_text(encoding="utf-8")
     for text in (result.stderr, file_text):

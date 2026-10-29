@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Coroutine
 
@@ -16,6 +18,11 @@ import pytest
 from chat2local.handoff.paths import storage_directory
 from chat2local.runtime import config
 from chat2local.runtime.workspace import WorkspaceManager
+
+
+# Explicitly opt test-owned children into background operation; do not patch
+# subprocess globally, which would hide missing flags in production code.
+HIDDEN_SUBPROCESS_OPTIONS = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 
 
 def run(coroutine: Coroutine[Any, Any, Any]) -> Any:

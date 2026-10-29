@@ -14,6 +14,8 @@ from unittest.mock import Mock, call
 
 import pytest
 
+from conftest import HIDDEN_SUBPROCESS_OPTIONS
+
 
 @pytest.fixture
 def module(monkeypatch):
@@ -268,6 +270,7 @@ instance.close()
         capture_output=True,
         check=False,
         timeout=10,
+        **HIDDEN_SUBPROCESS_OPTIONS,
     )
     assert result.returncode == 0, result.stderr.decode(errors="replace")
     assert activated.wait(1)
@@ -413,7 +416,8 @@ def test_real_windows_process_ownership_activation_single_writer_and_reacquire(
         mutex_name,
     ]
     process = subprocess.Popen(
-        [*command, "primary"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        [*command, "primary"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        **HIDDEN_SUBPROCESS_OPTIONS,
     )
     try:
         deadline = time.monotonic() + 8
@@ -428,7 +432,8 @@ def test_real_windows_process_ownership_activation_single_writer_and_reacquire(
 
         for role in ("manual", "startup"):
             result = subprocess.run(
-                [*command, role], capture_output=True, check=False, timeout=8
+                [*command, role], capture_output=True, check=False, timeout=8,
+                **HIDDEN_SUBPROCESS_OPTIONS,
             )
             assert result.returncode == 0, result.stderr.decode(errors="replace")
             secondary_trace = json.loads(result.stdout)
@@ -460,7 +465,8 @@ def test_real_windows_process_ownership_activation_single_writer_and_reacquire(
         assert not list((directory / "gui").glob("instance-*.json"))
 
         result = subprocess.run(
-            [*command, "probe"], capture_output=True, check=False, timeout=8
+            [*command, "probe"], capture_output=True, check=False, timeout=8,
+            **HIDDEN_SUBPROCESS_OPTIONS,
         )
         assert result.returncode == 0, result.stderr.decode(errors="replace")
         new_trace = json.loads(result.stdout)

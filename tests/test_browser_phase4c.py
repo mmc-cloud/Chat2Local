@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 from pydantic import ValidationError
 from test_browser_bridge import browser_config, extension, response, running_bridge
 
@@ -87,7 +87,8 @@ def test_bookmark_url_write_semantics_match_js_without_exempting_schema_contract
         cases.append({"name": NAMES[1], "arguments": args})
         expected.append(accepted)
     result = subprocess.run([node, str(ROOT / "browser-extension/tests/contract-helper.mjs")], input=json.dumps(cases),
-                            text=True, encoding="utf-8", capture_output=True, timeout=30, check=True)
+                            text=True, encoding="utf-8", capture_output=True, timeout=30, check=True,
+                            **HIDDEN_SUBPROCESS_OPTIONS)
     assert json.loads(result.stdout)["accepted"] == expected
     # Reading existing URLs is independent of the write allowlist.
     query = CapabilityRegistry(BrowserBridge(BrowserConfig()))._entries[NAMES[0]].arguments

@@ -11,7 +11,7 @@ import pytest
 from chat2local.tools import apply_patch as module
 from chat2local.tools.apply_patch import PatchError, apply_patch, commit_patch, prepare_patch
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import make_file, run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, make_file, run
 
 
 def patch(body: str) -> str:
@@ -389,7 +389,8 @@ def create_link(link, target, kind):
     if kind == "junction":
         if os.name != "nt":
             pytest.skip("Windows junction test")
-        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True,
+                                **HIDDEN_SUBPROCESS_OPTIONS)
         if result.returncode:
             pytest.skip(f"Cannot create junction: {result.stderr}")
     else:

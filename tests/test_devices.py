@@ -23,7 +23,7 @@ from chat2local.mcp.instructions import MCP_INSTRUCTIONS
 from chat2local.protocol.messages import PROTOCOL_VERSION, Hello, HelloAck, Request, Response
 from chat2local.runtime.config import AppConfig, ReadConfig
 from chat2local.runtime.workspace import WorkspaceManager
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 
 TOKEN = "test-shared-token"
 # Includes Windows tree termination, pipe drain and lifespan cleanup.
@@ -391,7 +391,8 @@ def test_remote_directory_link_cannot_escape_allowed_root(tmp_path):
     (outside / "secret.txt").write_text("secret", encoding="utf-8")
     link = root / "linked"
     if os.name == "nt":
-        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], capture_output=True)
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], capture_output=True,
+                                **HIDDEN_SUBPROCESS_OPTIONS)
         assert result.returncode == 0
     else:
         link.symlink_to(outside, target_is_directory=True)

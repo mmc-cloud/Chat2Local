@@ -12,6 +12,7 @@ from chat2local.browser.bridge import BrowserBridge
 from chat2local.browser.capabilities import CapabilityRegistry
 from chat2local.browser.errors import CAPABILITY_NAMES
 from chat2local.runtime.config import BrowserConfig
+from conftest import HIDDEN_SUBPROCESS_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -158,7 +159,8 @@ def test_extension_and_python_agree_on_schema_field_boundaries():
             expected.append(accepted)
             labels.append(f"{name}: {label}")
     completed = subprocess.run([node, str(ROOT / "browser-extension/tests/contract-helper.mjs")],
-                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, timeout=30, check=True)
+                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, timeout=30, check=True,
+                               **HIDDEN_SUBPROCESS_OPTIONS)
     actual = json.loads(completed.stdout)
     assert set(actual["capabilities"]) == set(entries)
     assert len(actual["accepted"]) == len(expected)
@@ -192,7 +194,8 @@ def test_url_semantics_are_additional_to_schema_without_exempting_action_contrac
                 entries[name].arguments.model_validate(arguments)
             cases.append({"name": name, "arguments": arguments})
     completed = subprocess.run([node, str(ROOT / "browser-extension/tests/contract-helper.mjs")],
-                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, timeout=30, check=True)
+                               input=json.dumps(cases), text=True, encoding="utf-8", capture_output=True, timeout=30, check=True,
+                               **HIDDEN_SUBPROCESS_OPTIONS)
     assert json.loads(completed.stdout)["accepted"] == [False] * len(cases)
 
 

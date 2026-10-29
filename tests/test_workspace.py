@@ -5,6 +5,7 @@ import os
 import subprocess
 
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
+from conftest import HIDDEN_SUBPROCESS_OPTIONS
 
 
 def test_resolve_path_inside_workspace(tmp_path: Path) -> None:
@@ -200,6 +201,7 @@ def test_directory_links_cannot_escape_security_boundaries(
             ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
             capture_output=True,
             text=True,
+            **HIDDEN_SUBPROCESS_OPTIONS,
         )
         if result.returncode != 0:
             pytest.skip(f"Could not create junction: {result.stderr}")
@@ -261,6 +263,7 @@ def test_reject_path_through_windows_junction(tmp_path: Path) -> None:
         ["cmd", "/c", "mklink", "/J", str(junction), str(outside_dir)],
         capture_output=True,
         text=True,
+        **HIDDEN_SUBPROCESS_OPTIONS,
     )
 
     if result.returncode != 0:
