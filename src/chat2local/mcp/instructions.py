@@ -11,6 +11,8 @@ Tool coordination and recovery
 
 Use read for a known file or directory path and search to locate file names or matching content. exec_command starts a device-local managed process; use interact_process to read later output or send input and kill_process to stop it. Always reuse the same device as exec_command for a given process_id; process IDs cannot infer or change device routing.
 
+Normal process output drains to EOF. Explicit termination or Core shutdown bounds post-exit output draining to one second after tree signaling. If descendants still hold inherited stdout/stderr pipes, Chat2Local closes its read ends and marks retained output with output_incomplete=true. This cleanup does not signal an already-exited parent's old PID, but descendants that keep writing may encounter write errors or exit; their continued operation is not guaranteed. Background programs that must run independently should redirect stdin, stdout and stderr at launch to independent files or DEVNULL, rather than inherit Chat2Local's pipes. Managed state/exit_code describes the launched parent, not its descendants; output_incomplete describes captured output, not descendant health.
+
 A timed-out or disconnected remote call with side effects may already have executed on the target. Check the actual file, process, or Handoff state before attempting another operation; do not blindly replay it.
 
 Optional capabilities

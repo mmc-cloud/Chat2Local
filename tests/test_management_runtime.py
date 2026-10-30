@@ -315,3 +315,103 @@ def test_timed_out_launch_can_be_discovered_later(tmp_path, monkeypatch):
     client.error = "Core stop timed out"
     client._failed_phase = "Stopping"
     assert run(client.status())["lifecycle"] == "Error"
+
+
+def test_timed_out_stop_recovers_only_after_descriptor_removed(tmp_path):
+    async def scenario():
+        server, _ = await serve(tmp_path)
+        client = RuntimeClient(tmp_path, timeout=0.01, control_timeout=0.05)
+        try:
+            with pytest.raises(ManagementError, match="stop timed out"):
+                await client.action("stop")
+            assert client._failed_phase == "Stopping"
+            assert (await client.status())["lifecycle"] == "Error"
+        finally:
+            await server.close()
+        assert (await client.discover())["lifecycle"] == "Stale"
+        assert (await client.status())["lifecycle"] == "Error"
+        assert client.error
+        (tmp_path / "runtime.json").unlink()
+        assert await client.status() == {"lifecycle": "Stopped", "core": None}
+        assert client.error is None and client._failed_phase is None
+    run(scenario())
+
+
+@pytest.mark.parametrize("phase,state,recovered", [
+    ("Starting", "Running", True), ("Starting", "Stopped", False),
+    ("Stopping", "Stopped", True), ("Stopping", "Running", False),
+    ("Stopping", "Stale", False), ("Stopping", "Error", False),
+    ("Starting", "Stale", False),
+])
+def test_status_clears_only_failure_confirmed_resolved(tmp_path, monkeypatch, phase, state, recovered):
+    client = RuntimeClient(tmp_path)
+    async def discover():
+        return {"lifecycle": state, "core": None}
+    monkeypatch.setattr(client, "discover", discover)
+    client.error, client._failed_phase = "previous timeout", phase
+    assert run(client.status())["lifecycle"] == (state if recovered else "Error")
+    assert client.error is None if recovered else client.error == "previous timeout"
+    assert client._failed_phase is None if recovered else client._failed_phase == phase
+
+
+@pytest.mark.parametrize("action", ["start", "stop", "restart"])
+def test_discovery_started_before_new_operation_cannot_clear_its_error(tmp_path, monkeypatch, action):
+    client = RuntimeClient(tmp_path)
+    client.error, client._failed_phase = "previous timeout", "Stopping"
+    observed, release, action_entered, finish_action = (asyncio.Event() for _ in range(4))
+    calls = 0
+    async def discover():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            observed.set()
+            await release.wait()
+            return {"lifecycle": "Stopped", "core": None}
+        return {"lifecycle": "Running", "core": {"mode": "hub", "workspace": str(tmp_path)}}
+    async def stop():
+        action_entered.set()
+        await finish_action.wait()
+        raise ManagementError("new stop timeout")
+    async def start(*args):
+        action_entered.set()
+        await finish_action.wait()
+        raise ManagementError("new start timeout")
+    monkeypatch.setattr(client, "discover", discover)
+    monkeypatch.setattr(client, "_stop", stop)
+    monkeypatch.setattr(client, "_start", start)
+    async def scenario():
+        old_status = asyncio.create_task(client.status())
+        await observed.wait()
+        operation = asyncio.create_task(client.action(action))
+        await action_entered.wait()
+        current = await client.status()
+        assert current["lifecycle"] == ("Starting" if action == "start" else "Stopping")
+        finish_action.set()
+        with pytest.raises(ManagementError, match="new .* timeout"):
+            await operation
+        release.set()
+        assert (await old_status)["lifecycle"] == "Error"
+        assert client.error == ("new start timeout" if action == "start" else "new stop timeout")
+        assert client._failed_phase == ("Starting" if action == "start" else "Stopping")
+    run(scenario())
+
+
+def test_stop_does_not_accept_stale_descriptor_as_stopped(tmp_path, monkeypatch):
+    async def scenario():
+        server, _ = await serve(tmp_path)
+        client = RuntimeClient(tmp_path, timeout=0.2, control_timeout=0.5)
+        request = client.request
+        async def acknowledged_then_unavailable(descriptor, method):
+            result = await request(descriptor, method)
+            if method == "stop":
+                # Keep runtime.json while dropping control after the ack.
+                await server.close()
+            return result
+        monkeypatch.setattr(client, "request", acknowledged_then_unavailable)
+        try:
+            with pytest.raises(ManagementError, match="stop timed out"):
+                await client.action("stop")
+            assert (await client.discover())["lifecycle"] == "Stale"
+        finally:
+            await server.close()
+    run(scenario())

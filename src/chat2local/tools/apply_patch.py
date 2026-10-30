@@ -17,9 +17,15 @@ from pathlib import Path
 import stat
 import sys
 import tempfile
+import threading
 from typing import Any
 
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
+
+# Protect the complete multi-file plan and commit, including worker threads
+# belonging to cancelled callers. Patch traffic is low; one Core-wide lock
+# avoids lock ordering and overlapping-directory problems.
+_PATCH_LOCK = threading.Lock()
 
 
 class PatchError(ValueError):
@@ -479,6 +485,7 @@ def commit_patch(plan: PatchPlan) -> dict[str, Any]:
 
 async def apply_patch(workspace: WorkspaceManager, patch: str) -> dict[str, Any]:
     def execute() -> dict[str, Any]:
-        return commit_patch(prepare_patch(workspace, patch))
+        with _PATCH_LOCK:
+            return commit_patch(prepare_patch(workspace, patch))
 
     return await asyncio.to_thread(execute)

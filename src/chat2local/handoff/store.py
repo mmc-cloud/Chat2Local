@@ -1,13 +1,16 @@
 """Workspace and personal latest-state persistence in Chat2Local user data."""
 
 import asyncio
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
+import errno
 import os
 from pathlib import Path
 import re
 import tempfile
 import threading
+import time
 
 from chat2local.handoff.models import (
     HandoffMetadata, HandoffNotFoundError, HandoffRecord, InvalidHandoffError,
@@ -24,6 +27,44 @@ WORKSTREAM_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
 TITLE_MAX_LENGTH = 120
 SUMMARY_MAX_LENGTH = 500
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)")
+
+
+@contextmanager
+def _storage_lock(user_data: Path):
+    """OS-owned lock shared by every Store/process, released even on failure.
+
+    Serialize directory ownership resolution too. Never unlink this file:
+    atomic Handoff replacement must not change the inode being locked.
+    """
+    base = checked_path(user_data / "handoffs")
+    base.mkdir(parents=True, exist_ok=True)
+    path = checked_path(base, ".save.lock")
+    with path.open("a+b") as handle:
+        # msvcrt supports byte ranges beyond EOF. Keeping this file empty
+        # avoids racing initialization writes against another holder's lock.
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    time.sleep(0.01)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            checked_path(path)
+            yield
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def validate_workstream(workstream: str) -> str:
@@ -262,6 +303,11 @@ class HandoffStore:
     ) -> dict:
         validate_workstream(workstream)
         _validate_save(title, summary, content, expected_revision)
+        # A missing storage root proves revision 0. Preserve failure without
+        # creating storage for an impossible update; any actual write still
+        # resolves and validates its authoritative revision under the OS lock.
+        if expected_revision and not checked_path(self._user_data / "handoffs").exists():
+            raise RevisionConflictError(expected_revision, 0)
         identity = (workspace.root if workspace is not None else None, os.path.normcase(workstream))
         return await self._run_save(identity, self._save, workspace, workstream,
                                     title, summary, content, expected_revision)
@@ -269,7 +315,7 @@ class HandoffStore:
     async def _run_save(self, identity: tuple[Path | None, str], operation, *args) -> dict:
         lock = self._locks.setdefault(identity, asyncio.Lock())
         async with lock:
-            worker = asyncio.create_task(asyncio.to_thread(operation, *args))
+            worker = asyncio.create_task(asyncio.to_thread(self._locked_save, operation, *args))
             try:
                 return await asyncio.shield(worker)
             except asyncio.CancelledError:
@@ -285,6 +331,10 @@ class HandoffStore:
                 if not worker.cancelled():
                     worker.exception()  # Retrieve a failed worker's exception.
                 raise
+
+    def _locked_save(self, operation, *args) -> dict:
+        with _storage_lock(self._user_data):
+            return operation(*args)
 
     def _save(
         self, workspace: WorkspaceManager | None, workstream: str, title: str, summary: str,

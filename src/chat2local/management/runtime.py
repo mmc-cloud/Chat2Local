@@ -76,6 +76,7 @@ class RuntimeClient:
         self.error: str | None = None
         self._failed_phase: str | None = None
         self._operation = threading.Lock()
+        self._operation_generation = 0
         self._child: subprocess.Popen | None = None
 
     def _descriptor(self) -> Descriptor | None:
@@ -171,9 +172,22 @@ class RuntimeClient:
             }
 
     async def status(self) -> dict:
+        generation = self._operation_generation
+        failure = (self.error, self._failed_phase)
         snapshot = await self.discover()
-        if snapshot["lifecycle"] == "Running" and self._failed_phase == "Starting":
-            self.error = None
+        # Discovery may overlap an operation on another loop/thread. An old
+        # snapshot must never clear a newer operation's failure.
+        if self._operation.acquire(blocking=False):
+            try:
+                recovered = (self._failed_phase, snapshot["lifecycle"]) in (
+                    ("Starting", "Running"), ("Stopping", "Stopped"),
+                )
+                if (generation == self._operation_generation
+                        and failure == (self.error, self._failed_phase) and recovered):
+                    self.error = None
+                    self._failed_phase = None
+            finally:
+                self._operation.release()
         if self.transition:
             snapshot["lifecycle"] = self.transition
         elif self.error:
@@ -273,7 +287,7 @@ class RuntimeClient:
         deadline = asyncio.get_running_loop().time() + self.timeout
         while asyncio.get_running_loop().time() < deadline:
             current = await self.discover()
-            if current["lifecycle"] in ("Stopped", "Stale") and (
+            if current["lifecycle"] == "Stopped" and (
                 self._child is None or self._child.poll() is not None
             ):
                 return {"lifecycle": "Stopped", "core": None}
@@ -294,7 +308,9 @@ class RuntimeClient:
             raise ManagementError("Invalid Core operation")
         if not self._operation.acquire(blocking=False):
             raise ManagementError("A Core operation is already in progress")
+        self._operation_generation += 1
         self.error = None
+        self._failed_phase = None
         try:
             if action == "restart":
                 snapshot = await self.discover()

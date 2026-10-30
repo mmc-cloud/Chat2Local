@@ -7,6 +7,9 @@ from chat2local.runtime.process_manager import ProcessOutput
 
 def serialize_output(output: ProcessOutput) -> dict[str, Any]:
     return {
+        # Preserve the normal response shape; explicit bounded cleanup can
+        # finish without EOF, independently of buffer eviction (*_dropped).
+        **({"output_incomplete": True} if output.status.output_incomplete else {}),
         "process_id": output.status.process_id,
         "state": output.status.state,
         "exit_code": output.status.exit_code,

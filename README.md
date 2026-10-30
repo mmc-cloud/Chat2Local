@@ -204,6 +204,8 @@ kill_process · list_devices · handoff_list · handoff_get · handoff_save
 
 远程调用可以通过 `device` 指定目标设备；省略时使用当前 MCP Server 所在设备。
 
+普通命令的输出会持续读取到 EOF。显式调用 `kill_process` 或停止 Core 时，在父进程退出、进程树信号处理结束后，最多再等待 1 秒读取输出；后代仍持有继承的 stdout/stderr 管道时，Chat2Local 会关闭本端读端，并用 `output_incomplete: true` 标记已保留的输出。此项清理不会向已经退出的父进程旧 PID 发送信号，但后代继续写入时可能发生写入错误甚至异常退出，不能保证其继续正常运行。需要独立运行的后台程序应在启动时将 stdin、stdout、stderr 重定向到独立文件或 DEVNULL。返回的 `state` / `exit_code` 描述所启动的父进程，`output_incomplete` 描述输出完整性，均不代表后代任务的健康状态。
+
 三个 Handoff Tool 均接受可选的 `scope`：默认 `"workspace"` 按项目工作区保存，兼容旧调用；
 没有具体项目归属的研究、计划或初步想法使用 `"personal"`，无需 Workspace，也不能显式传入
 `workspace`（包括 `null`）。两种作用域允许相同的 Workstream ID，记录彼此独立。

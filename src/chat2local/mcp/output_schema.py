@@ -118,8 +118,8 @@ def search_schema() -> dict[str, Any]:
 def process_fields() -> dict[str, Any]:
     return {
         "process_id": field("string", "Device-local Chat2Local-managed process ID, not an OS PID."),
-        "state": field("string", "Managed process state.", enum=["running", "exited", "terminated"]),
-        "exit_code": nullable("integer", "Exit status if available; nonzero is not a Tool Error."),
+        "state": field("string", "Launched parent's state, not descendant health.", enum=["running", "exited", "terminated"]),
+        "exit_code": nullable("integer", "Launched parent's exit status if available; nonzero is not a Tool Error."),
         "draining": field("boolean", "Whether stdout/stderr pipes are still being drained."),
         "stdout": field("string", "Newly consumed retained stdout."),
         "stderr": field("string", "Newly consumed retained stderr."),
@@ -193,6 +193,10 @@ def capability_discovery_schema() -> dict[str, Any]:
 
 def build_output_schemas() -> dict[str, dict[str, Any]]:
     common = process_fields()
+    process_required = list(common)
+    common["output_incomplete"] = field(
+        "boolean", "True when explicit termination/shutdown closed output pipes before EOF after a bounded drain; not a descendant health indicator.",
+    )
     handoff = handoff_fields()
     steps = {
         "success": field("boolean", "True only when the patch fully commits."),
@@ -221,11 +225,11 @@ def build_output_schemas() -> dict[str, dict[str, Any]]:
                                                "Local and connected remote devices.")},
                             required=["devices"]),
         "apply_patch": obj(steps, required=list(steps)),
-        "exec_command": obj(common, required=list(common)),
-        "interact_process": obj(common, required=list(common)),
+        "exec_command": obj(common, required=process_required),
+        "interact_process": obj(common, required=process_required),
         "kill_process": obj({**common, "outcome": field("string", "Termination result.",
                                                        enum=["terminated", "already_exited"])},
-                            required=[*common, "outcome"]),
+                            required=[*process_required, "outcome"]),
         "handoff_list": obj({"handoffs": array(obj(handoff, required=list(handoff)),
                                                 "Latest workstream metadata without the body.")},
                             required=["handoffs"]),

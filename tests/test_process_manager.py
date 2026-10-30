@@ -22,8 +22,182 @@ from chat2local.runtime.process_manager import (
 )
 from chat2local.runtime.shell import ResolvedShell, ShellResolver
 from chat2local.runtime.workspace import WorkspaceError, WorkspaceManager
-from conftest import run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, run
 from test_apply_patch import create_link
+
+
+async def orphan_with_pipes(manager, workspace, *, continuous, parent_running=False, recover_write_errors=False):
+    """Optionally recover from broken writes to isolate lifecycle/cancellation.
+
+    Survival with recovery enabled is a fixture behavior, not a guarantee for
+    arbitrary descendants. Unhandled writes are tested in test_process_pipe_cleanup.
+    """
+    stop = workspace.root / "stop-child"
+    done = workspace.root / "child-done"
+    script = (
+        "import os,sys,time; from pathlib import Path\n"
+        "print('child ready', flush=True)\n"
+        "deadline=time.monotonic()+15\n"
+        f"while not Path({str(stop)!r}).exists() and time.monotonic()<deadline:\n"
+        f" if {continuous!r}:\n"
+        "  try:\n"
+        "   print('tick', flush=True); print('err', file=sys.stderr, flush=True)\n"
+        "  except OSError:\n"
+        f"   if not {recover_write_errors!r}: raise\n"
+        "   sys.stdout=open(os.devnull,'w'); sys.stderr=open(os.devnull,'w')\n"
+        f"   Path({str(workspace.root / 'recovered-write-error')!r}).touch()\n"
+        " time.sleep(0.005)\n"
+        f"Path({str(done)!r}).touch()\n"
+    )
+    record = await manager.spawn(
+        "import subprocess,sys; "
+        f"subprocess.Popen([sys.executable,'-u','-c',{script!r}], stdin=subprocess.DEVNULL, "
+        f"**{HIDDEN_SUBPROCESS_OPTIONS!r}); "
+        + ("import time; time.sleep(15)" if parent_running else ""),
+        workspace=workspace,
+    )
+    await eventually(lambda: (parent_running or record.process.returncode is not None)
+                     and record.stdout.retained_end > 0)
+    return record, stop, done
+
+
+@pytest.mark.parametrize("continuous", [False, True])
+@pytest.mark.parametrize("operation", ["shutdown", "terminate"])
+@pytest.mark.parametrize("cancel", [False, True])
+def test_exited_parent_inherited_pipes_have_bounded_cleanup(workspace, monkeypatch, continuous, operation, cancel):
+    from chat2local.tools.process_output import serialize_output
+    from chat2local.mcp.output_schema import OUTPUT_SCHEMAS
+    import jsonschema
+
+    monkeypatch.setattr(module, "OUTPUT_DRAIN_TIMEOUT", 0.08, raising=False)
+    async def scenario():
+        manager = ProcessManager(shell=PYTHON)
+        stop = workspace.root / "stop-child"
+        done = workspace.root / "child-done"
+        try:
+            record, stop, done = await orphan_with_pipes(
+                manager, workspace, continuous=continuous, recover_write_errors=continuous,
+            )
+            async def forbidden(*args, **kwargs):
+                raise AssertionError("Must not signal an exited/recycled parent PID")
+            monkeypatch.setattr(manager, "_signal_tree", forbidden)
+            waiter = asyncio.create_task(manager.wait(record.process_id, timeout=10))
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            assert record.status().draining and not getattr(record.status(), "output_incomplete", False)
+            async def cleanup():
+                if operation == "shutdown":
+                    await manager.shutdown()
+                else:
+                    result = await manager.terminate(record.process_id)
+                    assert result.outcome == "already_exited"
+            caller = asyncio.create_task(cleanup())
+            await asyncio.sleep(0)
+            if cancel:
+                caller.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await caller
+                caller = asyncio.create_task(cleanup())
+            await asyncio.wait_for(caller, 3)
+            assert record.finished.is_set() and record.watch_task.done()
+            assert all(task.done() for task in record.drain_tasks)
+            assert record.status().state == "exited" and record.status().output_incomplete
+            assert not record.status().draining
+            if continuous:
+                await eventually((workspace.root / "recovered-write-error").exists)
+            assert not done.exists(), "This fixture explicitly recovers from broken writes"
+            if operation == "terminate":
+                output = serialize_output(manager.read_output(record.process_id))
+                assert output["output_incomplete"] and "child ready" in output["stdout"]
+                jsonschema.validate(output, OUTPUT_SCHEMAS["interact_process"])
+                assert (await manager.wait(record.process_id)).output_incomplete
+            await manager.shutdown()
+            assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task()
+                        and t.get_name().startswith("chat2local-")]
+        finally:
+            stop.touch()
+            await eventually(done.exists)
+            await manager.shutdown()
+    run(scenario())
+
+
+def test_wait_keeps_inherited_output_until_natural_eof(workspace, monkeypatch):
+    monkeypatch.setattr(module, "OUTPUT_DRAIN_TIMEOUT", 0.01)
+    async def scenario():
+        async with managed() as manager:
+            stop = workspace.root / "stop-child"
+            done = workspace.root / "child-done"
+            try:
+                record, stop, done = await orphan_with_pipes(manager, workspace, continuous=True)
+                before = record.stdout.retained_end
+                status = await manager.wait(record.process_id, timeout=0.05)
+                assert status.state == "exited" and status.draining and not status.output_incomplete
+                assert record.stdout.retained_end > before
+                stop.touch()
+                await finish(manager, record)
+                assert not record.status().output_incomplete
+                assert "child ready" in manager.read_output(record.process_id).stdout.text
+            finally:
+                stop.touch()
+                await eventually(done.exists)
+    run(scenario())
+
+
+def test_shutdown_preserves_complete_post_exit_drain(workspace, monkeypatch):
+    async def scenario():
+        manager = ProcessManager(shell=PYTHON)
+        release = asyncio.Event()
+        original = manager._drain
+        async def delayed(reader, output):
+            await release.wait()
+            await original(reader, output)
+        monkeypatch.setattr(manager, "_drain", delayed)
+        record = await manager.spawn("print('tail'); import sys; print('error', file=sys.stderr)", workspace=workspace)
+        try:
+            await eventually(lambda: record.process.returncode is not None)
+            shutdown = asyncio.create_task(manager.shutdown())
+            await record.cleanup_requested.wait()
+            release.set()
+            await asyncio.wait_for(shutdown, 3)
+            assert record.stdout.read(100).text == "tail" + NEWLINE
+            assert record.stderr.read(100).text == "error" + NEWLINE
+            assert not record.status().output_incomplete
+        finally:
+            release.set()
+            await manager.shutdown()
+    run(scenario())
+
+
+def test_terminate_bounds_pipes_if_parent_exits_during_signaling(workspace, monkeypatch):
+    monkeypatch.setattr(module, "OUTPUT_DRAIN_TIMEOUT", 0.05)
+    async def scenario():
+        manager = ProcessManager(ProcessConfig(terminate_grace_period=0.02), shell=PYTHON)
+        stop = workspace.root / "stop-child"
+        done = workspace.root / "child-done"
+        try:
+            record, stop, done = await orphan_with_pipes(
+                manager, workspace, continuous=True, parent_running=True, recover_write_errors=True,
+            )
+            async def signal_parent_only(record, *, force):
+                # Reproduce a descendant escaping tree signaling without
+                # affecting any process outside this test.
+                if record.process.returncode is None:
+                    record.process.terminate()
+                    record.termination_sent = True
+                    await eventually(lambda: record.process.returncode is not None)
+                    return True
+                return False
+            monkeypatch.setattr(manager, "_signal_tree", signal_parent_only)
+            result = await asyncio.wait_for(manager.terminate(record.process_id), 3)
+            assert result.outcome == "terminated" and result.status.output_incomplete
+            assert record.finished.is_set() and not done.exists()
+        finally:
+            stop.touch()
+            await eventually(done.exists)
+            await manager.shutdown()
+    run(scenario())
 
 
 # A controlled executable exercises the manager without shell quoting in tests.

@@ -30,6 +30,7 @@ MAX_FINISHED_PROCESSES = 64
 STDIN_RESPONSE_WAIT = 0.250
 PIPE_READ_SIZE = 16384
 WINDOWS_TASKKILL_TIMEOUT = 5.0
+OUTPUT_DRAIN_TIMEOUT = 1.0
 ProcessState = Literal["running", "exited", "terminated"]
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ class ProcessStatus:
     state: ProcessState
     exit_code: int | None
     draining: bool
+    output_incomplete: bool = False
 
 
 @dataclass(frozen=True)
@@ -153,6 +155,8 @@ class ProcessRecord:
     watch_task: asyncio.Task | None = None
     termination_task: asyncio.Task | None = None
     io_error: Exception | None = None
+    cleanup_requested: asyncio.Event = field(default_factory=asyncio.Event)
+    output_incomplete: bool = False
 
     def __post_init__(self) -> None:
         self.signal_finished.set()
@@ -164,7 +168,8 @@ class ProcessRecord:
         return "terminated" if self.termination_sent else "exited"
 
     def status(self) -> ProcessStatus:
-        return ProcessStatus(self.process_id, self.state, self.process.returncode, not self.finished.is_set())
+        return ProcessStatus(self.process_id, self.state, self.process.returncode,
+                             not self.finished.is_set(), self.output_incomplete)
 
 
 class ProcessManager:
@@ -268,6 +273,7 @@ class ProcessManager:
         # returncode may become available before wait()/pipe EOF; status() reports
         # actual OS exit immediately, while retention starts only after draining.
         exit_wait = asyncio.create_task(record.process.wait(), name="chat2local-exit-wait")
+        cleanup = asyncio.create_task(self._cleanup_output(record), name="chat2local-output-cleanup")
         try:
             await asyncio.wait((exit_wait, *record.drain_tasks), return_when=asyncio.FIRST_EXCEPTION)
             failed = False
@@ -292,6 +298,8 @@ class ProcessManager:
             await exit_wait
             await asyncio.gather(*record.drain_tasks, return_exceptions=True)
         finally:
+            cleanup.cancel()
+            await asyncio.gather(cleanup, return_exceptions=True)
             if not exit_wait.done():
                 exit_wait.cancel()
             await asyncio.gather(exit_wait, return_exceptions=True)
@@ -308,6 +316,37 @@ class ProcessManager:
                     record.finished_at = monotonic()
                     record.finished.set()
                 self.cleanup()
+
+    async def _cleanup_output(self, record: ProcessRecord) -> None:
+        # Normal wait/read keeps draining to EOF, even after the parent exits.
+        # Only explicit termination/shutdown bounds that post-exit drain. Do
+        # not use Process.wait() to detect exit: asyncio can delay that waiter
+        # until inherited pipes close, despite returncode already being set.
+        await record.cleanup_requested.wait()
+        while record.process.returncode is None:
+            await asyncio.sleep(0.01)
+        try:
+            await asyncio.wait_for(record.finished.wait(), OUTPUT_DRAIN_TIMEOUT)
+            return
+        except TimeoutError:
+            pass
+        pending = [task for task in record.drain_tasks if not task.done()]
+        if pending:
+            record.output_incomplete = True
+            logger.warning("Managed process output drain timed out; retained output is incomplete")
+        for task in pending:
+            task.cancel()
+        # StreamReader has no public close API. Close only the read transports,
+        # never the process transport (which could kill a still-running child).
+        # Never signal the exited parent's old PID here. Closing the read ends
+        # can still break a descendant's writes (or cause it to exit); no
+        # survival guarantee follows from the absence of a termination signal.
+        # Independent background work must redirect stdin/stdout/stderr.
+        for descriptor in (1, 2):
+            transport = record.process._transport.get_pipe_transport(descriptor)
+            if transport is not None:
+                transport.close()
+        await asyncio.gather(*record.drain_tasks, return_exceptions=True)
 
     def read_output(self, process_id: str, *, limit: int | None = None) -> ProcessOutput:
         record = self._get(process_id)
@@ -372,6 +411,8 @@ class ProcessManager:
                 record.force_requested.set()
             return await asyncio.shield(record.termination_task)
         if record.process.returncode is not None:
+            record.cleanup_requested.set()
+            await asyncio.shield(record.watch_task)
             return TerminationResult("already_exited", record.status())
         if force:
             record.force_requested.set()
@@ -429,6 +470,8 @@ class ProcessManager:
 
     async def _terminate(self, record: ProcessRecord) -> TerminationResult:
         if record.process.returncode is not None:
+            record.cleanup_requested.set()
+            await asyncio.shield(record.watch_task)
             return TerminationResult("already_exited", record.status())
         # Windows sends one forced tree termination; only POSIX waits/escalates.
         forced_initially = os.name == "nt" or record.force_requested.is_set()
@@ -447,6 +490,9 @@ class ProcessManager:
         if not record.finished.is_set() and not forced_initially:
             sent = await self._signal_tree(record, force=True)
             record.termination_sent |= sent
+        # Preserve POSIX grace/escalation before bounding inherited pipes;
+        # an early EOF must not prevent the intended forced group signal.
+        record.cleanup_requested.set()
         await record.finished.wait()
         await asyncio.shield(record.watch_task)
         if record.io_error is not None:
@@ -461,9 +507,8 @@ class ProcessManager:
 
     async def _shutdown(self) -> None:
         await asyncio.gather(*tuple(self._spawning), return_exceptions=True)
-        running = [record for record in self._records.values() if record.process.returncode is None]
         outcomes = await asyncio.gather(
-            *(self._terminate_record(record) for record in running), return_exceptions=True,
+            *(self._terminate_record(record) for record in tuple(self._records.values())), return_exceptions=True,
         )
         for outcome in outcomes:
             if isinstance(outcome, BaseException):

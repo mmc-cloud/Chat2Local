@@ -5,6 +5,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import os
 import threading
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -13,7 +18,170 @@ from chat2local.handoff.models import (
     HandoffNotFoundError, InvalidHandoffError, InvalidWorkstreamError, RevisionConflictError,
 )
 from chat2local.handoff.store import HandoffStore, validate_workstream
-from conftest import handoff_directory, run
+from conftest import HIDDEN_SUBPROCESS_OPTIONS, handoff_directory, run
+
+
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("personal", [False, True])
+def test_independent_stores_serialize_revision_check_and_replace(workspace, monkeypatch, local, personal):
+    workspace = None if personal else workspace
+    first, second = HandoffStore(), HandoffStore()
+    run(first.save(workspace, "design", "Title", "Summary", "original", 0))
+    handoff_id = run(first.list_local())["handoffs"][0]["id"]
+    entered, release = threading.Event(), threading.Event()
+    second_started = threading.Event()
+    original_replace = module.os.replace
+    def replace(source, destination):
+        # Hold A after its last revision check, before atomic replacement.
+        if b"\n\nA" in Path(source).read_bytes():
+            entered.set()
+            assert release.wait(5)
+        original_replace(source, destination)
+    monkeypatch.setattr(module.os, "replace", replace)
+    original_to_thread = asyncio.to_thread
+    async def to_thread(function, *args, **kwargs):
+        def worker():
+            # Only the second task uses this patched dispatcher (installed
+            # after the first has entered replace).
+            second_started.set()
+            return function(*args, **kwargs)
+        return await original_to_thread(worker)
+    async def scenario():
+        a = asyncio.create_task(first.save(workspace, "design", "A", "Summary", "A", 1))
+        b = None
+        try:
+            assert await original_to_thread(entered.wait, 3)
+            monkeypatch.setattr(module.asyncio, "to_thread", to_thread)
+            b = asyncio.create_task(
+                second.save_local(handoff_id, "B", "Summary", "B", 1) if local else
+                second.save(workspace, "design", "B", "Summary", "B", 1)
+            )
+            assert await original_to_thread(second_started.wait, 3)
+            # Old code completes B while A still holds its prepared revision.
+            done, _ = await asyncio.wait([b], timeout=0.1)
+            assert not done, "A different Store bypassed the in-flight save"
+            release.set()
+            results = await asyncio.gather(a, b, return_exceptions=True)
+            assert results[0]["revision"] == 2
+            assert isinstance(results[1], RevisionConflictError)
+            assert (await second.get(workspace, "design"))["content"] == "A"
+        finally:
+            release.set()
+            await asyncio.gather(a, *([b] if b else []), return_exceptions=True)
+    run(scenario())
+
+
+_PROCESS_SAVE = """
+import asyncio, json, os, sys, time
+from pathlib import Path
+from chat2local.handoff import store as module
+from chat2local.handoff.models import RevisionConflictError
+from chat2local.runtime.workspace import WorkspaceManager
+user_data, root, signals, role, crash = sys.argv[1:]
+signals = Path(signals)
+entered = signals / (role + '-entered')
+original_replace = module.os.replace
+def replace(source, destination):
+    entered.touch()
+    if role == 'first':
+        deadline = time.monotonic() + 10
+        while not (signals / 'release').exists():
+            if time.monotonic() > deadline:
+                raise RuntimeError('parent did not release writer')
+            time.sleep(0.01)
+        if crash == 'True':
+            os._exit(17)
+    original_replace(source, destination)
+module.os.replace = replace
+if role == 'second':
+    entered.touch()
+workspace = WorkspaceManager(root) if root else None
+try:
+    saved = asyncio.run(module.HandoffStore(Path(user_data)).save(
+        workspace, 'design', 'Title', 'Summary', str(os.getpid()), 1))
+    print(json.dumps(['ok', saved['revision']]))
+except RevisionConflictError:
+    print(json.dumps(['conflict', None]))
+"""
+
+
+def _writer(user_data, workspace, signals, role, *, crash=False):
+    return subprocess.Popen(
+        [sys.executable, "-c", _PROCESS_SAVE, str(user_data), str(workspace.root) if workspace else "",
+         str(signals), role, str(crash)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        **HIDDEN_SUBPROCESS_OPTIONS,
+    )
+
+
+def _wait_entered(child, path):
+    deadline = time.monotonic() + 5
+    while not path.exists():
+        assert child.poll() is None, child.communicate(timeout=1)
+        assert time.monotonic() < deadline, "Writer did not reach the controlled boundary"
+        time.sleep(0.01)
+
+
+@pytest.mark.parametrize("personal", [False, True])
+def test_separate_processes_cannot_both_save_same_revision(workspace, isolated_user_data, tmp_path, personal):
+    selected = None if personal else workspace
+    run(HandoffStore().save(selected, "design", "Title", "Summary", "original", 0))
+    release = tmp_path / "release"
+    children = []
+    try:
+        first = _writer(isolated_user_data, selected, tmp_path, "first")
+        children.append(first)
+        _wait_entered(first, tmp_path / "first-entered")
+        second = _writer(isolated_user_data, selected, tmp_path, "second")
+        children.append(second)
+        _wait_entered(second, tmp_path / "second-entered")
+        with pytest.raises(subprocess.TimeoutExpired):
+            second.wait(timeout=0.2)
+        release.touch()
+        results = []
+        for child in children:
+            output, errors = child.communicate(timeout=10)
+            assert child.returncode == 0, errors.decode(errors="replace")
+            results.append(json.loads(output))
+        assert sorted(results) == [["conflict", None], ["ok", 2]]
+        assert run(HandoffStore().get(selected, "design"))["revision"] == 2
+    finally:
+        release.touch()
+        for child in children:
+            if child.poll() is None:
+                child.terminate()
+            child.communicate(timeout=5)
+
+
+def test_crashed_writer_releases_os_lock(workspace, isolated_user_data, tmp_path):
+    store = HandoffStore()
+    run(store.save(workspace, "design", "Title", "Summary", "original", 0))
+    child = _writer(isolated_user_data, workspace, tmp_path, "first", crash=True)
+    try:
+        _wait_entered(child, tmp_path / "first-entered")
+        (tmp_path / "release").touch()
+        child.communicate(timeout=5)
+        assert child.returncode == 17
+        assert run(HandoffStore().save(workspace, "design", "Title", "Summary", "retry", 1))["revision"] == 2
+    finally:
+        if child.poll() is None:
+            child.terminate()
+        child.communicate(timeout=5)
+
+
+def test_failed_save_releases_lock_for_other_store(workspace, monkeypatch):
+    first, second = HandoffStore(), HandoffStore()
+    run(first.save(workspace, "design", "Title", "Summary", "original", 0))
+    with monkeypatch.context() as patcher:
+        def fail(*args):
+            raise PermissionError("injected replace failure")
+        patcher.setattr(module.os, "replace", fail)
+        with pytest.raises(OSError, match="handoff_write_failed"):
+            run(first.save(workspace, "design", "Title", "Summary", "failed", 1))
+    async def scenario():
+        saved = await asyncio.wait_for(second.save(workspace, "design", "Title", "Summary", "retry", 1), 3)
+        assert saved["revision"] == 2
+    run(scenario())
 
 INVALID_DISCOVERY = [
     (field, value)
@@ -179,12 +347,14 @@ def test_concurrent_save_has_exactly_one_winner(workspace):
 
 
 @pytest.mark.parametrize("personal", [False, True])
+@pytest.mark.parametrize("different_store", [False, True])
 @pytest.mark.parametrize("second_workstream", [
     "design", pytest.param("DESIGN", marks=pytest.mark.skipif(os.name != "nt", reason="Windows case-insensitive paths")),
 ])
-def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch, personal, second_workstream):
+def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch, personal, second_workstream, different_store):
     workspace = None if personal else workspace
     store = HandoffStore()
+    other = HandoffStore() if different_store else store
     run(store.save(workspace, "design", "Title", "Summary", "original", 0))
     entered, release = threading.Event(), threading.Event()
     real_replace = module.os.replace
@@ -202,7 +372,7 @@ def test_cancelled_save_keeps_lock_until_worker_finishes(workspace, monkeypatch,
                 while not entered.is_set():
                     await asyncio.sleep(0.01)
             first.cancel()
-            second = asyncio.create_task(store.save(workspace, second_workstream, "Title B", "Summary B", "B", 1))
+            second = asyncio.create_task(other.save(workspace, second_workstream, "Title B", "Summary B", "B", 1))
             await asyncio.sleep(0.03)
             assert not first.done() and not second.done()
             release.set()

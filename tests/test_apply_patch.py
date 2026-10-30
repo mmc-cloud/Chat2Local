@@ -1,10 +1,12 @@
 """Patch preparation, strict matching, races and actual filesystem commits."""
 
 import codecs
+import asyncio
 import errno
 import os
 from pathlib import Path
 import subprocess
+import threading
 
 import pytest
 
@@ -20,6 +22,96 @@ def patch(body: str) -> str:
 
 def update(path="file.txt", old="old", new="new"):
     return f"*** Update File: {path}\n@@\n-{old}\n+{new}"
+
+
+def test_two_updates_cannot_both_succeed_after_checking_same_old_bytes(workspace, monkeypatch):
+    source = make_file(workspace, "file.txt", "old\n")
+    first_checked, second_checked = threading.Event(), threading.Event()
+    release_first, first_replaced = threading.Event(), threading.Event()
+    original = module.os.replace
+    def replace(temporary, destination):
+        # _write_file has already performed its final conflict check here.
+        if Path(temporary).read_bytes() == b"A\n":
+            first_checked.set()
+            assert release_first.wait(5)
+            original(temporary, destination)
+            first_replaced.set()
+        else:
+            second_checked.set()
+            assert first_replaced.wait(5)
+            original(temporary, destination)
+    monkeypatch.setattr(module.os, "replace", replace)
+    async def scenario():
+        first = asyncio.create_task(apply_patch(workspace, patch(update(new="A"))))
+        second = None
+        try:
+            assert await asyncio.to_thread(first_checked.wait, 3)
+            second = asyncio.create_task(apply_patch(workspace, patch(update(new="B"))))
+            # Old code reaches both final checks before either replacement.
+            # Order those replacements so B deterministically overwrites A.
+            await asyncio.to_thread(second_checked.wait, 0.1)
+            release_first.set()
+            results = await asyncio.gather(first, second, return_exceptions=True)
+            assert results[0]["success"]
+            assert isinstance(results[1], PatchError), "Both patches succeeded against the same old bytes"
+            assert source.read_bytes() == b"A\n"
+        finally:
+            release_first.set()
+            first_replaced.set()
+            await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+    run(scenario())
+
+
+@pytest.mark.parametrize("second_target", ["file.txt", "second.txt", "independent.txt"])
+@pytest.mark.parametrize("cancel", [False, True])
+def test_concurrent_patch_serializes_prepare_and_entire_commit(workspace, monkeypatch, second_target, cancel):
+    for name in ("file.txt", "second.txt", "independent.txt"):
+        make_file(workspace, name, "old\n")
+    entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
+    original_replace, original_to_thread = module.os.replace, asyncio.to_thread
+    def replace(source, destination):
+        if destination == workspace.root / "file.txt":
+            entered.set()
+            assert release.wait(5)
+        original_replace(source, destination)
+    monkeypatch.setattr(module.os, "replace", replace)
+    async def to_thread(function, *args, **kwargs):
+        def worker():
+            second_started.set()
+            return function(*args, **kwargs)
+        return await original_to_thread(worker)
+    async def scenario():
+        first_body = update(new="A") + "\n" + update("second.txt", new="B") + "\n*** Add File: added.txt\n+added"
+        first = asyncio.create_task(apply_patch(workspace, patch(first_body)))
+        second = None
+        try:
+            assert await original_to_thread(entered.wait, 3)
+            if cancel:
+                first.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await first
+            monkeypatch.setattr(module.asyncio, "to_thread", to_thread)
+            second = asyncio.create_task(apply_patch(workspace, patch(update(second_target, new="C"))))
+            assert await original_to_thread(second_started.wait, 3)
+            done, _ = await asyncio.wait([second], timeout=0.1)
+            assert not done, "Prepare/commit of the second patch interleaved with the first"
+            release.set()
+            results = await asyncio.gather(first, second, return_exceptions=True)
+            if not cancel:
+                assert results[0]["success"] and len(results[0]["operations"]) == 3
+            if second_target == "independent.txt":
+                assert results[1]["success"]
+            else:
+                assert isinstance(results[1], PatchError)
+            assert (workspace.root / "file.txt").read_bytes() == b"A\n"
+            assert (workspace.root / "second.txt").read_bytes() == b"B\n"
+            assert (workspace.root / "added.txt").read_bytes() == b"added\n"
+            expected = b"C\n" if second_target == "independent.txt" else b"old\n"
+            assert (workspace.root / "independent.txt").read_bytes() == expected
+        finally:
+            release.set()
+            await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+    run(scenario())
 
 
 def test_add_file_utf8_no_bom_lf(workspace):

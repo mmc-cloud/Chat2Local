@@ -200,6 +200,8 @@ capability_discover · capability_execute
 
 Remote calls can specify a target device through `device`. If omitted, the MCP Server's local device is used.
 
+Normal command output drains to EOF. Explicit `kill_process` or Core shutdown waits at most one additional second for output after the parent exits and tree signaling finishes. If descendants still hold inherited stdout/stderr pipes, Chat2Local closes its read ends and marks retained output with `output_incomplete: true`. This cleanup does not signal an already-exited parent's old PID, but descendants that continue writing may encounter write errors or exit; their continued operation is not guaranteed. Background programs that must run independently should redirect stdin, stdout and stderr at launch to independent files or DEVNULL. Returned `state` / `exit_code` describes the launched parent, and `output_incomplete` describes captured output; neither represents descendant task health.
+
 All three Handoff tools accept an optional `scope`. The default, `"workspace"`, groups records by
 project workspace and preserves existing calls. Use `"personal"` for research, plans, or early ideas
 without a specific project. Personal calls need no workspace and reject an explicitly supplied
