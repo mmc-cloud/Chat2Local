@@ -18,6 +18,8 @@ Chat2Local is a lightweight MCP agent for single-user, self-hosted workflows. It
 
 The project provides both **Core / CLI** and **Windows Desktop**. Core is suitable for developers, servers, and command-line environments on Linux, macOS, and Windows. Windows Desktop adds graphical management, a system tray, logs, and a portable EXE on top of the same Core.
 
+> **Usage allowance update:** OpenAI has announced that, starting in December, Plus, Pro, and Business plans will share a token-based usage allowance across ChatGPT and Codex. This means the previously near-unlimited experience of using Sol with high reasoning in Chat mode will be subject to usage limits. Instant chat will not count toward this allowance. [Read the official announcement](https://help.openai.com/en/articles/20001625-understanding-chatgpt-and-codex-usage-limits)
+
 ## Features
 
 You can ask ChatGPT to:

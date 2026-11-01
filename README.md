@@ -18,6 +18,8 @@ Chat2Local 是一个面向单用户、自托管场景的轻量 MCP Agent。它�
 
 项目同时提供 **Core / CLI** 和 **Windows Desktop**：前者适合开发者、服务器和命令行环境，后者在同一套 Core 外提供图形化管理、系统托盘、日志和 portable EXE。
 
+> **额度变更提醒：** OpenAI 宣布，从 12 月起，Plus、Pro、Business 的 ChatGPT 与 Codex 将共用按 Token 计量的额度。这意味着，此前在 Chat 模式下使用 Sol 高推理时近乎无限的使用体验将受到限制；Instant 聊天不受此次额度计量影响。[查看官方公告](https://help.openai.com/en/articles/20001625-understanding-chatgpt-and-codex-usage-limits)
+
 ## Features
 
 你可以直接在 ChatGPT 中让它：
