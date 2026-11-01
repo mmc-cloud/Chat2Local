@@ -705,6 +705,7 @@ class Capability:
     arguments: type[BaseModel]
     execute: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
     available: Callable[[], bool]
+    result_contract: dict[str, Any] | None = None
 
 
 class CapabilityRegistry:
@@ -755,7 +756,7 @@ class CapabilityRegistry:
         entries = [
             {"name": entry.name, "description": entry.description, "available": entry.available(),
              **({"input_schema": entry.arguments.model_json_schema(),
-                 "result_contract": RESULT_CONTRACTS.get(entry.name, {})} if detail == "full" else {})}
+                 "result_contract": entry.result_contract or RESULT_CONTRACTS.get(entry.name, {})} if detail == "full" else {})}
             for entry in self._entries.values()
             if all(word in f"{entry.name} {entry.description}".casefold() for word in keywords)
         ]

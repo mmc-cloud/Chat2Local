@@ -8,7 +8,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from chat2local.browser.bridge import BrowserBridge, failure
-from chat2local.browser.capabilities import CapabilityRegistry
+from chat2local.browser.capabilities import Capability, CapabilityRegistry
+from chat2local.tools.preview import CAPABILITY as PREVIEW_CAPABILITY, PreviewArguments, RESULT_CONTRACT, preview
 
 from chat2local.handoff.store import (
     HandoffStore, SUMMARY_MAX_LENGTH, TITLE_MAX_LENGTH,
@@ -133,6 +134,11 @@ class LocalToolDispatcher:
         self.config = config
         self.browser = BrowserBridge(config.browser)
         self.capabilities = CapabilityRegistry(self.browser)
+        self.capabilities.register(Capability(
+            PREVIEW_CAPABILITY,
+            "Read-only bounded local image preview (PNG, JPEG, GIF, WebP, BMP) in the selected workspace. Returns an MCP image block directly from the filesystem.",
+            PreviewArguments, self._preview_file, lambda: True, RESULT_CONTRACT,
+        ))
         self.handoff_store = HandoffStore()
         self.process_manager = process_manager if process_manager is not None else ProcessManager(config.process)
         self._handlers: dict[str, ToolHandler] = {}
@@ -187,6 +193,9 @@ class LocalToolDispatcher:
 
     def _workspace(self, selected: str | None) -> WorkspaceManager:
         return self.workspace if selected is None else self.workspace.select_workspace(selected)
+
+    async def _preview_file(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await preview(self.workspace, arguments, self.config.read.max_bytes)
 
     async def _capability_discover(self, arguments: dict[str, Any]) -> dict[str, Any]:
         try:

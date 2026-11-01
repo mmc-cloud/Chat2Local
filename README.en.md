@@ -217,6 +217,10 @@ Existing files need no migration, and devices do not synchronize automatically. 
 
 ## Configuration
 
+### Preview images produced by local programs
+
+Discover `file.preview` with `capability_discover`, then call `capability_execute` with a workspace image path to receive MCP image content for PNG, JPEG, GIF, WebP or BMP. No Chrome extension or additional public tool is required. The target device's `read.max_bytes` and a 512 KiB hard limit bound each preview. See [workspace image previews](docs/file-preview.md).
+
 Default configuration file:
 
 ```text
