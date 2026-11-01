@@ -219,6 +219,10 @@ kill_process · list_devices · handoff_list · handoff_get · handoff_save
 
 ## 配置
 
+### 查看本地程序生成的图片
+
+使用 `capability_discover` 查询 `file.preview`，然后通过 `capability_execute` 传入工作区内图片路径，可返回 PNG/JPEG/GIF/WebP/BMP 的 MCP 图片内容块。无需 Chrome 扩展，公共工具数量保持不变。大小受目标设备 `read.max_bytes` 和 512 KiB 硬上限约束；详见 [工作区图片预览](docs/file-preview.md)。
+
 默认配置文件：
 
 ```text

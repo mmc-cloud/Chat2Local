@@ -16,6 +16,8 @@ from pydantic import AfterValidator, Field, StrictInt, StrictStr
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult, ImageContent, TextContent
+import json
 
 from chat2local.mcp.metadata import TOOL_METADATA, annotations_for
 from chat2local.mcp.output_schema import publish_output_schemas
@@ -304,9 +306,19 @@ def register(server: MCPServer, router: DeviceRouter | None = None) -> None:
         device: Annotated[str | None, Field(description=TOOL_METADATA["capability_execute"]["params"]["device"])] = None,
     ) -> dict[str, Any]:
         try:
-            return await (router or get_router()).execute("capability_execute", {
+            result = await (router or get_router()).execute("capability_execute", {
                 "capability": capability, "arguments": arguments,
             }, device)
+            # Device routing uses JSON dictionaries; convert content only at the
+            # host-facing boundary so local and remote previews behave alike.
+            if capability == "file.preview" and result.get("ok") and "_content" in result:
+                metadata = {key: value for key, value in result.items() if key != "_content"}
+                return CallToolResult(
+                    content=[TextContent(type="text", text=json.dumps(metadata, ensure_ascii=False)),
+                             *[ImageContent.model_validate(block) for block in result["_content"]]],
+                    structured_content=metadata,
+                )
+            return result
         except DeviceError:
             return failure("device_unavailable", "Selected device is unavailable or timed out; verify tabs before retrying")
         except (WorkspaceError, ToolExecutionError):
